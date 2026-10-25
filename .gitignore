@@ -1,0 +1,31 @@
+# Ignore environment variables / secrets
+includes/api_config.php
+.env
+.env.*
+!.env.example
+
+# Installed dependencies (restore with composer install)
+/vendor/
+/includes/vendor/
+
+# Runtime and user-generated data
+/uploads/
+/temp/
+/backups/
+/forms/
+
+# Local database dumps and generated exports
+*.sql
+!migrations/*.sql
+!database/schema.sql
+*.xls
+*.xlsx
+*.xlsm
+!templates/*.xlsm
+
+# Local reference/QR artifacts
+/ScholarLink_Annex1_*.xlsm
+/ScholarLink_Backup_*.sql
+/Two-factor authentication*.pdf
+/qr*.pdf
+/qr-snapshot*.png
