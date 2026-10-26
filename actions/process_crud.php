@@ -72,6 +72,20 @@ if ($module === 'student_apply') {
     if ($action === 'one_click_apply') {
         $scholarship_id = (int)$_POST['scholarship_id'];
 
+        require_once '../includes/scholarship_eligibility.php';
+        try {
+            $eligibility = scholarshipEligibilityForStudent($pdo, (int)$user_id, $scholarship_id);
+        } catch (Throwable $e) {
+            $_SESSION['error'] = 'Unable to check scholarship eligibility.';
+            header("Location: ../student/programs.php");
+            exit();
+        }
+        if (!$eligibility['eligible']) {
+            $_SESSION['error'] = scholarshipEligibilityError($eligibility);
+            header("Location: ../student/programs.php");
+            exit();
+        }
+
         // 1-Click skips the questions, so it only works for scholarships whose form has none
         require_once '../includes/form_fields.php';
         if (array_filter(getFormFields($pdo, $scholarship_id), fn($f) => $f['FieldType'] !== 'Section')) {
@@ -170,10 +184,19 @@ if ($module === 'student_apply') {
     }
    // --- ACTION: CREATE ---
     if ($action === 'create') {
-        $scholarship_id = $_POST['scholarship_id'];
-        $gpa = $_POST['gpa'] ?? 0;
+        $scholarship_id = (int)($_POST['scholarship_id'] ?? 0);
 
         try {
+            require_once '../includes/scholarship_eligibility.php';
+            $eligibility = scholarshipEligibilityForStudent($pdo, (int)$user_id, $scholarship_id);
+            if (!$eligibility['eligible']) {
+                $_SESSION['error'] = scholarshipEligibilityError($eligibility);
+                header("Location: ../student/programs.php");
+                exit();
+            }
+            // Save the verified profile GWA, never a student-edited form value.
+            $gpa = $eligibility['student_gwa'];
+
             // ✨ STRICT DUAL SCHOLARSHIP CHECK (Backend Protection)
             $check_approved = $pdo->prepare("SELECT COUNT(*) FROM application WHERE UserID = ? AND Status = 'Approved'");
             $check_approved->execute([$user_id]);
@@ -276,7 +299,7 @@ if ($module === 'student_apply') {
 
                 $_SESSION['success'] = "Application submitted successfully!";
             }
-        } catch (PDOException $e) { $_SESSION['error'] = "Application Error: " . $e->getMessage(); }
+        } catch (Throwable $e) { $_SESSION['error'] = "Application Error: " . $e->getMessage(); }
         
         header("Location: ../student/applications.php");
         exit();

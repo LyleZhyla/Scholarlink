@@ -13,18 +13,19 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Student') {
 include '../includes/db_connect.php';
 require_once '../includes/scholarship_categories.php';
 require_once '../includes/form_fields.php';
+require_once '../includes/scholarship_eligibility.php';
 include '../includes/header.php';
 include '../includes/student_sidebar.php'; 
 
 $user_id = $_SESSION['user_id'];
 try {
-    $user_stmt = $pdo->prepare("SELECT * FROM users WHERE UserID = :uid");
+    $user_stmt = $pdo->prepare("SELECT u.*, p.ProgramName FROM users u LEFT JOIN program p ON p.ProgramID = u.ProgramID WHERE u.UserID = :uid");
     $user_stmt->execute(['uid' => $user_id]);
     $student = $user_stmt->fetch();
     
     $student_program_id = $student['ProgramID'];
     $student_year_level = $student['YearLevel'];
-    $current_db_gpa = $student['GPA'] ?? 1.50;
+    $current_db_gpa = (float)($student['GPA'] ?? 0);
 
     $applied_stmt = $pdo->prepare("SELECT ScholarshipID, ApplicationID FROM application WHERE UserID = :uid");
     $applied_stmt->execute(['uid' => $user_id]);
@@ -35,21 +36,44 @@ try {
     $app_stmt->execute(['uid' => $user_id]);
     $has_active_app = $app_stmt->fetchColumn() > 0; 
 
-    // ✨ STRICT MULTI-COURSE MATCHING
-    $stmt = $pdo->prepare("
-        SELECT sch.*, 
-               (SELECT GROUP_CONCAT(CriteriaName SEPARATOR '||') 
+    // Fetch every active scholarship, then let the shared eligibility engine explain
+    // exact matches, missing profile data, and failed requirements.
+    $stmt = $pdo->query("
+        SELECT sch.*,
+               (SELECT GROUP_CONCAT(CriteriaName SEPARATOR '||')
                 FROM scholarship_criteria sc WHERE sc.ScholarshipID = sch.ScholarshipID) AS CriteriaList
         FROM scholarship sch
         WHERE sch.Status = 'Active'
-        AND (sch.YearLevel = :yl OR sch.YearLevel IS NULL OR sch.YearLevel = '')
-        AND (
-            NOT EXISTS (SELECT 1 FROM scholarship_programs sp WHERE sp.ScholarshipID = sch.ScholarshipID)
-            OR EXISTS (SELECT 1 FROM scholarship_programs sp WHERE sp.ScholarshipID = sch.ScholarshipID AND sp.ProgramID = :pid)
-        )
     ");
-    $stmt->execute(['pid' => $student_program_id, 'yl' => $student_year_level]);
     $available_scholarships = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $program_map = [];
+    foreach ($pdo->query("SELECT ScholarshipID, ProgramID FROM scholarship_programs")->fetchAll(PDO::FETCH_ASSOC) as $mapping) {
+        $program_map[(int)$mapping['ScholarshipID']][] = (int)$mapping['ProgramID'];
+    }
+
+    foreach ($available_scholarships as &$scholarship) {
+        $scholarship['_eligibility'] = scholarshipEligibilityCheck(
+            $student,
+            $scholarship,
+            $program_map[(int)$scholarship['ScholarshipID']] ?? []
+        );
+    }
+    unset($scholarship);
+
+    $status_order = ['eligible' => 0, 'needs_profile' => 1, 'ineligible' => 2, 'closed' => 3];
+    usort($available_scholarships, static function ($a, $b) use ($status_order) {
+        $aStatus = $a['_eligibility']['status'];
+        $bStatus = $b['_eligibility']['status'];
+        return ($status_order[$aStatus] <=> $status_order[$bStatus])
+            ?: ($b['_eligibility']['score'] <=> $a['_eligibility']['score'])
+            ?: (strcmp((string)$a['Deadline'], (string)$b['Deadline']));
+    });
+
+    $eligibility_counts = ['eligible' => 0, 'needs_profile' => 0, 'ineligible' => 0, 'closed' => 0];
+    foreach ($available_scholarships as $scholarship) {
+        $eligibility_counts[$scholarship['_eligibility']['status']]++;
+    }
 
     // FETCH DYNAMIC DATA FOR MODALS
     $jsScholarshipData = [];
@@ -78,9 +102,10 @@ try {
 <main class="flex-1 p-5 lg:p-10 lg:ml-72 bg-slate-50/50 min-h-screen transition-all duration-300">
     <header class="mb-8 lg:mb-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-            <h2 class="text-3xl lg:text-4xl font-black text-slate-900 tracking-tight">Available Scholarships</h2>
+            <h2 class="text-3xl lg:text-4xl font-black text-slate-900 tracking-tight">Scholarship Matches</h2>
             <p class="text-slate-500 text-sm lg:text-base font-medium mt-1">
-                Showing matched programs for: <strong class="text-green-600"><?= htmlspecialchars($student['Major'] ?? 'N/A') ?> (<?= htmlspecialchars($student['YearLevel'] ?? 'N/A') ?>) (<?= htmlspecialchars($student['Gender'] ?? 'N/A') ?>)</strong>
+                Personalized for <strong class="text-green-600"><?= htmlspecialchars($student['ProgramName'] ?? $student['Major'] ?? 'Program not set') ?></strong>,
+                <?= htmlspecialchars($student['YearLevel'] ?: 'year level not set') ?> · GWA <?= $current_db_gpa > 0 ? number_format($current_db_gpa, 2) : 'not set' ?>
             </p>
         </div>
         
@@ -95,6 +120,29 @@ try {
             </select>
         </div>
     </header>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <button type="button" onclick="setEligibilityFilter('eligible')" class="text-left bg-emerald-50 border border-emerald-200 rounded-2xl p-4 hover:border-emerald-400 transition-colors">
+            <span class="text-2xl font-black text-emerald-700"><?= $eligibility_counts['eligible'] ?></span>
+            <span class="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mt-1">Eligible now</span>
+        </button>
+        <button type="button" onclick="setEligibilityFilter('needs_profile')" class="text-left bg-amber-50 border border-amber-200 rounded-2xl p-4 hover:border-amber-400 transition-colors">
+            <span class="text-2xl font-black text-amber-700"><?= $eligibility_counts['needs_profile'] ?></span>
+            <span class="block text-[10px] font-black uppercase tracking-widest text-amber-700 mt-1">Complete profile</span>
+        </button>
+        <button type="button" onclick="setEligibilityFilter('ineligible')" class="text-left bg-red-50 border border-red-200 rounded-2xl p-4 hover:border-red-400 transition-colors">
+            <span class="text-2xl font-black text-red-700"><?= $eligibility_counts['ineligible'] ?></span>
+            <span class="block text-[10px] font-black uppercase tracking-widest text-red-700 mt-1">Requirements unmet</span>
+        </button>
+        <button type="button" onclick="setEligibilityFilter('closed')" class="text-left bg-slate-100 border border-slate-200 rounded-2xl p-4 hover:border-slate-400 transition-colors">
+            <span class="text-2xl font-black text-slate-700"><?= $eligibility_counts['closed'] ?></span>
+            <span class="block text-[10px] font-black uppercase tracking-widest text-slate-600 mt-1">Closed</span>
+        </button>
+    </div>
+
+    <div class="mb-5 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-900">
+        <strong>Preliminary eligibility:</strong> matches are based on your saved profile and the scholarship's configured rules. Document verification and committee review still determine the final decision.
+    </div>
 
     <?php if (!empty($available_scholarships)): ?>
         <?php
@@ -117,11 +165,20 @@ try {
                     </button>
                 <?php endforeach; ?>
             </div>
-            <select id="typeFilter" onchange="applyFilters()" class="bg-slate-50 border border-slate-200 text-slate-900 text-sm font-bold rounded-lg px-3 py-2 outline-none focus:ring-green-500 focus:border-green-500 cursor-pointer shrink-0">
-                <option value="">All Sources</option>
-                <option value="Government">🏛️ Government</option>
-                <option value="Private">🏢 Private</option>
-            </select>
+            <div class="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                <select id="eligibilityFilter" onchange="applyFilters()" class="bg-slate-50 border border-slate-200 text-slate-900 text-sm font-bold rounded-lg px-3 py-2 outline-none focus:ring-green-500 focus:border-green-500 cursor-pointer shrink-0">
+                    <option value="">All Eligibility Results</option>
+                    <option value="eligible">✅ Eligible Now</option>
+                    <option value="needs_profile">⚠️ Complete Profile</option>
+                    <option value="ineligible">❌ Not Eligible</option>
+                    <option value="closed">🔒 Closed</option>
+                </select>
+                <select id="typeFilter" onchange="applyFilters()" class="bg-slate-50 border border-slate-200 text-slate-900 text-sm font-bold rounded-lg px-3 py-2 outline-none focus:ring-green-500 focus:border-green-500 cursor-pointer shrink-0">
+                    <option value="">All Sources</option>
+                    <option value="Government">🏛️ Government</option>
+                    <option value="Private">🏢 Private</option>
+                </select>
+            </div>
         </div>
     <?php endif; ?>
 
@@ -134,13 +191,29 @@ try {
             </div>
         <?php else: ?>
             <?php foreach($available_scholarships as $s): ?>
-                <div data-category="<?= htmlspecialchars($s['Category'] ?? DEFAULT_SCHOLARSHIP_CATEGORY) ?>" data-type="<?= htmlspecialchars($s['ScholarshipType'] ?? 'Private') ?>" class="scholarship-card bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-green-300 transition-all flex flex-col lg:flex-row items-start lg:items-center justify-between p-5 group relative overflow-hidden">
+                <?php
+                    $match = $s['_eligibility'];
+                    $match_styles = [
+                        'eligible' => ['bar' => 'bg-emerald-500', 'badge' => 'bg-emerald-50 text-emerald-700 border-emerald-200', 'icon' => '✅'],
+                        'needs_profile' => ['bar' => 'bg-amber-500', 'badge' => 'bg-amber-50 text-amber-700 border-amber-200', 'icon' => '⚠️'],
+                        'ineligible' => ['bar' => 'bg-red-500', 'badge' => 'bg-red-50 text-red-700 border-red-200', 'icon' => '❌'],
+                        'closed' => ['bar' => 'bg-slate-400', 'badge' => 'bg-slate-100 text-slate-600 border-slate-200', 'icon' => '🔒'],
+                    ];
+                    $match_style = $match_styles[$match['status']];
+                ?>
+                <div data-category="<?= htmlspecialchars($s['Category'] ?? DEFAULT_SCHOLARSHIP_CATEGORY) ?>"
+                     data-type="<?= htmlspecialchars($s['ScholarshipType'] ?? 'Private') ?>"
+                     data-eligibility="<?= htmlspecialchars($match['status']) ?>"
+                     class="scholarship-card bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col lg:flex-row items-start lg:items-center justify-between p-5 group relative overflow-hidden">
                     
-                    <div class="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
+                    <div class="absolute top-0 left-0 w-1 h-full <?= $match_style['bar'] ?>"></div>
 
                     <div class="flex-1 min-w-0 pr-4 lg:pr-8 pl-3 w-full lg:w-auto">
                         <div class="flex items-center gap-3 mb-1.5 flex-wrap">
                             <span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border border-amber-200 shrink-0"><?= htmlspecialchars(categoryLabel($s['Category'] ?? null)) ?></span>
+                            <span class="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border shrink-0 <?= $match_style['badge'] ?>">
+                                <?= $match_style['icon'] ?> <?= htmlspecialchars($match['label']) ?> · <?= (int)$match['score'] ?>% match
+                            </span>
                             <?php if(!$s['ProgramID'] && !$s['YearLevel']): ?>
                                 <span class="bg-purple-50 text-purple-700 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border border-purple-100 shrink-0">🌍 Open to All</span>
                             <?php else: ?>
@@ -157,6 +230,25 @@ try {
                             <span class="hidden md:inline">•</span>
                             <span class="truncate hidden md:inline"><?= htmlspecialchars($s['Description']) ?></span>
                         </div>
+                        <details class="mt-3 text-xs">
+                            <summary class="cursor-pointer font-black text-slate-600 hover:text-green-700 select-none">Why this result?</summary>
+                            <div class="grid sm:grid-cols-2 gap-2 mt-3">
+                                <?php foreach ($match['checks'] as $check): ?>
+                                    <?php
+                                        $check_style = $check['state'] === 'pass'
+                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-100'
+                                            : ($check['state'] === 'missing'
+                                                ? 'bg-amber-50 text-amber-800 border-amber-100'
+                                                : 'bg-red-50 text-red-800 border-red-100');
+                                        $check_icon = $check['state'] === 'pass' ? '✓' : ($check['state'] === 'missing' ? '!' : '×');
+                                    ?>
+                                    <div class="rounded-xl border p-2.5 <?= $check_style ?>">
+                                        <span class="font-black"><?= $check_icon ?> <?= htmlspecialchars($check['label']) ?></span>
+                                        <span class="block mt-0.5 opacity-80"><?= htmlspecialchars($check['detail']) ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </details>
                     </div>
 
                     <div class="hidden md:flex items-center gap-6 px-6 border-x border-slate-100 shrink-0">
@@ -171,8 +263,6 @@ try {
                     </div>
 
                     <div class="mt-4 lg:mt-0 flex items-center justify-between lg:justify-end w-full lg:w-auto shrink-0 gap-6 pl-0 lg:pl-6">
-                        <?php $is_gender_mismatch = (isset($s['GenderRequirement']) && $s['GenderRequirement'] !== 'Any' && $s['GenderRequirement'] !== $student['Gender']); ?>
-                        
                         <?php if (array_key_exists($s['ScholarshipID'], $applied_applications)): ?>
                             <!-- ALREADY APPLIED -->
                             <div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
@@ -190,10 +280,9 @@ try {
                                 1 Active App Only 🛑
                             </button>
 
-                        <?php elseif ($is_gender_mismatch): ?>
-                            <!-- GENDER MISMATCH -->
-                            <button disabled class="bg-slate-100 text-slate-400 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-not-allowed border border-slate-200 shadow-inner w-full lg:w-auto">
-                                <?= htmlspecialchars($s['GenderRequirement']) ?>s Only 🛑
+                        <?php elseif (!$match['eligible']): ?>
+                            <button disabled class="bg-slate-100 text-slate-500 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-not-allowed border border-slate-200 shadow-inner w-full lg:w-auto" title="<?= htmlspecialchars(scholarshipEligibilityError($match), ENT_QUOTES) ?>">
+                                <?= htmlspecialchars($match['label']) ?> <?= $match_style['icon'] ?>
                             </button>
                         
                         <?php else: ?>
@@ -241,8 +330,9 @@ try {
                 <div class="space-y-4 mb-8">
                     <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Academic Profile</h3>
                     <div>
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Declared GWA / GPA</label>
-                        <input type="number" step="0.01" name="gpa" id="applyGpa" value="<?= htmlspecialchars($current_db_gpa) ?>" required class="w-full md:w-1/3 p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-colors">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Verified Profile GWA</label>
+                        <input type="number" step="0.01" name="gpa" id="applyGpa" value="<?= htmlspecialchars($current_db_gpa) ?>" readonly class="w-full md:w-1/3 p-4 bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-600 cursor-not-allowed">
+                        <p class="text-[10px] text-slate-500 mt-2">Update your academic profile if this value is incorrect.</p>
                     </div>
                 </div>
 
@@ -442,13 +532,23 @@ try {
         applyFilters();
     }
 
+    function setEligibilityFilter(value) {
+        const eligibilityFilter = document.getElementById('eligibilityFilter');
+        if (eligibilityFilter) eligibilityFilter.value = value;
+        applyFilters();
+        document.getElementById('scholarshipsGrid').scrollIntoView({ behavior: 'smooth' });
+    }
+
     function applyFilters() {
         const typeFilter = document.getElementById('typeFilter');
         const activeType = typeFilter ? typeFilter.value : '';
+        const eligibilityFilter = document.getElementById('eligibilityFilter');
+        const activeEligibility = eligibilityFilter ? eligibilityFilter.value : '';
 
         cards = allCards.filter(card =>
             (!activeCategory || card.dataset.category === activeCategory) &&
-            (!activeType || card.dataset.type === activeType)
+            (!activeType || card.dataset.type === activeType) &&
+            (!activeEligibility || card.dataset.eligibility === activeEligibility)
         );
         totalItems = cards.length;
         currentPage = 1;

@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../includes/db_connect.php';
+require '../includes/scholarship_eligibility.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_SESSION['user_id'])) {
     header("Location: ../student_login.php"); exit();
@@ -20,6 +21,11 @@ if (!$scholarship_id) {
 }
 
 try {
+    $eligibility = scholarshipEligibilityForStudent($pdo, (int)$user_id, (int)$scholarship_id);
+    if (!$eligibility['eligible']) {
+        throw new Exception(scholarshipEligibilityError($eligibility));
+    }
+
     $pdo->beginTransaction();
 
     // 🚀 STEP 1: PREVENT DUPLICATES - Resolve Application ID
@@ -84,7 +90,9 @@ try {
     $_SESSION['success'] = "Document attached successfully! ✨";
 
 } catch (Exception $e) {
-    $pdo->rollBack();
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     $_SESSION['error'] = $e->getMessage();
 }
 

@@ -6,6 +6,7 @@ error_reporting(E_ALL);
 
 require '../includes/session_manager.php';
 require '../includes/db_connect.php';
+require '../includes/scholarship_eligibility.php';
 
 // 1. SECURITY CHECK
 if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Student') {
@@ -17,6 +18,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['scholarship_id'])) {
     $scholarship_id = (int)$_POST['scholarship_id'];
 
     try {
+        $eligibility = scholarshipEligibilityForStudent($pdo, (int)$user_id, $scholarship_id);
+        if (!$eligibility['eligible']) {
+            $_SESSION['error'] = scholarshipEligibilityError($eligibility);
+            header("Location: ../student/programs.php");
+            exit();
+        }
+
         // ✨ Gagamit tayo ng Transaction para kapag pumalya ang document upload, maka-cancel ang buong application
         $pdo->beginTransaction();
 
@@ -24,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['scholarship_id'])) {
         $user_stmt = $pdo->prepare("SELECT GPA FROM users WHERE UserID = ?");
         $user_stmt->execute([$user_id]);
         $student = $user_stmt->fetch(PDO::FETCH_ASSOC);
-        $student_gwa = $student['GPA'] ?? 5.00;
+        $student_gwa = $eligibility['student_gwa'];
 
         // 3. CREATE APPLICATION
         $app_stmt = $pdo->prepare("
@@ -97,7 +105,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['scholarship_id'])) {
         exit();
 
     } catch (Exception $e) {
-        $pdo->rollBack();
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         $_SESSION['error'] = "🚨 Database Error: " . $e->getMessage();
         header("Location: ../student/scholarships.php");
         exit();

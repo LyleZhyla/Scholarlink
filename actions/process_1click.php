@@ -6,6 +6,7 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 require '../includes/db_connect.php';
+require '../includes/scholarship_eligibility.php';
 
 if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Student') {
     die("ERROR: Hindi ka naka-login bilang estudyante o nag-expire ang session.");
@@ -26,10 +27,17 @@ try {
         die("ERROR: Walang koneksyon sa Database!");
     }
 
-    // 2. I-insert ang application
-    $sql = "INSERT INTO application (UserID, ScholarshipID, Status, DateSubmitted, GPA) VALUES (?, ?, 'Submitted', NOW(), 1.00)";
+    $eligibility = scholarshipEligibilityForStudent($pdo, (int)$user_id, $scholarship_id);
+    if (!$eligibility['eligible']) {
+        $_SESSION['error'] = scholarshipEligibilityError($eligibility);
+        header('Location: ../student/programs.php');
+        exit();
+    }
+
+    // 2. I-insert ang application using the verified profile GWA.
+    $sql = "INSERT INTO application (UserID, ScholarshipID, Status, DateSubmitted, GPA) VALUES (?, ?, 'Submitted', NOW(), ?)";
     $stmt = $pdo->prepare($sql);
-    $stmt->execute([$user_id, $scholarship_id]);
+    $stmt->execute([$user_id, $scholarship_id, $eligibility['student_gwa']]);
     $new_app_id = $pdo->lastInsertId();
     echo "<p>✅ Natagumpayan ang paggawa ng Application ID: $new_app_id</p>";
 
