@@ -80,7 +80,10 @@
     setTimeout(() => {
         // TAWAGIN ANG BACKUP SCRIPT NANG TAHIMIK (ASYNCHRONOUS)
         // Note: Make sure the path '/scholarlink/' matches your actual local folder name.
-        fetch('/scholarlink/actions/auto_backup.php')
+        fetch('/scholarlink/actions/auto_backup.php', {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
             .catch(error => { 
                 // Ignore errors visually so the user never gets interrupted
                 console.log("Background service check complete."); 
