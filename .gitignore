@@ -1,0 +1,32 @@
+# Ignore environment variables / secrets
+.env
+forms
+backups
+
+# Students' uploaded documents are personal data: keep only the folder's access rules
+uploads/*
+!uploads/.htaccess
+!uploads/serve.php
+
+# Generated cache files (PDF form fields/pages)
+temp/*
+!temp/.htaccess
+
+# Database dumps other than the official schema/data file
+scholarlink_backup.sql
+*.sql.bak
+
+# Stray screenshots
+qr-snapshot-*.png
+
+# Personal / server files that live in this folder but are not part of ScholarLink
+Two-factor authentication*.pdf
+*.exe
+ScholarLink_Backup_*.sql
+ScholarLink_Annex1_Grants_*.xlsm
+includes/auto_backup_*.sql
+db_stats.php
+.vscode/
+
+# Third-party libraries: install with "composer install" (versions pinned in composer.lock)
+/vendor/

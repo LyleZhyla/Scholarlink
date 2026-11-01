@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Allow: /index.php
+Allow: /scholarship_details.php
+Disallow: /student/
+Disallow: /internal_admin/
+Disallow: /external_admin/
+Disallow: /super_admin/
+Disallow: /uploads/vault/
+Disallow: /includes/
+Disallow: /actions/
+
+Sitemap: https://scholarlink.college/sitemap.xml

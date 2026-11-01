@@ -1,0 +1,2 @@
+# Internal folder: never served to browsers (PHP reads it from disk)
+Require all denied

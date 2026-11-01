@@ -1,0 +1,14 @@
+# Uploaded files (students' documents, vault, renewals, profile pictures) are never served directly:
+# every request goes through serve.php, which checks who is asking. Existing links keep working.
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !/serve\.php$
+    RewriteRule ^(.*)$ serve.php?f=$1 [B,L,QSA]
+</IfModule>
+
+# Without mod_rewrite nothing here may be opened at all
+<IfModule !mod_rewrite.c>
+    Require all denied
+</IfModule>

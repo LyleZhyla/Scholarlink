@@ -1,0 +1,22 @@
+# ScholarLink web server rules
+
+# Session cookie: hidden from page scripts, and not sent with form posts from other websites (second layer against forged requests;
+# "Lax" still sends it when following a link, e.g. returning from Google sign-in)
+<IfModule mod_php.c>
+    php_flag session.cookie_httponly On
+    php_value session.cookie_samesite Lax
+</IfModule>
+
+# No folder listings (uploads/ used to list every student's documents)
+Options -Indexes
+
+# Secrets, database dumps and tooling files are never served:
+# .env (API keys), *.sql (backups with password hashes), logs, Composer files, spreadsheets, installers
+<FilesMatch "^\.|\.(sql|env|log|bak|ini|lock|sh|md|xlsm|exe)$|^composer\.(json|lock)$">
+    Require all denied
+</FilesMatch>
+
+# Personal files that were left in the project folder (better: move them out of htdocs)
+<FilesMatch "^Two-factor authentication">
+    Require all denied
+</FilesMatch>
