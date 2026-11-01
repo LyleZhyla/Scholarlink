@@ -26,9 +26,15 @@ try {
     $student_year_level = $student['YearLevel'];
     $current_db_gpa = $student['GPA'] ?? 1.50;
 
-    $applied_stmt = $pdo->prepare("SELECT ScholarshipID, ApplicationID FROM application WHERE UserID = :uid");
+    $applied_stmt = $pdo->prepare("SELECT ScholarshipID, ApplicationID, Status FROM application WHERE UserID = :uid");
     $applied_stmt->execute(['uid' => $user_id]);
-    $applied_applications = $applied_stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    $application_rows = $applied_stmt->fetchAll(PDO::FETCH_ASSOC);
+    $applied_applications = [];
+    $application_statuses = [];
+    foreach ($application_rows as $row) {
+        $applied_applications[$row['ScholarshipID']] = $row['ApplicationID'];
+        $application_statuses[$row['ScholarshipID']] = $row['Status'];
+    }
 
     // ✨ STRICT ONE ACTIVE APPLICATION CHECKER
     $app_stmt = $pdo->prepare("SELECT COUNT(*) FROM application WHERE UserID = :uid AND Status != 'Rejected'");
@@ -176,9 +182,11 @@ try {
                         <?php if (array_key_exists($s['ScholarshipID'], $applied_applications)): ?>
                             <!-- ALREADY APPLIED -->
                             <div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-                                <button disabled class="flex-1 bg-slate-100 text-slate-400 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-not-allowed border border-slate-200 shadow-inner">
-                                    Applied ✓
-                                </button>
+                                <?php if (($application_statuses[$s['ScholarshipID']] ?? '') === 'Draft'): ?>
+                                    <a href="apply_form.php?id=<?= (int) $s['ScholarshipID'] ?>" class="flex-1 text-center bg-amber-500 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-600 transition-all shadow-md whitespace-nowrap">Continue Draft ✏️</a>
+                                <?php else: ?>
+                                    <button disabled class="flex-1 bg-slate-100 text-slate-400 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-not-allowed border border-slate-200 shadow-inner">Applied ✓</button>
+                                <?php endif; ?>
                                 <a href="../actions/generate_application_pdf.php?app_id=<?= $applied_applications[$s['ScholarshipID']] ?>" target="_blank" class="flex-1 text-center bg-blue-600 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md whitespace-nowrap">
                                     View Form 📄
                                 </a>
@@ -198,10 +206,10 @@ try {
                         
                         <?php else: ?>
                             <!-- START APPLICATION -->
-                            <button type="button" onclick="openApplyModal(<?= $s['ScholarshipID'] ?>)"
+                            <a href="apply_form.php?id=<?= (int) $s['ScholarshipID'] ?>"
                                class="bg-slate-900 text-center text-white hover:bg-green-600 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest active:scale-[0.98] transition-all shadow-md w-full lg:w-auto whitespace-nowrap">
                                 Start Application
-                            </button>
+                            </a>
                         <?php endif; ?>
                     </div>
                 </div>

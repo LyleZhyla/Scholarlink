@@ -1,93 +1,53 @@
 <?php
 session_start();
 require '../includes/db_connect.php';
+require_once '../includes/application_lifecycle.php';
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_SESSION['user_id'])) {
-    header("Location: ../student_login.php"); exit();
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || ($_SESSION['role'] ?? '') !== 'Student') {
+    header('Location: ../student_login.php');
+    exit();
 }
 
-$user_id = $_SESSION['user_id'];
-$application_id = $_POST['ApplicationID'] ?? null;
-$scholarship_id = $_POST['scholarship_id'] ?? null;
-$req_id = $_POST['RequirementID'] ?? null;
-
-// ✨ NEW: Capture the Vault selection (if they used Option 1)
-$vault_file_path = $_POST['vault_file_path'] ?? null; 
-
-if (!$scholarship_id) {
-    $_SESSION['error'] = "Critical Error: Scholarship ID is missing.";
-    header("Location: ../student/requirements.php"); exit();
-}
+$user_id = (int) $_SESSION['user_id'];
+$application_id = (int) ($_POST['ApplicationID'] ?? 0);
+$scholarship_id = (int) ($_POST['scholarship_id'] ?? 0);
+$req_id = (int) ($_POST['RequirementID'] ?? 0);
 
 try {
     $pdo->beginTransaction();
+    $owner = $pdo->prepare("SELECT a.Status, a.ResubmissionAllowed, s.Deadline FROM application a JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID JOIN document_requirement r ON r.ScholarshipID = a.ScholarshipID WHERE a.ApplicationID = ? AND a.UserID = ? AND a.ScholarshipID = ? AND r.RequirementID = ? FOR UPDATE");
+    $owner->execute([$application_id, $user_id, $scholarship_id, $req_id]);
+    $application = $owner->fetch(PDO::FETCH_ASSOC);
+    if (!$application) throw new RuntimeException('Application or document requirement not found.');
+    $before_deadline = strtotime($application['Deadline']) >= strtotime(date('Y-m-d'));
+    $editable = $application['Status'] === 'For Resubmission'
+        || (in_array($application['Status'], ['Draft', 'Submitted'], true) && $before_deadline)
+        || ($application['Status'] === 'Withdrawn' && (int) $application['ResubmissionAllowed'] && $before_deadline);
+    if (!$editable) throw new RuntimeException('Documents can no longer be changed for this application.');
 
-    // 🚀 STEP 1: PREVENT DUPLICATES - Resolve Application ID
-    if (empty($application_id)) {
-        $check = $pdo->prepare("SELECT ApplicationID FROM application WHERE UserID = ? AND ScholarshipID = ?");
-        $check->execute([$user_id, $scholarship_id]);
-        $existing = $check->fetch();
-        $application_id = $existing ? $existing['ApplicationID'] : null;
-
-        if (!$application_id) {
-            $app_stmt = $pdo->prepare("INSERT INTO application (UserID, ScholarshipID, Status, DateSubmitted, TermID) VALUES (?, ?, 'Pending', NOW(), (SELECT TermID FROM academic_terms WHERE Status = 'Active' ORDER BY TermID DESC LIMIT 1))");
-            $app_stmt->execute([$user_id, $scholarship_id]);
-            $application_id = $pdo->lastInsertId();
-        }
-    }
-
-    $db_save_path = "";
-
-    // ✨ STEP 2: SMART UPLOAD ROUTING (Vault vs Local File)
-    if (!empty($vault_file_path)) {
-        // Option A: User selected a file from their Vault!
-        
-        // Clean the path (remove any '../' just in case) so it matches standard DB format
-        $db_save_path = ltrim($vault_file_path, '../'); 
-        
-        // Security Check: Make sure the vault file still actually exists on the server
-        if (!file_exists("../" . $db_save_path)) {
-            throw new Exception("Vault file could not be found on the server. It may have been deleted.");
-        }
-
+    if (!empty($_POST['vault_id'])) {
+        $_POST['vault_files'] = [$req_id => (int) $_POST['vault_id']];
+    } elseif (isset($_FILES['file'])) {
+        $_FILES['files'] = [
+            'name' => [$req_id => $_FILES['file']['name']],
+            'type' => [$req_id => $_FILES['file']['type']],
+            'tmp_name' => [$req_id => $_FILES['file']['tmp_name']],
+            'error' => [$req_id => $_FILES['file']['error']],
+            'size' => [$req_id => $_FILES['file']['size']],
+        ];
     } else {
-        // Option B: User uploaded a brand new file from their computer
-        
-        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-            throw new Exception("Please select a file to upload or choose one from your Vault.");
-        }
-
-        $file_ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
-        if ($file_ext !== 'pdf') {
-            throw new Exception("Invalid file type! Please upload a PDF file only.");
-        }
-
-        $target_dir = "../uploads/documents/";
-        if (!is_dir($target_dir)) mkdir($target_dir, 0777, true);
-
-        $new_name = "STU-{$user_id}-APP-{$application_id}-REQ-{$req_id}-" . uniqid() . "." . $file_ext;
-        $db_save_path = "uploads/documents/" . $new_name;
-
-        if (!move_uploaded_file($_FILES['file']['tmp_name'], "../" . $db_save_path)) {
-            throw new Exception("Failed to save the uploaded file to the server.");
-        }
+        throw new RuntimeException('Please select a file or a document from your vault.');
     }
 
-    // 🚀 STEP 3: ATTACH TO APPLICATION (Works for both Vault and New Uploads)
-    $del = $pdo->prepare("DELETE FROM submitted_document WHERE ApplicationID = ? AND RequirementID = ?");
-    $del->execute([$application_id, $req_id]);
-
-    $doc_stmt = $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')");
-    $doc_stmt->execute([$application_id, $req_id, $db_save_path]);
-
+    saveRequestedApplicationDocuments($pdo, $application_id, $scholarship_id, $user_id);
+    snapshotApplicationVersion($pdo, $application_id, 'Document Updated', $user_id, "Requirement #$req_id updated");
+    logAudit($pdo, $user_id, 'Application Document Updated', "Updated requirement #$req_id for application #$application_id");
     $pdo->commit();
-    $_SESSION['success'] = "Document attached successfully! ✨";
-
-} catch (Exception $e) {
-    $pdo->rollBack();
+    $_SESSION['success'] = 'Document saved and added to the version history.';
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
     $_SESSION['error'] = $e->getMessage();
 }
 
-header("Location: ../student/requirements.php");
+header('Location: ../student/requirements.php');
 exit();
-?>

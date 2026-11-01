@@ -29,7 +29,7 @@ $query = "
     JOIN users u ON a.UserID = u.UserID
     JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID
     LEFT JOIN users cu ON cu.UserID = sch.CreatedBy
-    WHERE 1=1";
+    WHERE a.Status NOT IN ('Draft', 'Withdrawn')";
 
 $params = [];
 
@@ -155,6 +155,7 @@ try {
                     <option value="">Any Status</option>
                     <option value="Submitted" <?= $filter_status == 'Submitted' ? 'selected' : '' ?>>Submitted</option>
                     <option value="Under Review" <?= $filter_status == 'Under Review' ? 'selected' : '' ?>>Under Review</option>
+                    <option value="For Resubmission" <?= $filter_status == 'For Resubmission' ? 'selected' : '' ?>>For Resubmission</option>
                     <option value="Shortlisted" <?= $filter_status == 'Shortlisted' ? 'selected' : '' ?>>Shortlisted</option>
                     <option value="Approved" <?= $filter_status == 'Approved' ? 'selected' : '' ?>>Approved</option>
                 </select>
@@ -233,6 +234,7 @@ try {
                                 <select name="status" class="bg-slate-50 border border-slate-100 rounded-xl px-2 py-1.5 text-[11px] font-black uppercase text-slate-600 outline-none focus:ring-2 focus:ring-green-500/20 cursor-pointer">
                                     <option value="Submitted" <?= $app['Status']=='Submitted'?'selected':'' ?>>Submitted</option>
                                     <option value="Under Review" <?= $app['Status']=='Under Review'?'selected':'' ?>>Review</option>
+                                    <option value="For Resubmission" <?= $app['Status']=='For Resubmission'?'selected':'' ?>>Request Corrections</option>
                                     <option value="Rejected" <?= $app['Status']=='Rejected'?'selected':'' ?>>Reject</option>
                                 </select>
                                 <button type="submit" class="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-md hover:bg-green-600 transition-all uppercase tracking-widest shrink-0">SAVE</button>

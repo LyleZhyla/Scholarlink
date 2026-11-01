@@ -26,6 +26,7 @@ try {
         SELECT a.ApplicationID AS application_id, a.Status AS status, a.DateSubmitted AS application_date, 
                a.GPA AS gpa, sch.ScholarshipID, sch.Name AS scholarship_name, sch.MinimumGWA AS min_gpa,
                sch.ReleaseFrequency,
+               sch.Deadline, a.LastSavedAt, a.WithdrawnAt, a.ResubmissionAllowed,
                u.Major AS course, u.YearLevel AS year_level
         FROM application a
         JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID
@@ -72,6 +73,10 @@ try {
             }
         }
         $app['docs'] = $docs;
+
+        $versions_stmt = $pdo->prepare("SELECT VersionNumber, EventType, Status, Notes, CreatedAt FROM application_versions WHERE ApplicationID = ? ORDER BY VersionNumber DESC");
+        $versions_stmt->execute([$aid]);
+        $app['versions'] = $versions_stmt->fetchAll(PDO::FETCH_ASSOC);
         
         $app['ReleaseFrequency'] = $app['ReleaseFrequency'] ?? 'Per Semester';
         $jsAppData[$aid] = $app;
@@ -91,6 +96,9 @@ catch (PDOException $e) {
 function getStatusStyle($status) {
     return match($status) {
         'Submitted' => 'bg-blue-50 text-blue-600 border-blue-100',
+        'Draft' => 'bg-amber-50 text-amber-700 border-amber-200',
+        'Withdrawn' => 'bg-slate-100 text-slate-600 border-slate-200',
+        'For Resubmission' => 'bg-orange-50 text-orange-700 border-orange-200',
         'Under Review', 'Verified' => 'bg-amber-50 text-amber-600 border-amber-100',
         'Shortlisted', 'Scored' => 'bg-purple-50 text-purple-600 border-purple-100',
         'Approved' => 'bg-green-50 text-green-600 border-green-100',
@@ -117,6 +125,9 @@ function getProgressColor($status) {
             ✅ <?= $_SESSION['success']; unset($_SESSION['success']); ?>
         </div>
     <?php endif; ?>
+    <?php if(isset($_SESSION['error'])): ?>
+        <div class="bg-red-50 text-red-700 p-4 rounded-2xl mb-6 font-bold border border-red-200 text-sm">⚠️ <?= htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?></div>
+    <?php endif; ?>
 
     <div class="space-y-4 lg:space-y-6">
         <?php foreach($applications as $app): ?>
@@ -132,7 +143,7 @@ function getProgressColor($status) {
                         </div>
                         <h3 class="text-xl lg:text-2xl font-black text-slate-900 leading-tight"><?= htmlspecialchars($app['scholarship_name']) ?></h3>
                         <p class="text-[10px] lg:text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">
-                            Applied on: <?= date('M d, Y', strtotime($app['application_date'])) ?>
+                            <?= $app['status'] === 'Draft' ? 'Last saved' : 'Submitted' ?>: <?= date('M d, Y', strtotime($app['status'] === 'Draft' && $app['LastSavedAt'] ? $app['LastSavedAt'] : $app['application_date'])) ?>
                         </p>
                     </div>
 
@@ -142,10 +153,19 @@ function getProgressColor($status) {
                                 Approval Notice 📄
                             </a>
                         <?php endif; ?>
-                        <?php if($app['status'] === 'Submitted'): ?>
-                            <button type="button" onclick="openEditModal(<?= $app['application_id'] ?>)" class="flex-1 md:flex-none bg-slate-100 text-slate-600 border border-slate-200 px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-slate-200 transition-all text-center active:scale-95">
-                                Edit Form ✏️
-                            </button>
+                        <?php if($app['status'] === 'Draft'): ?>
+                            <a href="apply_form.php?id=<?= (int) $app['ScholarshipID'] ?>" class="flex-1 md:flex-none bg-amber-500 text-white px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-amber-600 transition-all text-center">Continue Draft ✏️</a>
+                        <?php elseif(in_array($app['status'], ['Submitted', 'For Resubmission', 'Withdrawn'], true) && ($app['status'] === 'For Resubmission' || strtotime($app['Deadline']) >= strtotime(date('Y-m-d')))): ?>
+                            <a href="edit_application.php?id=<?= (int) $app['application_id'] ?>" class="flex-1 md:flex-none bg-slate-100 text-slate-600 border border-slate-200 px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-slate-200 transition-all text-center active:scale-95">
+                                <?= in_array($app['status'], ['For Resubmission', 'Withdrawn'], true) ? 'Correct & Resubmit' : 'Edit Form' ?> ✏️
+                            </a>
+                        <?php endif; ?>
+
+                        <?php if($app['status'] === 'Submitted' && strtotime($app['Deadline']) >= strtotime(date('Y-m-d'))): ?>
+                            <form action="../actions/process_crud.php" method="POST" onsubmit="return confirm('Withdraw this application? You may correct and resubmit it only before the deadline.');" class="flex-1 md:flex-none">
+                                <input type="hidden" name="module" value="student_apply"><input type="hidden" name="action" value="withdraw"><input type="hidden" name="application_id" value="<?= (int) $app['application_id'] ?>">
+                                <button type="submit" class="w-full bg-white text-red-600 border border-red-200 px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-red-50 transition-all">Withdraw</button>
+                            </form>
                         <?php endif; ?>
                         
                         <button type="button" onclick="openTrackModal(<?= $app['application_id'] ?>)" class="flex-1 md:flex-none bg-slate-900 text-white px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-blue-600 transition-all text-center shadow-md active:scale-95">
@@ -239,6 +259,11 @@ function getProgressColor($status) {
                 <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Attached Documents</h3>
                 <div id="trackModalDocs" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
             </div>
+
+            <div class="border-t border-slate-100 pt-8 mt-8">
+                <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Version History</h3>
+                <div id="trackModalVersions" class="space-y-3"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -320,7 +345,7 @@ function getProgressColor($status) {
         
         document.getElementById('trackModalTitle').innerText = data.scholarship_name;
         document.getElementById('trackModalStatus').innerText = data.status;
-        document.getElementById('trackModalGwa').innerText = parseFloat(data.gpa).toFixed(2);
+        document.getElementById('trackModalGwa').innerText = data.gpa !== null && data.gpa !== '' ? parseFloat(data.gpa).toFixed(2) : 'Not set';
         document.getElementById('trackModalRelease').innerText = data.ReleaseFrequency || 'Per Semester';
         
         const dateObj = new Date(data.application_date);
@@ -366,6 +391,18 @@ function getProgressColor($status) {
                  </div>`;
                  docsContainer.innerHTML += html;
             });
+        }
+
+        const versionsContainer = document.getElementById('trackModalVersions');
+        versionsContainer.innerHTML = '';
+        if (data.versions && data.versions.length) {
+            data.versions.forEach(v => {
+                const when = new Date(v.CreatedAt.replace(' ', 'T')).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const note = v.Notes ? `<p class="text-xs text-slate-500 mt-1">${String(v.Notes).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>` : '';
+                versionsContainer.innerHTML += `<div class="p-4 bg-slate-50 border border-slate-100 rounded-xl flex items-start justify-between gap-4"><div><p class="text-sm font-black text-slate-800">Version ${v.VersionNumber} · ${v.EventType}</p><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">${v.Status} · ${when}</p>${note}</div><span class="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">V${v.VersionNumber}</span></div>`;
+            });
+        } else {
+            versionsContainer.innerHTML = '<p class="text-sm text-slate-400 italic">No recorded versions yet.</p>';
         }
 
         trackModal.classList.remove('hidden');

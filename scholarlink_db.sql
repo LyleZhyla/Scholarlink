@@ -38,6 +38,9 @@ CREATE TABLE `application` (
   `ScholarshipID` int(11) NOT NULL,
   `UserID` int(11) NOT NULL,
   `DateSubmitted` timestamp NOT NULL DEFAULT current_timestamp(),
+  `LastSavedAt` datetime DEFAULT NULL,
+  `WithdrawnAt` datetime DEFAULT NULL,
+  `ResubmissionAllowed` tinyint(1) NOT NULL DEFAULT 0,
   `Status` varchar(50) DEFAULT 'Pending',
   `TotalScore` int(11) DEFAULT 0,
   `GPA` decimal(4,2) DEFAULT NULL,
@@ -55,6 +58,25 @@ LOCK TABLES `application` WRITE;
 /*!40000 ALTER TABLE `application` DISABLE KEYS */;
 /*!40000 ALTER TABLE `application` ENABLE KEYS */;
 UNLOCK TABLES;
+DROP TABLE IF EXISTS `application_versions`;
+CREATE TABLE `application_versions` (
+  `VersionID` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `ApplicationID` int(11) NOT NULL,
+  `VersionNumber` int unsigned NOT NULL,
+  `EventType` varchar(40) NOT NULL,
+  `Status` varchar(50) NOT NULL,
+  `GPASnapshot` decimal(4,2) DEFAULT NULL,
+  `AnswersSnapshot` longtext DEFAULT NULL,
+  `DocumentsSnapshot` longtext DEFAULT NULL,
+  `Notes` varchar(500) DEFAULT NULL,
+  `CreatedBy` int(11) DEFAULT NULL,
+  `CreatedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`VersionID`),
+  UNIQUE KEY `uq_application_version` (`ApplicationID`,`VersionNumber`),
+  KEY `idx_application_versions_created` (`ApplicationID`,`CreatedAt`),
+  CONSTRAINT `fk_application_versions_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_application_versions_user` FOREIGN KEY (`CreatedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 DROP TABLE IF EXISTS `application_custom_answers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -538,6 +560,26 @@ LOCK TABLES `submitted_document` WRITE;
 /*!40000 ALTER TABLE `submitted_document` DISABLE KEYS */;
 /*!40000 ALTER TABLE `submitted_document` ENABLE KEYS */;
 UNLOCK TABLES;
+DROP TABLE IF EXISTS `submitted_document_versions`;
+CREATE TABLE `submitted_document_versions` (
+  `DocumentVersionID` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `SubmittedDocID` int(11) DEFAULT NULL,
+  `ApplicationID` int(11) NOT NULL,
+  `RequirementID` int(11) NOT NULL,
+  `VersionNumber` int unsigned NOT NULL,
+  `FilePath` varchar(255) NOT NULL,
+  `OriginalFileName` varchar(255) DEFAULT NULL,
+  `VerificationStatus` varchar(50) NOT NULL DEFAULT 'Pending',
+  `ChangeType` varchar(30) NOT NULL DEFAULT 'Uploaded',
+  `UploadedBy` int(11) DEFAULT NULL,
+  `CreatedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`DocumentVersionID`),
+  UNIQUE KEY `uq_document_version` (`ApplicationID`,`RequirementID`,`VersionNumber`),
+  KEY `idx_document_versions_doc` (`SubmittedDocID`),
+  CONSTRAINT `fk_document_versions_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_document_versions_requirement` FOREIGN KEY (`RequirementID`) REFERENCES `document_requirement` (`RequirementID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_document_versions_user` FOREIGN KEY (`UploadedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 DROP TABLE IF EXISTS `system_notifications`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;

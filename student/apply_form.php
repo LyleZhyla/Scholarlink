@@ -35,6 +35,21 @@ $requirements = $req_stmt->fetchAll();
 require_once '../includes/form_fields.php';
 $customFields = getFormFields($pdo, $scholarship_id);
 
+// Continue the student's saved draft instead of starting another application.
+$draft_stmt = $pdo->prepare("SELECT ApplicationID, GPA, LastSavedAt FROM application WHERE UserID = ? AND ScholarshipID = ? AND Status = 'Draft' ORDER BY ApplicationID DESC LIMIT 1");
+$draft_stmt->execute([$user_id, $scholarship_id]);
+$draftApplication = $draft_stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+$existingAnswers = [];
+$draftDocuments = [];
+if ($draftApplication) {
+    $answer_stmt = $pdo->prepare("SELECT FieldID, AnswerText FROM application_custom_answers WHERE ApplicationID = ?");
+    $answer_stmt->execute([$draftApplication['ApplicationID']]);
+    $existingAnswers = $answer_stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    $document_stmt = $pdo->prepare("SELECT RequirementID, FilePath FROM submitted_document WHERE ApplicationID = ?");
+    $document_stmt->execute([$draftApplication['ApplicationID']]);
+    $draftDocuments = $document_stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+}
+
 // ✨ 4. FETCH STUDENT'S VAULT DOCUMENTS (needed for the "From Vault" picker)
 $vault_stmt = $pdo->prepare("SELECT VaultID, DocumentType, FilePath, UploadDate FROM user_vault WHERE UserID = ? ORDER BY DocumentType ASC");
 $vault_stmt->execute([$user_id]);
@@ -55,24 +70,34 @@ $vaultDocs = $vault_stmt->fetchAll(PDO::FETCH_ASSOC);
             ⚠️ <?= $_SESSION['error']; unset($_SESSION['error']); ?>
         </div>
     <?php endif; ?>
+    <?php if (isset($_SESSION['success'])): ?>
+        <div class="max-w-4xl bg-green-50 border border-green-200 text-green-700 px-6 py-4 rounded-2xl mb-6 text-sm font-bold">
+            ✅ <?= htmlspecialchars($_SESSION['success']); unset($_SESSION['success']); ?>
+        </div>
+    <?php endif; ?>
+    <?php if ($draftApplication): ?>
+        <div class="max-w-4xl bg-amber-50 border border-amber-200 text-amber-800 px-6 py-4 rounded-2xl mb-6 text-sm font-bold">
+            Draft restored<?= $draftApplication['LastSavedAt'] ? ' · last saved ' . date('M d, Y g:i A', strtotime($draftApplication['LastSavedAt'])) : '' ?>.
+        </div>
+    <?php endif; ?>
 
     <form action="../actions/process_crud.php" method="POST" id="scholarshipApplyForm" enctype="multipart/form-data" class="bg-white p-6 lg:p-10 rounded-[1.5rem] lg:rounded-[2rem] border border-slate-200 shadow-sm max-w-4xl space-y-8 lg:space-y-10">
         <input type="hidden" name="module" value="student_apply">
-        <input type="hidden" name="action" value="create">
         <input type="hidden" name="scholarship_id" value="<?= $scholarship_id ?>">
+        <input type="hidden" name="application_id" value="<?= (int) ($draftApplication['ApplicationID'] ?? 0) ?>">
         
         <div class="space-y-4">
             <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Academic Profile</h3>
             <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Declared GWA / GPA</label>
-                <input type="number" step="0.01" name="gpa" id="modalGpa" value="<?= htmlspecialchars($student['GPA'] ?? '') ?>" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-colors">
+                <input type="number" step="0.01" name="gpa" id="modalGpa" value="<?= htmlspecialchars($draftApplication['GPA'] ?? $student['GPA'] ?? '') ?>" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-colors">
             </div>
         </div>
 
         <?php if (!empty($customFields) || !empty($scholarship['FormInstructions'])): ?>
         <div class="space-y-6">
             <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Application Questions</h3>
-            <?= renderApplicationForm($pdo, $customFields, $student, [], $scholarship['FormInstructions'] ?? null) ?>
+            <?= renderApplicationForm($pdo, $customFields, $student, $existingAnswers, $scholarship['FormInstructions'] ?? null) ?>
         </div>
         <?php endif; ?>
 
@@ -82,7 +107,7 @@ $vaultDocs = $vault_stmt->fetchAll(PDO::FETCH_ASSOC);
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-slate-200 rounded-xl bg-slate-50 gap-4">
                     <div class="flex-1">
                         <p class="font-bold text-slate-900 text-sm"><?= htmlspecialchars($req['DocumentName']) ?></p>
-                        <p id="status_<?= $req['RequirementID'] ?>" class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Pending Upload</p>
+                        <p id="status_<?= $req['RequirementID'] ?>" class="text-[10px] font-black <?= isset($draftDocuments[$req['RequirementID']]) ? 'text-green-600' : 'text-slate-400' ?> uppercase tracking-widest mt-1"><?= isset($draftDocuments[$req['RequirementID']]) ? 'Saved in draft: ' . htmlspecialchars(basename($draftDocuments[$req['RequirementID']])) : 'Pending Upload' ?></p>
                     </div>
                     <div class="flex gap-2">
                         <button type="button" onclick="openVaultPicker(<?= $req['RequirementID'] ?>)" class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-blue-200">From Vault</button>
@@ -93,8 +118,9 @@ $vaultDocs = $vault_stmt->fetchAll(PDO::FETCH_ASSOC);
             <?php endforeach; ?>
         </div>
 
-        <div class="flex justify-end pt-4">
-            <button type="submit" class="w-full sm:w-auto bg-slate-900 text-white px-10 py-4 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg">Submit Application</button>
+        <div class="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4">
+            <button type="submit" name="action" value="save_draft" formnovalidate class="w-full sm:w-auto bg-white border border-slate-300 text-slate-700 px-8 py-4 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-slate-100 transition-all">Save Draft</button>
+            <button type="submit" name="action" value="<?= $draftApplication ? 'submit_draft' : 'create' ?>" class="w-full sm:w-auto bg-slate-900 text-white px-10 py-4 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg">Submit Application</button>
         </div>
     </form>
 </main>
@@ -165,6 +191,7 @@ document.querySelectorAll('.vaultPickerItem').forEach(function (item) {
 
 // Required checkbox questions: at least one box must be ticked (browsers can't require a checkbox group)
 document.getElementById('scholarshipApplyForm').addEventListener('submit', function (e) {
+    if (e.submitter && e.submitter.value === 'save_draft') return;
     const missing = [...this.querySelectorAll('[data-required-group]')].find(group => !group.querySelector('input:checked'));
     if (missing) {
         e.preventDefault();

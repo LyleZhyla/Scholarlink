@@ -15,7 +15,7 @@ $user_id = $_SESSION['user_id'];
 try {
     // Fetch Applications with the Awesome Layout logic
     $app_query = $pdo->prepare("
-        SELECT a.ApplicationID, s.ScholarshipID, s.Name AS scholarship_name, a.Status 
+        SELECT a.ApplicationID, s.ScholarshipID, s.Name AS scholarship_name, s.Deadline, a.Status, a.ResubmissionAllowed
         FROM application a 
         JOIN scholarship s ON a.ScholarshipID = s.ScholarshipID 
         WHERE a.UserID = :uid 
@@ -38,6 +38,8 @@ try {
         <h2 class="text-4xl font-black text-slate-900 tracking-tight">My Requirements</h2>
         <p class="text-slate-500 text-sm lg:text-base font-medium mt-1">Document Tracking & Submission Portal</p>
     </header>
+    <?php if (isset($_SESSION['success'])): ?><div class="bg-green-50 border border-green-200 text-green-700 p-4 rounded-2xl mb-6 font-bold"><?= htmlspecialchars($_SESSION['success']); unset($_SESSION['success']); ?></div><?php endif; ?>
+    <?php if (isset($_SESSION['error'])): ?><div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl mb-6 font-bold"><?= htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?></div><?php endif; ?>
 
     <?php if (empty($my_applications)): ?>
         <div class="bg-white p-24 rounded-[3.5rem] border border-slate-200/60 shadow-sm text-center">
@@ -87,7 +89,11 @@ try {
                                 $statusColor = $req['VerificationStatus'] === 'Verified' ? 'text-green-600 bg-green-50' : ($req['VerificationStatus'] === 'Rejected' ? 'text-red-600 bg-red-50' : 'text-orange-600 bg-orange-50');
                                 $isUploaded = !empty($req['FilePath']);
                                 // ✨ LOCK EDITING IF APPLICATION IS APPROVED OR DOCUMENT IS ALREADY VERIFIED
-                                $isLocked = ($app['Status'] === 'Approved' || $req['VerificationStatus'] === 'Verified');
+                                $beforeDeadline = strtotime($app['Deadline']) >= strtotime(date('Y-m-d'));
+                                $editableStatus = $app['Status'] === 'For Resubmission'
+                                    || (in_array($app['Status'], ['Draft', 'Submitted'], true) && $beforeDeadline)
+                                    || ($app['Status'] === 'Withdrawn' && (int) $app['ResubmissionAllowed'] && $beforeDeadline);
+                                $isLocked = !$editableStatus || $req['VerificationStatus'] === 'Verified';
                             ?>
                             <tr class="hover:bg-slate-50/80 transition-all group">
                                 <td class="p-8">
@@ -153,10 +159,10 @@ try {
                     <?php if (!empty($vault_files)): ?>
                     <div class="bg-blue-50/50 p-6 rounded-[1.5rem] border border-blue-100 hover:border-blue-300 transition-all">
                         <label class="block text-[14px] font-black text-blue-900 uppercase tracking-widest mb-3">Option 1: Use Document from Vault</label>
-                        <select name="vault_file_path" id="vault_select" class="w-full p-4 rounded-xl border border-blue-200 text-slate-700 font-medium focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600" onchange="toggleUploadRequirement()">
+                        <select name="vault_id" id="vault_select" class="w-full p-4 rounded-xl border border-blue-200 text-slate-700 font-medium focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600" onchange="toggleUploadRequirement()">
                             <option value="">-- Select a saved document --</option>
                             <?php foreach($vault_files as $vf): ?>
-                                <option value="<?= htmlspecialchars($vf['FilePath']) ?>"><?= htmlspecialchars($vf['DocumentType']) ?></option>
+                                <option value="<?= (int) $vf['VaultID'] ?>"><?= htmlspecialchars($vf['DocumentType']) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>

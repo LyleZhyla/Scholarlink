@@ -177,7 +177,7 @@ if (!function_exists('getFormFields')) {
     }
 
     // Checks the submitted answers against the form. Returns [answers by FieldID, list of error messages].
-    function collectFormAnswers(array $fields, $posted): array {
+    function collectFormAnswers(array $fields, $posted, bool $enforce_required = true): array {
         $posted = is_array($posted) ? $posted : [];
         $answers = [];
         $errors = [];
@@ -199,7 +199,7 @@ if (!function_exists('getFormFields')) {
             }
 
             if ($value === '') {
-                if (!empty($field['IsRequired'])) $errors[] = "\"$label\" is required.";
+                if ($enforce_required && !empty($field['IsRequired'])) $errors[] = "\"$label\" is required.";
                 continue;
             }
 

@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../includes/db_connect.php';
+require_once '../includes/application_lifecycle.php';
 
 // Using require_once to ensure the function is defined and paths are correct
 if (file_exists('../includes/email_config.php')) {
@@ -70,6 +71,104 @@ if ($module === 'applications' && in_array($action, ['score', 'update_status', '
 // ==========================================
 if ($module === 'student_apply') {
     $user_id = $_SESSION['user_id'];
+
+    // Save an incomplete application without entering the review queue.
+    if ($action === 'save_draft') {
+        $scholarship_id = (int) ($_POST['scholarship_id'] ?? 0);
+        $app_id = (int) ($_POST['application_id'] ?? 0);
+        try {
+            $pdo->beginTransaction();
+            $deadline = $pdo->prepare("SELECT Deadline FROM scholarship WHERE ScholarshipID = ? AND Status = 'Active'");
+            $deadline->execute([$scholarship_id]);
+            $deadline_date = $deadline->fetchColumn();
+            if (!$deadline_date || strtotime($deadline_date) < strtotime(date('Y-m-d'))) throw new RuntimeException('This scholarship is no longer accepting applications.');
+            if ($app_id) {
+                $owned = $pdo->prepare("SELECT ApplicationID FROM application WHERE ApplicationID = ? AND UserID = ? AND ScholarshipID = ? AND Status = 'Draft'");
+                $owned->execute([$app_id, $user_id, $scholarship_id]);
+                if (!$owned->fetchColumn()) throw new RuntimeException('This draft is no longer editable.');
+                $pdo->prepare("UPDATE application SET GPA = ?, LastSavedAt = NOW() WHERE ApplicationID = ?")
+                    ->execute([($_POST['gpa'] ?? '') !== '' ? $_POST['gpa'] : null, $app_id]);
+            } else {
+                $duplicate = $pdo->prepare("SELECT ApplicationID FROM application WHERE UserID = ? AND ScholarshipID = ?");
+                $duplicate->execute([$user_id, $scholarship_id]);
+                if ($duplicate->fetchColumn()) throw new RuntimeException('You already have an application for this scholarship.');
+                $pdo->prepare("INSERT INTO application (UserID, ScholarshipID, Status, DateSubmitted, LastSavedAt, GPA, TermID) VALUES (?, ?, 'Draft', NOW(), NOW(), ?, (SELECT TermID FROM academic_terms WHERE Status = 'Active' ORDER BY TermID DESC LIMIT 1))")
+                    ->execute([$user_id, $scholarship_id, ($_POST['gpa'] ?? '') !== '' ? $_POST['gpa'] : null]);
+                $app_id = (int) $pdo->lastInsertId();
+            }
+
+            require_once '../includes/form_fields.php';
+            $fields = getFormFields($pdo, $scholarship_id);
+            [$answers, $errors] = collectFormAnswers($fields, $_POST['custom_answers'] ?? [], false);
+            if ($errors) throw new RuntimeException(implode(' ', $errors));
+            replaceApplicationAnswers($pdo, $app_id, array_column($fields, 'FieldID'), $answers);
+            saveRequestedApplicationDocuments($pdo, $app_id, $scholarship_id, $user_id);
+            snapshotApplicationVersion($pdo, $app_id, 'Draft Saved', $user_id);
+            logAudit($pdo, $user_id, 'Application Draft Saved', "Saved draft application #$app_id");
+            $pdo->commit();
+            $_SESSION['success'] = 'Draft saved. You can continue it any time before the deadline.';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $_SESSION['error'] = 'Draft could not be saved: ' . $e->getMessage();
+        }
+        header("Location: ../student/apply_form.php?id=$scholarship_id");
+        exit();
+    }
+
+    // Final submission of a saved draft, withdrawn application, or reviewer-authorized correction.
+    if ($action === 'submit_draft') {
+        $app_id = (int) ($_POST['application_id'] ?? 0);
+        try {
+            $pdo->beginTransaction();
+            $owned = $pdo->prepare("SELECT a.ScholarshipID, a.Status, a.ResubmissionAllowed, s.Deadline FROM application a JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID WHERE a.ApplicationID = ? AND a.UserID = ? FOR UPDATE");
+            $owned->execute([$app_id, $user_id]);
+            $app = $owned->fetch(PDO::FETCH_ASSOC);
+            if (!$app || !in_array($app['Status'], ['Draft', 'Withdrawn', 'For Resubmission'], true)) throw new RuntimeException('This application cannot be submitted from its current status.');
+            if ($app['Status'] !== 'For Resubmission' && strtotime($app['Deadline']) < strtotime(date('Y-m-d'))) throw new RuntimeException('The scholarship deadline has passed.');
+            if ($app['Status'] === 'Withdrawn' && !(int) $app['ResubmissionAllowed']) throw new RuntimeException('Resubmission has not been permitted.');
+
+            require_once '../includes/form_fields.php';
+            $fields = getFormFields($pdo, (int) $app['ScholarshipID']);
+            [$answers, $errors] = collectFormAnswers($fields, $_POST['custom_answers'] ?? []);
+            if ($errors) throw new RuntimeException(implode(' ', $errors));
+            replaceApplicationAnswers($pdo, $app_id, array_column($fields, 'FieldID'), $answers);
+            saveRequestedApplicationDocuments($pdo, $app_id, (int) $app['ScholarshipID'], $user_id);
+            $event = $app['Status'] === 'Draft' ? 'Submitted' : 'Resubmitted';
+            $pdo->prepare("UPDATE application SET GPA = ?, Status = 'Submitted', DateSubmitted = NOW(), LastSavedAt = NOW(), WithdrawnAt = NULL, ResubmissionAllowed = 0 WHERE ApplicationID = ?")
+                ->execute([($_POST['gpa'] ?? '') !== '' ? $_POST['gpa'] : null, $app_id]);
+            snapshotApplicationVersion($pdo, $app_id, $event, $user_id);
+            logAudit($pdo, $user_id, "Application $event", "$event application #$app_id");
+            $pdo->commit();
+            $_SESSION['success'] = $event === 'Submitted' ? 'Application submitted successfully!' : 'Corrected application resubmitted successfully!';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $_SESSION['error'] = 'Application could not be submitted: ' . $e->getMessage();
+        }
+        header('Location: ../student/applications.php');
+        exit();
+    }
+
+    if ($action === 'withdraw') {
+        $app_id = (int) ($_POST['application_id'] ?? 0);
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare("SELECT a.ApplicationID, s.Deadline FROM application a JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID WHERE a.ApplicationID = ? AND a.UserID = ? AND a.Status = 'Submitted' FOR UPDATE");
+            $stmt->execute([$app_id, $user_id]);
+            $app = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$app) throw new RuntimeException('Only your submitted application can be withdrawn.');
+            if (strtotime($app['Deadline']) < strtotime(date('Y-m-d'))) throw new RuntimeException('Applications cannot be withdrawn after the deadline.');
+            $pdo->prepare("UPDATE application SET Status = 'Withdrawn', WithdrawnAt = NOW(), ResubmissionAllowed = 1, LastSavedAt = NOW() WHERE ApplicationID = ?")->execute([$app_id]);
+            snapshotApplicationVersion($pdo, $app_id, 'Withdrawn', $user_id, 'Withdrawn by applicant before the deadline');
+            logAudit($pdo, $user_id, 'Application Withdrawn', "Withdrew application #$app_id before the deadline");
+            $pdo->commit();
+            $_SESSION['success'] = 'Application withdrawn. You may correct and resubmit it before the deadline.';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $_SESSION['error'] = $e->getMessage();
+        }
+        header('Location: ../student/applications.php');
+        exit();
+    }
     // --- ✨ ACTION: ONE CLICK APPLY (NEW) ---
     if ($action === 'one_click_apply') {
         $scholarship_id = (int)$_POST['scholarship_id'];
@@ -144,6 +243,7 @@ if ($module === 'student_apply') {
                         }
                         
                         $doc_insert_stmt->execute([$new_app_id, $req['RequirementID'], $final_file_path]);
+                        recordDocumentVersion($pdo, (int) $pdo->lastInsertId(), (int) $new_app_id, (int) $req['RequirementID'], $final_file_path, basename($vault_file_path), $user_id, 'Uploaded');
                         $docs_inserted++;
                         break; 
                     }
@@ -158,6 +258,8 @@ if ($module === 'student_apply') {
                 exit();
             }
 
+            snapshotApplicationVersion($pdo, (int) $new_app_id, 'Submitted', $user_id, 'Submitted through 1-Click Apply');
+            logAudit($pdo, $user_id, 'Application Submitted', "Submitted application #$new_app_id through 1-Click Apply");
             $pdo->commit();
             $_SESSION['success'] = "⚡ 1-Click Application submitted successfully!";
             header("Location: ../student/applications.php");
@@ -176,6 +278,12 @@ if ($module === 'student_apply') {
         $gpa = $_POST['gpa'] ?? 0;
 
         try {
+            $deadline_stmt = $pdo->prepare("SELECT Deadline FROM scholarship WHERE ScholarshipID = ? AND Status = 'Active'");
+            $deadline_stmt->execute([$scholarship_id]);
+            $deadline_date = $deadline_stmt->fetchColumn();
+            if (!$deadline_date || strtotime($deadline_date) < strtotime(date('Y-m-d'))) {
+                throw new RuntimeException('This scholarship is no longer accepting applications.');
+            }
             // ✨ STRICT DUAL SCHOLARSHIP CHECK (Backend Protection)
             $check_approved = $pdo->prepare("SELECT COUNT(*) FROM application WHERE UserID = ? AND Status = 'Approved'");
             $check_approved->execute([$user_id]);
@@ -236,6 +344,7 @@ if ($module === 'student_apply') {
                             if (move_uploaded_file($tmp_name, $destination)) {
                                 $ins_doc = $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')");
                                 $ins_doc->execute([$new_app_id, $req_id, $destination]);
+                                recordDocumentVersion($pdo, (int) $pdo->lastInsertId(), (int) $new_app_id, (int) $req_id, $destination, $file_name, $user_id, 'Uploaded');
                             }
                         }
                     }
@@ -271,14 +380,17 @@ if ($module === 'student_apply') {
                                 
                                 $ins_doc = $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')");
                                 $ins_doc->execute([$new_app_id, $req_id, $final_file_path]);
+                                recordDocumentVersion($pdo, (int) $pdo->lastInsertId(), (int) $new_app_id, (int) $req_id, $final_file_path, basename($vault_file_path), $user_id, 'Uploaded');
                             }
                         }
                     }
                 }
 
+                snapshotApplicationVersion($pdo, (int) $new_app_id, 'Submitted', $user_id);
+                logAudit($pdo, $user_id, 'Application Submitted', "Submitted application #$new_app_id");
                 $_SESSION['success'] = "Application submitted successfully!";
             }
-        } catch (PDOException $e) { $_SESSION['error'] = "Application Error: " . $e->getMessage(); }
+        } catch (Throwable $e) { $_SESSION['error'] = "Application Error: " . $e->getMessage(); }
         
         header("Location: ../student/applications.php");
         exit();
@@ -291,14 +403,20 @@ if ($module === 'student_apply') {
 
         try {
             // Only the student's own, still-editable application
-            $own_stmt = $pdo->prepare("SELECT ScholarshipID FROM application WHERE ApplicationID = ? AND UserID = ? AND Status = 'Submitted'");
+            $own_stmt = $pdo->prepare("SELECT a.ScholarshipID, a.Status, a.ResubmissionAllowed, s.Deadline FROM application a JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID WHERE a.ApplicationID = ? AND a.UserID = ?");
             $own_stmt->execute([$app_id, $user_id]);
-            $own_scholarship_id = $own_stmt->fetchColumn();
-            if (!$own_scholarship_id) {
+            $owned_app = $own_stmt->fetch(PDO::FETCH_ASSOC);
+            $editable = $owned_app && (
+                ($owned_app['Status'] === 'Submitted' && strtotime($owned_app['Deadline']) >= strtotime(date('Y-m-d')))
+                || $owned_app['Status'] === 'For Resubmission'
+                || ($owned_app['Status'] === 'Withdrawn' && (int) $owned_app['ResubmissionAllowed'] && strtotime($owned_app['Deadline']) >= strtotime(date('Y-m-d')))
+            );
+            if (!$editable) {
                 $_SESSION['error'] = "This application can no longer be edited.";
                 header("Location: ../student/applications.php");
                 exit();
             }
+            $own_scholarship_id = (int) $owned_app['ScholarshipID'];
 
             // ✨ Check the answers against the scholarship's current application form (Form Builder)
             require_once '../includes/form_fields.php';
@@ -311,7 +429,7 @@ if ($module === 'student_apply') {
             }
 
             // 1. Update Base Application Data
-            $stmt = $pdo->prepare("UPDATE application SET GPA = :gpa WHERE ApplicationID = :aid AND UserID = :uid AND Status = 'Submitted'");
+            $stmt = $pdo->prepare("UPDATE application SET GPA = :gpa, LastSavedAt = NOW() WHERE ApplicationID = :aid AND UserID = :uid");
             $stmt->execute(['gpa' => $gpa, 'aid' => $app_id, 'uid' => $user_id]);
 
             // 2. UPDATE DYNAMIC CUSTOM ANSWERS: replace answers to the current questions only
@@ -348,23 +466,28 @@ if ($module === 'student_apply') {
                             $existing = $check_doc->fetch();
 
                             if ($existing) {
-                                // Delete old physical file if it exists
-                                if (file_exists($existing['FilePath'])) unlink($existing['FilePath']);
-                                
                                 // Update DB record
                                 $upd_doc = $pdo->prepare("UPDATE submitted_document SET FilePath = ?, VerificationStatus = 'Pending', UploadDate = NOW() WHERE SubmittedDocID = ?");
                                 $upd_doc->execute([$destination, $existing['SubmittedDocID']]);
+                                recordDocumentVersion($pdo, (int) $existing['SubmittedDocID'], (int) $app_id, (int) $req_id, $destination, $file_name, $user_id, 'Replaced');
                             } else {
                                 // Insert new DB record
                                 $ins_doc = $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')");
                                 $ins_doc->execute([$app_id, $req_id, $destination]);
+                                recordDocumentVersion($pdo, (int) $pdo->lastInsertId(), (int) $app_id, (int) $req_id, $destination, $file_name, $user_id, 'Uploaded');
                             }
                         }
                     }
                 }
             }
 
-            $_SESSION['success'] = "Application updated successfully!";
+            $resubmitted = in_array($owned_app['Status'], ['For Resubmission', 'Withdrawn'], true);
+            if ($resubmitted) {
+                $pdo->prepare("UPDATE application SET Status = 'Submitted', DateSubmitted = NOW(), WithdrawnAt = NULL, ResubmissionAllowed = 0 WHERE ApplicationID = ?")->execute([$app_id]);
+            }
+            snapshotApplicationVersion($pdo, (int) $app_id, $resubmitted ? 'Resubmitted' : 'Updated', $user_id);
+            logAudit($pdo, $user_id, $resubmitted ? 'Application Resubmitted' : 'Application Updated', "Updated application #$app_id");
+            $_SESSION['success'] = $resubmitted ? "Corrected application resubmitted successfully!" : "Application updated successfully!";
         } catch (PDOException $e) { 
             $_SESSION['error'] = "Update Error: " . $e->getMessage(); 
         }
@@ -378,6 +501,61 @@ if ($module === 'student_apply') {
 // MODULE: STUDENT DOCUMENT UPLOADS
 // ==========================================
 if ($module === 'student_documents') {
+    $user_id = (int) $_SESSION['user_id'];
+    // Compatibility path for older forms: enforce ownership and route changes through version tracking.
+    if (in_array($action, ['upload', 'delete'], true)) {
+        $application_id = (int) ($_POST['application_id'] ?? 0);
+        $document_id = (int) ($_POST['doc_id'] ?? 0);
+        if ($action === 'delete' && $document_id) {
+            $lookup = $pdo->prepare("SELECT sd.ApplicationID FROM submitted_document sd JOIN application a ON a.ApplicationID = sd.ApplicationID WHERE sd.SubmittedDocID = ? AND a.UserID = ?");
+            $lookup->execute([$document_id, $user_id]);
+            $application_id = (int) $lookup->fetchColumn();
+        }
+        $owned = $pdo->prepare("SELECT a.ScholarshipID, a.Status, a.ResubmissionAllowed, s.Deadline FROM application a JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID WHERE a.ApplicationID = ? AND a.UserID = ?");
+        $owned->execute([$application_id, $user_id]);
+        $application = $owned->fetch(PDO::FETCH_ASSOC);
+        $before_deadline = $application && strtotime($application['Deadline']) >= strtotime(date('Y-m-d'));
+        $editable = $application && ($application['Status'] === 'For Resubmission'
+            || (in_array($application['Status'], ['Draft', 'Submitted'], true) && $before_deadline)
+            || ($application['Status'] === 'Withdrawn' && (int) $application['ResubmissionAllowed'] && $before_deadline));
+        if (!$editable) {
+            $_SESSION['error'] = 'This application is not open for document changes.';
+            header('Location: ../student/requirements.php');
+            exit();
+        }
+
+        try {
+            $pdo->beginTransaction();
+            if ($action === 'upload') {
+                $requirement_id = (int) ($_POST['requirement_id'] ?? 0);
+                $_FILES['files'] = [
+                    'name' => [$requirement_id => $_FILES['document']['name'] ?? ''],
+                    'type' => [$requirement_id => $_FILES['document']['type'] ?? ''],
+                    'tmp_name' => [$requirement_id => $_FILES['document']['tmp_name'] ?? ''],
+                    'error' => [$requirement_id => $_FILES['document']['error'] ?? UPLOAD_ERR_NO_FILE],
+                    'size' => [$requirement_id => $_FILES['document']['size'] ?? 0],
+                ];
+                saveRequestedApplicationDocuments($pdo, $application_id, (int) $application['ScholarshipID'], $user_id);
+                snapshotApplicationVersion($pdo, $application_id, 'Document Updated', $user_id, "Requirement #$requirement_id updated");
+                $_SESSION['success'] = 'Document saved and added to the version history.';
+            } else {
+                $doc = $pdo->prepare("SELECT SubmittedDocID, RequirementID, FilePath, VerificationStatus FROM submitted_document WHERE SubmittedDocID = ? AND ApplicationID = ?");
+                $doc->execute([$document_id, $application_id]);
+                $row = $doc->fetch(PDO::FETCH_ASSOC);
+                if (!$row || $row['VerificationStatus'] === 'Verified') throw new RuntimeException('A verified or unavailable document cannot be removed.');
+                recordDocumentVersion($pdo, $document_id, $application_id, (int) $row['RequirementID'], $row['FilePath'], basename($row['FilePath']), $user_id, 'Removed');
+                $pdo->prepare("DELETE FROM submitted_document WHERE SubmittedDocID = ?")->execute([$document_id]);
+                snapshotApplicationVersion($pdo, $application_id, 'Document Removed', $user_id, "Requirement #{$row['RequirementID']} removed");
+                $_SESSION['success'] = 'Document removed from the current application; its history was retained.';
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $_SESSION['error'] = $e->getMessage();
+        }
+        header('Location: ../student/requirements.php');
+        exit();
+    }
     
     // --- ACTION: UPLOAD / REPLACE ---
     if ($action === 'upload') {
@@ -528,6 +706,12 @@ if ($module === 'applications' && $action === 'score') {
 if ($module === 'applications' && $action === 'update_status') {
     $app_id = $_POST['id'] ?? null;
     $status = $_POST['status'] ?? '';
+    $allowed_statuses = ['Submitted', 'Under Review', 'For Resubmission', 'Shortlisted', 'Approved', 'Rejected'];
+    if (!in_array($status, $allowed_statuses, true)) {
+        $_SESSION['error'] = 'Invalid application status.';
+        header("Location: " . ($_SERVER['HTTP_REFERER'] ?? '../admin_login.php'));
+        exit();
+    }
     
     // Slots and single-grant rules (includes/approval_rules.php)
     if ($app_id && $status === 'Approved') {
@@ -541,8 +725,9 @@ if ($module === 'applications' && $action === 'update_status') {
 
     if ($app_id && !empty($status)) {
         try {
-            $stmt = $pdo->prepare("UPDATE application SET Status = :status WHERE ApplicationID = :id");
-            $stmt->execute(['status' => $status, 'id' => $app_id]);
+            $stmt = $pdo->prepare("UPDATE application SET Status = :status, ResubmissionAllowed = :allowed, LastSavedAt = NOW() WHERE ApplicationID = :id");
+            $stmt->execute(['status' => $status, 'allowed' => $status === 'For Resubmission' ? 1 : 0, 'id' => $app_id]);
+            snapshotApplicationVersion($pdo, (int) $app_id, $status === 'For Resubmission' ? 'Correction Requested' : 'Status Changed', (int) $_SESSION['user_id'], "Status changed to $status");
 
             $info_stmt = $pdo->prepare("
                 SELECT u.Email, u.FirstName, sch.Name AS scholarship_name, sch.ScholarshipID, sch.NumberOfSlots, sch.CreatedBy, a.UserID 
@@ -571,7 +756,9 @@ if ($module === 'applications' && $action === 'update_status') {
                 // In-App Notification
                 try {
                     $notif_title = "Status Update: " . $status;
-                    $notif_msg = "Your application for the " . $info['scholarship_name'] . " has been updated to: " . $status . ".";
+                    $notif_msg = $status === 'For Resubmission'
+                        ? "Corrections are required for your " . $info['scholarship_name'] . " application. Open My Applications, replace the requested documents, then resubmit."
+                        : "Your application for the " . $info['scholarship_name'] . " has been updated to: " . $status . ".";
                     $notif_type = ($status === 'Rejected') ? 'danger' : (($status === 'Approved') ? 'success' : 'info');
                     
                     $notif_stmt = $pdo->prepare("INSERT INTO notifications (UserID, Title, Message, Type) VALUES (:uid, :title, :msg, :type)");
@@ -950,14 +1137,21 @@ if ($module === 'verification') {
             $pdo->prepare("UPDATE submitted_document SET VerificationStatus = :status WHERE SubmittedDocID = :did")->execute(['status' => $status, 'did' => $document_id]);
             $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (?, ?, NOW(), ?, ?)")->execute([$_SESSION['user_id'], "Document $status", "Evaluator marked Document #$document_id as $status", $_SERVER['REMOTE_ADDR']]);
 
-            $info_stmt = $pdo->prepare("SELECT a.UserID, dr.DocumentName, sch.Name AS ScholarshipName FROM submitted_document sd JOIN application a ON sd.ApplicationID = a.ApplicationID JOIN document_requirement dr ON sd.RequirementID = dr.RequirementID JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID WHERE sd.SubmittedDocID = ?");
+            $info_stmt = $pdo->prepare("SELECT a.ApplicationID, a.UserID, dr.DocumentName, sch.Name AS ScholarshipName FROM submitted_document sd JOIN application a ON sd.ApplicationID = a.ApplicationID JOIN document_requirement dr ON sd.RequirementID = dr.RequirementID JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID WHERE sd.SubmittedDocID = ?");
             $info_stmt->execute([$document_id]);
             $info = $info_stmt->fetch();
             
             if ($info) {
+                if ($status === 'Rejected') {
+                    $pdo->prepare("UPDATE application SET Status = 'For Resubmission', ResubmissionAllowed = 1, LastSavedAt = NOW() WHERE ApplicationID = ? AND Status NOT IN ('Approved', 'Rejected', 'Withdrawn')")
+                        ->execute([$info['ApplicationID']]);
+                    snapshotApplicationVersion($pdo, (int) $info['ApplicationID'], 'Correction Requested', (int) $_SESSION['user_id'], "Rejected document: {$info['DocumentName']}");
+                }
                 $type = ($status === 'Verified') ? 'success' : 'danger';
                 $title = ($status === 'Verified') ? 'Document Verified ✅' : 'Document Rejected 🛑';
-                $msg = "Your document '" . $info['DocumentName'] . "' for the " . $info['ScholarshipName'] . " has been officially " . $status . ".";
+                $msg = $status === 'Rejected'
+                    ? "Your document '" . $info['DocumentName'] . "' for the " . $info['ScholarshipName'] . " needs correction. Replace it in My Applications and resubmit."
+                    : "Your document '" . $info['DocumentName'] . "' for the " . $info['ScholarshipName'] . " has been officially verified.";
                 $pdo->prepare("INSERT INTO notifications (UserID, Title, Message, Type) VALUES (?, ?, ?, ?)")->execute([$info['UserID'], $title, $msg, $type]);
             }
             $_SESSION['success'] = "Document #$document_id successfully marked as $status.";

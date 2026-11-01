@@ -63,12 +63,10 @@ $query = "
     FROM application a
     JOIN users u ON a.UserID = u.UserID
     JOIN scholarship s ON a.ScholarshipID = s.ScholarshipID
-    WHERE a.Status = :status AND s.CreatedBy = :ext_admin_id
+    WHERE " . ($active_tab === 'pending' ? "a.Status IN ('Pending', 'Submitted', 'Under Review')" : "a.Status = :status") . " AND s.CreatedBy = :ext_admin_id
 ";
-$params = [
-    ':status' => $db_status,
-    ':ext_admin_id' => $ext_admin_id
-];
+$params = [':ext_admin_id' => $ext_admin_id];
+if ($active_tab !== 'pending') $params[':status'] = $db_status;
 
 if (!empty($filter_course)) {
     $query .= " AND u.Major = :course";

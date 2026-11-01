@@ -17,7 +17,7 @@ $user_id = $_SESSION['user_id'];
 
 // 1. Fetch Base Application
 $stmt = $pdo->prepare("
-    SELECT a.*, sch.Name AS scholarship_name, sch.ScholarshipID 
+    SELECT a.*, sch.Name AS scholarship_name, sch.ScholarshipID, sch.Deadline
     FROM application a 
     JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID 
     WHERE a.ApplicationID = ? AND a.UserID = ?
@@ -25,7 +25,11 @@ $stmt = $pdo->prepare("
 $stmt->execute([$app_id, $user_id]);
 $app = $stmt->fetch();
 
-if (!$app || !in_array($app['Status'], ['Submitted', 'Pending'])) { 
+$beforeDeadline = $app && strtotime($app['Deadline']) >= strtotime(date('Y-m-d'));
+$editable = $app && ($app['Status'] === 'For Resubmission'
+    || ($app['Status'] === 'Submitted' && $beforeDeadline)
+    || ($app['Status'] === 'Withdrawn' && (int) $app['ResubmissionAllowed'] && $beforeDeadline));
+if (!$editable) {
     header("Location: applications.php");
     exit();
 }
@@ -62,8 +66,8 @@ $requirements = $req_stmt->fetchAll();
     <header class="mb-8 lg:mb-10 flex items-center gap-4 lg:gap-6">
         <a href="applications.php" class="w-10 h-10 lg:w-14 lg:h-14 shrink-0 bg-white border border-slate-200 rounded-xl lg:rounded-[1.25rem] flex items-center justify-center font-black text-slate-400 hover:text-slate-900 transition-all">←</a>
         <div>
-            <h2 class="text-2xl lg:text-4xl font-black text-slate-900 tracking-tight leading-tight">Edit Application</h2>
-            <p class="text-slate-500 font-medium text-xs lg:text-sm mt-1">Update your details for <strong class="text-slate-700"><?= htmlspecialchars($app['scholarship_name']) ?></strong></p>
+            <h2 class="text-2xl lg:text-4xl font-black text-slate-900 tracking-tight leading-tight"><?= in_array($app['Status'], ['For Resubmission', 'Withdrawn'], true) ? 'Correct & Resubmit' : 'Edit Application' ?></h2>
+            <p class="text-slate-500 font-medium text-xs lg:text-sm mt-1">Update your details for <strong class="text-slate-700"><?= htmlspecialchars($app['scholarship_name']) ?></strong>. Previous versions will remain in the history.</p>
         </div>
     </header>
 
@@ -113,7 +117,7 @@ $requirements = $req_stmt->fetchAll();
 
         <div class="flex flex-col-reverse sm:flex-row justify-end gap-3 lg:gap-4 pt-4 lg:pt-6 border-t border-slate-100">
             <a href="applications.php" class="w-full sm:w-auto text-center px-8 py-4 rounded-xl lg:rounded-2xl font-black text-slate-500 uppercase tracking-widest text-[10px] lg:text-xs hover:bg-slate-100 transition-all">Discard Edits</a>
-            <button type="submit" class="w-full sm:w-auto bg-green-600 text-white px-10 py-4 rounded-xl lg:rounded-2xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-green-700 transition-all shadow-xl shadow-green-600/20 active:scale-[0.98]">Save Changes & Update</button>
+            <button type="submit" class="w-full sm:w-auto bg-green-600 text-white px-10 py-4 rounded-xl lg:rounded-2xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-green-700 transition-all shadow-xl shadow-green-600/20 active:scale-[0.98]"><?= in_array($app['Status'], ['For Resubmission', 'Withdrawn'], true) ? 'Submit Corrected Application' : 'Save Changes & Update' ?></button>
         </div>
     </form>
 </main>
