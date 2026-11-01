@@ -23,6 +23,7 @@
             ['dashboard.php',           '📊', 'Overview'],
             ['scholarships.php',        '🎓', 'Scholarships'],
             ['manage_applications.php', '🗂️', 'Masterlist'],
+            ['appeals.php',             '⚖️', 'Appeals'],
         ];
 
         foreach ($nav_items as $item):

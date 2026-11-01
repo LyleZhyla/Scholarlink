@@ -26,11 +26,13 @@ try {
         SELECT a.ApplicationID AS application_id, a.Status AS status, a.DateSubmitted AS application_date, 
                a.GPA AS gpa, sch.ScholarshipID, sch.Name AS scholarship_name, sch.MinimumGWA AS min_gpa,
                sch.ReleaseFrequency,
-               sch.Deadline, a.LastSavedAt, a.WithdrawnAt, a.ResubmissionAllowed,
+               sch.Deadline, a.LastSavedAt, a.WithdrawnAt, a.ResubmissionAllowed, a.AppealDeadline,
+               ap.AppealID, ap.Status AS appeal_status,
                u.Major AS course, u.YearLevel AS year_level
         FROM application a
         JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID
         JOIN users u ON a.UserID = u.UserID
+        LEFT JOIN application_appeals ap ON ap.ApplicationID = a.ApplicationID
         WHERE a.UserID = :uid
         ORDER BY a.DateSubmitted DESC
     ");
@@ -102,15 +104,15 @@ function getStatusStyle($status) {
         'Under Review', 'Verified' => 'bg-amber-50 text-amber-600 border-amber-100',
         'Shortlisted', 'Scored' => 'bg-purple-50 text-purple-600 border-purple-100',
         'Approved' => 'bg-green-50 text-green-600 border-green-100',
-        'Rejected' => 'bg-red-50 text-red-600 border-red-100',
+        'Rejected', 'Disqualified' => 'bg-red-50 text-red-600 border-red-100',
         default => 'bg-slate-50 text-slate-600 border-slate-100'
     };
 }
 function getProgressWidth($status) {
-    return match($status) { 'Submitted' => 'w-1/4', 'Under Review', 'Verified' => 'w-2/4', 'Shortlisted', 'Scored' => 'w-3/4', 'Approved', 'Rejected' => 'w-full', default => 'w-1/4' };
+    return match($status) { 'Submitted' => 'w-1/4', 'Under Review', 'Verified' => 'w-2/4', 'Shortlisted', 'Scored' => 'w-3/4', 'Approved', 'Rejected', 'Disqualified' => 'w-full', default => 'w-1/4' };
 }
 function getProgressColor($status) {
-    return match($status) { 'Approved' => 'bg-green-500', 'Rejected' => 'bg-red-500', 'Shortlisted', 'Scored' => 'bg-purple-500', 'Under Review', 'Verified' => 'bg-amber-500', default => 'bg-blue-500' };
+    return match($status) { 'Approved' => 'bg-green-500', 'Rejected', 'Disqualified' => 'bg-red-500', 'Shortlisted', 'Scored' => 'bg-purple-500', 'Under Review', 'Verified' => 'bg-amber-500', default => 'bg-blue-500' };
 }
 ?>
 
@@ -167,6 +169,12 @@ function getProgressColor($status) {
                                 <button type="submit" class="w-full bg-white text-red-600 border border-red-200 px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-red-50 transition-all">Withdraw</button>
                             </form>
                         <?php endif; ?>
+
+                        <?php if(!empty($app['AppealID'])): ?>
+                            <a href="appeal.php?application_id=<?= (int) $app['application_id'] ?>" class="flex-1 md:flex-none bg-blue-50 text-blue-700 border border-blue-200 px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-blue-100 transition-all text-center">View Appeal · <?= htmlspecialchars($app['appeal_status']) ?></a>
+                        <?php elseif(in_array($app['status'], ['Rejected', 'Disqualified'], true) && !empty($app['AppealDeadline']) && strtotime($app['AppealDeadline']) >= time()): ?>
+                            <a href="appeal.php?application_id=<?= (int) $app['application_id'] ?>" class="flex-1 md:flex-none bg-red-600 text-white px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-red-700 transition-all text-center">File Appeal ⚖️</a>
+                        <?php endif; ?>
                         
                         <button type="button" onclick="openTrackModal(<?= $app['application_id'] ?>)" class="flex-1 md:flex-none bg-slate-900 text-white px-4 lg:px-6 py-2.5 lg:py-3 rounded-xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-blue-600 transition-all text-center shadow-md active:scale-95">
                             Track Status 🔎
@@ -177,10 +185,10 @@ function getProgressColor($status) {
                 <div class="mt-6 border-t border-slate-100 pt-5 w-full hidden sm:block">
                     <div class="flex justify-between text-[9px] lg:text-[10px] font-black uppercase tracking-widest mb-2">
                         <span class="text-blue-600">Submitted</span>
-                        <span class="<?= in_array($app['status'], ['Under Review', 'Verified', 'Shortlisted', 'Scored', 'Approved', 'Rejected']) ? 'text-amber-600' : 'text-slate-300' ?>">Docs Checked</span>
-                        <span class="<?= in_array($app['status'], ['Shortlisted', 'Scored', 'Approved', 'Rejected']) ? 'text-purple-600' : 'text-slate-300' ?>">Shortlisted</span>
-                        <?php if($app['status'] === 'Rejected'): ?>
-                            <span class="text-red-600">Rejected</span>
+                        <span class="<?= in_array($app['status'], ['Under Review', 'Verified', 'Shortlisted', 'Scored', 'Approved', 'Rejected', 'Disqualified']) ? 'text-amber-600' : 'text-slate-300' ?>">Docs Checked</span>
+                        <span class="<?= in_array($app['status'], ['Shortlisted', 'Scored', 'Approved', 'Rejected', 'Disqualified']) ? 'text-purple-600' : 'text-slate-300' ?>">Shortlisted</span>
+                        <?php if(in_array($app['status'], ['Rejected', 'Disqualified'], true)): ?>
+                            <span class="text-red-600"><?= htmlspecialchars($app['status']) ?></span>
                         <?php else: ?>
                             <span class="<?= $app['status'] === 'Approved' ? 'text-green-600' : 'text-slate-300' ?>">Approved</span>
                         <?php endif; ?>

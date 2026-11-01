@@ -41,6 +41,8 @@ CREATE TABLE `application` (
   `LastSavedAt` datetime DEFAULT NULL,
   `WithdrawnAt` datetime DEFAULT NULL,
   `ResubmissionAllowed` tinyint(1) NOT NULL DEFAULT 0,
+  `DecisionAt` datetime DEFAULT NULL,
+  `AppealDeadline` datetime DEFAULT NULL,
   `Status` varchar(50) DEFAULT 'Pending',
   `TotalScore` int(11) DEFAULT 0,
   `GPA` decimal(4,2) DEFAULT NULL,
@@ -76,6 +78,38 @@ CREATE TABLE `application_versions` (
   KEY `idx_application_versions_created` (`ApplicationID`,`CreatedAt`),
   CONSTRAINT `fk_application_versions_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
   CONSTRAINT `fk_application_versions_user` FOREIGN KEY (`CreatedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+DROP TABLE IF EXISTS `application_appeals`;
+CREATE TABLE `application_appeals` (
+  `AppealID` int(11) NOT NULL AUTO_INCREMENT,
+  `ApplicationID` int(11) NOT NULL,
+  `ApplicantID` int(11) NOT NULL,
+  `AppealReason` text NOT NULL,
+  `Status` enum('Submitted','Under Review','Approved','Denied') NOT NULL DEFAULT 'Submitted',
+  `Deadline` datetime NOT NULL,
+  `SubmittedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  `ReviewedBy` int(11) DEFAULT NULL,
+  `ReviewerComments` text DEFAULT NULL,
+  `FinalResolution` text DEFAULT NULL,
+  `ResolvedAt` datetime DEFAULT NULL,
+  `UpdatedAt` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`AppealID`),
+  UNIQUE KEY `uq_application_appeal` (`ApplicationID`),
+  KEY `idx_appeal_status_deadline` (`Status`,`Deadline`),
+  CONSTRAINT `fk_appeal_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_appeal_applicant` FOREIGN KEY (`ApplicantID`) REFERENCES `users` (`UserID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_appeal_reviewer` FOREIGN KEY (`ReviewedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+DROP TABLE IF EXISTS `appeal_documents`;
+CREATE TABLE `appeal_documents` (
+  `AppealDocumentID` int(11) NOT NULL AUTO_INCREMENT,
+  `AppealID` int(11) NOT NULL,
+  `FilePath` varchar(255) NOT NULL,
+  `OriginalFileName` varchar(255) NOT NULL,
+  `UploadedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`AppealDocumentID`),
+  KEY `idx_appeal_documents_appeal` (`AppealID`),
+  CONSTRAINT `fk_appeal_documents_appeal` FOREIGN KEY (`AppealID`) REFERENCES `application_appeals` (`AppealID`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 DROP TABLE IF EXISTS `application_custom_answers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -351,6 +385,8 @@ LOCK TABLES `scholarship` WRITE;
 INSERT INTO `scholarship` VALUES (1,NULL,NULL,'Academic Scholars - Full','GWA of 1.20-1.00 of an academic load for regular students with no dropped, conditional, or failed grades.','2026-08-30',5000.00,NULL,'Active',1.20,2,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(2,NULL,NULL,'Academic Scholars - Partial','GWA of 1.75-1.21. Must be regularly enrolled with a minimum of 12 units and no dropped, conditional, or failed grades.','2026-08-30',1500.00,NULL,'Active',1.75,2,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(3,NULL,NULL,'Athletes Regular Training Allowance','Subject to monitoring, evaluation, and endorsement of the Director for Sports Development.','2026-08-30',5000.00,NULL,'Active',3.00,2,'Any','Government','Allowance','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(4,NULL,NULL,'Cultural Performers Allowance','Subject to monitoring, evaluation, and endorsement of the Socio-Cultural Development Director.','2026-08-30',5000.00,NULL,'Active',3.00,2,'Any','Government','Allowance','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(5,NULL,NULL,'Golden Harvest Incentives','Incentives for the Official Student Publication editorial board.','2026-08-30',5000.00,NULL,'Active',3.00,2,'Any','Government','Incentive','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(6,NULL,NULL,'ROTC Cadet Allowance','Incentives for First Class (P5,000) and Second Class (P2,500) Cadets.','2026-08-30',5000.00,NULL,'Active',3.00,2,'Any','Government','Allowance','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(7,NULL,NULL,'SSC/CSC Leadership Incentives','For students holding leadership positions indicated in the TAU Code.','2026-08-30',5000.00,NULL,'Active',3.00,2,'Any','Government','Incentive','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(8,NULL,NULL,'Tulong Dunong Program','One-time SUC program for low-income earning families.','2026-09-15',7500.00,NULL,'Active',3.00,2,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(9,1,NULL,'City of Tarlac Integrated Scholarship (Agriculture)','For indigent families enrolled in Agriculture/Agri-related courses.','2026-09-15',3500.00,NULL,'Active',2.00,17,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(10,NULL,NULL,'ACEF-GIAHEP Program','For agriculture, forestry, fisheries, and veterinary medicine students.','2026-09-30',12500.00,NULL,'Active',3.00,19,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(11,NULL,NULL,'DOST Scholarships (RA 7687 / MERIT)','For talented students in priority S&T courses.','2026-09-30',14000.00,NULL,'Active',2.00,18,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(12,NULL,NULL,'Tertiary Educational Subsidy (TES)','For low-income families certified by the Barangay.','2026-10-15',10000.00,NULL,'Active',3.00,3,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(13,NULL,NULL,'TES Tulong Dunong Program','For low-income families certified by the Barangay.','2026-10-15',7500.00,NULL,'Active',3.00,3,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(14,NULL,NULL,'Tulong Agri Program','For students in agriculture, fisheries, forestry, food tech, and veterinary medicine.','2026-10-15',13500.00,NULL,'Active',3.00,3,'Any','Government','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(15,NULL,NULL,'TAU Alumni and Friends Grant','For bonafide TAU students from low-income families.','2026-09-15',4000.00,NULL,'Active',3.00,24,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(16,NULL,'1st Year','Lorna Fernando Dinos Scholarship Program','For 1st-year single students (max 25 yrs old) in Tarlac.','2026-08-30',9000.00,NULL,'Active',2.00,25,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(17,NULL,'3rd Year','Philchema Inc. Scholarship Grant','For 3rd-year BS Animal Science, Agriculture, or VetMed students.','2026-08-30',10000.00,NULL,'Active',2.00,20,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(18,NULL,NULL,'Prado Builders Scholarship','For residents of Tarlac Province from low-income families.','2026-09-15',20000.00,NULL,'Active',3.00,25,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(19,NULL,'4th Year','The Camileños Inc. Scholarship Program','For graduating students from low-income families.','2026-08-30',3000.00,NULL,'Active',3.00,25,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(20,NULL,'1st Year','Tolentino - Dahlgren Scholarship Program','For 1st-year students from Tarlac.','2026-08-30',9000.00,NULL,'Active',2.00,25,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(21,NULL,'2nd Year, 4th Year','Bounty Cares Foundation Inc.','For 2nd-year Agri, Biosystems, Food Tech, Biology, Chem, and 4th-year VetMed.','2026-08-25',37740.00,20,'Active',2.50,21,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(22,NULL,'1st Year','Cristobal Partido Scholarship Inc.','For 1st-year students from Tarlac.','2026-08-30',9573.00,NULL,'Active',2.00,25,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(23,NULL,'1st Year','Scholarship Program for IP Student','For 1st-year Indigenous Peoples (IP) students from Tarlac.','2026-09-30',12000.00,NULL,'Active',2.00,25,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(24,NULL,'1st Year','CJ and LJ Scholarships','For 1st-year students from Tarlac.','2026-09-15',5000.00,NULL,'Active',2.00,25,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(25,NULL,'3rd Year','Don Francisco Santos Scholarship','For regular 3rd-year students. Must have a GPA of 2.5 or higher and no incomplete grades.','2026-09-30',6000.00,NULL,'Active',2.50,25,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(26,NULL,'1st Year','Ninoy and Cory Aquino Foundation Inc.','For 1st-year students. Annual household gross income must not exceed P375,000.00.','2026-09-15',15000.00,NULL,'Active',2.00,22,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL),(27,17,'1st Year','Geodetic Engineers of the Philippines Inc.','For 1st-year BS Geodetic Engineering students from Tarlac.','2026-09-15',2000.00,NULL,'Active',2.00,23,'Any','Private','Scholarship','Academic,Family,Financial,Essay','Per Semester','No',NULL,NULL,NULL);
 /*!40000 ALTER TABLE `scholarship` ENABLE KEYS */;
 UNLOCK TABLES;
+ALTER TABLE `scholarship`
+  ADD COLUMN `AppealWindowDays` smallint unsigned NOT NULL DEFAULT 7 AFTER `AllowsDual`;
 DROP TABLE IF EXISTS `scholarship_award_notice`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;

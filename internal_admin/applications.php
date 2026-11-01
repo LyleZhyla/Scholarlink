@@ -236,6 +236,7 @@ try {
                                     <option value="Under Review" <?= $app['Status']=='Under Review'?'selected':'' ?>>Review</option>
                                     <option value="For Resubmission" <?= $app['Status']=='For Resubmission'?'selected':'' ?>>Request Corrections</option>
                                     <option value="Rejected" <?= $app['Status']=='Rejected'?'selected':'' ?>>Reject</option>
+                                    <option value="Disqualified" <?= $app['Status']=='Disqualified'?'selected':'' ?>>Disqualify</option>
                                 </select>
                                 <button type="submit" class="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-md hover:bg-green-600 transition-all uppercase tracking-widest shrink-0">SAVE</button>
                             </form>

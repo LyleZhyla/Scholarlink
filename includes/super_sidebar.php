@@ -21,6 +21,7 @@
             ['dashboard.php',           '📊', 'Dashboard'],
             ['scholarships.php',        '🎓', 'Manage Scholarships'],
             ['manage_applications.php', '📂', 'Manage Applications'],
+            ['appeals.php',             '⚖️', 'Appeals'],
             ['users.php',               '👥', 'Users'],
             ['profile_requests.php',    '📝', 'Profile Requests'],
             ['logs.php',                '📋', 'Logs'],

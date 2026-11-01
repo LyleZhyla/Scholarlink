@@ -136,6 +136,10 @@ $need = [
     ['application', 'LastSavedAt', '2026-11-01_application_lifecycle.sql'],
     ['application_versions', null, '2026-11-01_application_lifecycle.sql'],
     ['submitted_document_versions', null, '2026-11-01_application_lifecycle.sql'],
+    ['scholarship', 'AppealWindowDays', '2026-11-01_application_appeals.sql'],
+    ['application', 'AppealDeadline', '2026-11-01_application_appeals.sql'],
+    ['application_appeals', null, '2026-11-01_application_appeals.sql'],
+    ['appeal_documents', null, '2026-11-01_application_appeals.sql'],
 ];
 $missing = [];
 foreach ($need as [$table, $column, $migration]) {

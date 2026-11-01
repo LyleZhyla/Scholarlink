@@ -33,6 +33,7 @@ $owner = null;
 $scholarship_ids = [];
 $lookups = [
     "SELECT a.UserID, a.ScholarshipID FROM submitted_document d JOIN application a ON a.ApplicationID = d.ApplicationID WHERE d.FilePath IN (?, ?)",
+    "SELECT ap.ApplicantID, a.ScholarshipID FROM appeal_documents d JOIN application_appeals ap ON ap.AppealID = d.AppealID JOIN application a ON a.ApplicationID = ap.ApplicationID WHERE d.FilePath IN (?, ?)",
     "SELECT r.UserID, a.ScholarshipID FROM scholar_renewals r LEFT JOIN application a ON a.ApplicationID = r.ApplicationID WHERE ? IN (r.ROG_FilePath, r.COR_FilePath, r.Appeal_FilePath) OR ? IN (r.ROG_FilePath, r.COR_FilePath, r.Appeal_FilePath)",
     "SELECT UserID, NULL FROM user_vault WHERE FilePath IN (?, ?)",
     "SELECT UserID, NULL FROM users WHERE ProfilePicture IN (?, ?)",

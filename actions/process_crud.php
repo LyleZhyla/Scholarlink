@@ -2,6 +2,7 @@
 session_start();
 require '../includes/db_connect.php';
 require_once '../includes/application_lifecycle.php';
+require_once '../includes/appeals.php';
 
 // Using require_once to ensure the function is defined and paths are correct
 if (file_exists('../includes/email_config.php')) {
@@ -706,7 +707,7 @@ if ($module === 'applications' && $action === 'score') {
 if ($module === 'applications' && $action === 'update_status') {
     $app_id = $_POST['id'] ?? null;
     $status = $_POST['status'] ?? '';
-    $allowed_statuses = ['Submitted', 'Under Review', 'For Resubmission', 'Shortlisted', 'Approved', 'Rejected'];
+    $allowed_statuses = ['Submitted', 'Under Review', 'For Resubmission', 'Shortlisted', 'Approved', 'Rejected', 'Disqualified'];
     if (!in_array($status, $allowed_statuses, true)) {
         $_SESSION['error'] = 'Invalid application status.';
         header("Location: " . ($_SERVER['HTTP_REFERER'] ?? '../admin_login.php'));
@@ -725,8 +726,14 @@ if ($module === 'applications' && $action === 'update_status') {
 
     if ($app_id && !empty($status)) {
         try {
-            $stmt = $pdo->prepare("UPDATE application SET Status = :status, ResubmissionAllowed = :allowed, LastSavedAt = NOW() WHERE ApplicationID = :id");
-            $stmt->execute(['status' => $status, 'allowed' => $status === 'For Resubmission' ? 1 : 0, 'id' => $app_id]);
+            $appeal_deadline = null;
+            if (in_array($status, ['Rejected', 'Disqualified'], true)) {
+                $appeal_deadline = setApplicationDecision($pdo, (int) $app_id, $status);
+                $pdo->prepare("UPDATE application SET ResubmissionAllowed = 0, LastSavedAt = NOW() WHERE ApplicationID = ?")->execute([$app_id]);
+            } else {
+                $stmt = $pdo->prepare("UPDATE application SET Status = :status, ResubmissionAllowed = :allowed, LastSavedAt = NOW() WHERE ApplicationID = :id");
+                $stmt->execute(['status' => $status, 'allowed' => $status === 'For Resubmission' ? 1 : 0, 'id' => $app_id]);
+            }
             snapshotApplicationVersion($pdo, (int) $app_id, $status === 'For Resubmission' ? 'Correction Requested' : 'Status Changed', (int) $_SESSION['user_id'], "Status changed to $status");
 
             $info_stmt = $pdo->prepare("
@@ -757,9 +764,11 @@ if ($module === 'applications' && $action === 'update_status') {
                 try {
                     $notif_title = "Status Update: " . $status;
                     $notif_msg = $status === 'For Resubmission'
-                        ? "Corrections are required for your " . $info['scholarship_name'] . " application. Open My Applications, replace the requested documents, then resubmit."
-                        : "Your application for the " . $info['scholarship_name'] . " has been updated to: " . $status . ".";
-                    $notif_type = ($status === 'Rejected') ? 'danger' : (($status === 'Approved') ? 'success' : 'info');
+                        ? "Corrections are required for your " . $info['scholarship_name'] . " application. Open My Applications, edit the requested documents, then resubmit."
+                        : (in_array($status, ['Rejected', 'Disqualified'], true)
+                            ? "Your application for the {$info['scholarship_name']} was $status. You may file a formal appeal from My Applications until $appeal_deadline."
+                            : "Your application for the " . $info['scholarship_name'] . " has been updated to: " . $status . ".");
+                    $notif_type = in_array($status, ['Rejected', 'Disqualified'], true) ? 'danger' : (($status === 'Approved') ? 'success' : 'info');
                     
                     $notif_stmt = $pdo->prepare("INSERT INTO notifications (UserID, Title, Message, Type) VALUES (:uid, :title, :msg, :type)");
                     $notif_stmt->execute(['uid' => $info['UserID'], 'title' => $notif_title, 'msg' => $notif_msg, 'type' => $notif_type]);
@@ -1180,10 +1189,10 @@ if ($module === 'applications' && $action === 'final_decision') {
         }
     }
 
-    if (in_array($status, ['Approved', 'Rejected'])) {
+    if (in_array($status, ['Approved', 'Rejected', 'Disqualified'], true)) {
         try {
-            $stmt = $pdo->prepare("UPDATE application SET Status = :status WHERE ApplicationID = :id");
-            $stmt->execute(['status' => $status, 'id' => $application_id]);
+            $appeal_deadline = setApplicationDecision($pdo, (int) $application_id, $status);
+            snapshotApplicationVersion($pdo, (int) $application_id, 'Final Decision', (int) $_SESSION['user_id'], "Application marked as $status");
 
             $log = $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (?, ?, NOW(), ?, ?)");
             $log->execute([$_SESSION['user_id'], "Application $status", str_replace('_', ' ', $_SESSION['role']) . " marked Application #$application_id as $status", $_SERVER['REMOTE_ADDR']]);
@@ -1205,7 +1214,7 @@ if ($module === 'applications' && $action === 'final_decision') {
                     notifyAwardee($pdo, (int) $application_id);
                 } else {
                     $notif_stmt = $pdo->prepare("INSERT INTO notifications (UserID, Title, Message, Type) VALUES (?, ?, ?, 'danger')");
-                    $notif_stmt->execute([$info['UserID'], 'Application Update', "Your application for the " . $info['Name'] . " has been reviewed and marked as Rejected."]);
+                    $notif_stmt->execute([$info['UserID'], 'Application Update', "Your application for {$info['Name']} has been reviewed and marked as $status. You may file a formal appeal from My Applications until $appeal_deadline."]);
 
                     if (!empty($info['Email'])) {
                         sendScholarshipEmail($info['Email'], $info['FirstName'], $info['Name'], $status);
@@ -1237,7 +1246,7 @@ if ($module === 'applications' && $action === 'final_decision') {
             if($status === 'Approved') {
                 $_SESSION['success'] = "Application officially Approved! The student is now a Scholar and has been notified via email.";
             } else {
-                $_SESSION['success'] = "Application has been Rejected and the student has been notified.";
+                $_SESSION['success'] = "Application has been $status. The student was notified of the appeal deadline ($appeal_deadline).";
             }
         } catch (PDOException $e) {
             $_SESSION['error'] = "Database Error: " . $e->getMessage();

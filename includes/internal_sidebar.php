@@ -28,6 +28,11 @@
             <span class="sidebar-text">Masterlist</span>
         </a>
 
+        <a href="appeals.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('appeals.php') ?> whitespace-nowrap">
+            <span class="w-10 flex justify-center text-xl shrink-0">⚖️</span>
+            <span class="sidebar-text">Appeals</span>
+        </a>
+
         <!-- ✨ ITO ANG BAGONG RENEWALS BUTTON 
         <a href="manage_renewals.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('manage_renewals.php') ?> whitespace-nowrap">
             <span class="w-10 flex justify-center text-xl shrink-0">🔄</span>
