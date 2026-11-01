@@ -687,9 +687,89 @@ if ($is_logged_in) {
         html.dark .partner-card.is-tau .partner-mark { background: #e8f1ec; }
         html.dark .nav-links { background: transparent; }
         @media (max-width: 768px) { html.dark .nav-links { background: #0d1813; } }
+
+        /* ==========================================================
+           LIVING BACKGROUND: drifting colour glows, a dot pattern and floating icons behind the page
+           ========================================================== */
+        body { background: var(--wash); }
+        .page-bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+        .page-bg .glow { position: absolute; border-radius: 50%; will-change: transform; animation: glow-drift 30s ease-in-out infinite alternate; }
+        .page-bg .g1 { width: 70vmax; height: 70vmax; top: -30vmax; right: -22vmax; background: radial-gradient(circle, rgba(52, 211, 153, 0.34), rgba(52, 211, 153, 0) 62%); }
+        .page-bg .g2 { width: 60vmax; height: 60vmax; top: 22vh; left: -28vmax; background: radial-gradient(circle, rgba(245, 197, 66, 0.24), rgba(245, 197, 66, 0) 62%); animation-duration: 36s; animation-delay: -9s; }
+        .page-bg .g3 { width: 64vmax; height: 64vmax; bottom: -34vmax; right: -6vmax; background: radial-gradient(circle, rgba(96, 165, 250, 0.20), rgba(96, 165, 250, 0) 62%); animation-duration: 42s; animation-delay: -18s; }
+        .page-bg .g4 { width: 40vmax; height: 40vmax; top: 48vh; left: 38vw; background: radial-gradient(circle, rgba(16, 185, 129, 0.16), rgba(16, 185, 129, 0) 62%); animation-duration: 26s; animation-delay: -4s; }
+        @keyframes glow-drift {
+            0%   { transform: translate3d(0, 0, 0) scale(1); }
+            50%  { transform: translate3d(5vmax, 4vmax, 0) scale(1.1); }
+            100% { transform: translate3d(-4vmax, 7vmax, 0) scale(0.94); }
+        }
+        .page-bg .dots { position: absolute; inset: 0; background-image: radial-gradient(rgba(13, 43, 30, 0.10) 1px, transparent 1.2px); background-size: 22px 22px;
+            -webkit-mask-image: radial-gradient(ellipse 85% 55% at 50% 0%, #000 25%, transparent 75%); mask-image: radial-gradient(ellipse 85% 55% at 50% 0%, #000 25%, transparent 75%); }
+        .page-bg .float { position: absolute; color: var(--green); opacity: 0.08; font-size: clamp(26px, 3.6vw, 54px); animation: float-bob 10s ease-in-out infinite; }
+        .page-bg .float.gold { color: var(--gold); opacity: 0.10; }
+        .page-bg .float.sky { color: var(--sky); opacity: 0.07; }
+        @keyframes float-bob { 50% { transform: translateY(-20px) rotate(10deg); } }
+
+        /* Thin progress line under the header while scrolling */
+        .scroll-progress { position: absolute; left: 0; bottom: -1px; height: 3px; width: 100%; transform-origin: left; transform: scaleX(var(--progress, 0));
+            background: linear-gradient(90deg, #10b981, #34d399 50%, #f0b429); border-radius: 0 3px 3px 0; }
+
+        /* Frosted cards: the colours behind show through */
+        .search-command-center, .type-card, .partner-card, .faq-item {
+            background: rgba(255, 255, 255, 0.72); border-color: rgba(225, 236, 229, 0.9);
+            -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%); }
+        .faq-item.is-open { background: rgba(255, 255, 255, 0.92); }
+        .type-card:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--cat) 35%, transparent), 0 22px 44px color-mix(in srgb, var(--cat) 18%, transparent); }
+        .partner-card:hover { box-shadow: 0 14px 30px rgba(16, 185, 129, 0.14); }
+
+        /* Section titles in a soft green gradient (the dark "How it works" panel keeps white) */
+        .section-title { background: linear-gradient(100deg, var(--ink) 30%, #157347); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .journey .section-title { background: none; color: #fff; }
+        .eyebrow { padding: 4px 10px 4px 8px; border-radius: 999px; background: rgba(25, 135, 84, 0.08); }
+        .eyebrow.light { background: rgba(167, 243, 208, 0.12); }
+
+        /* A tinted band behind the partners, so the page has rhythm */
+        #partners { position: relative; padding: 56px 0; margin: 18px 0; }
+        #partners::before { content: ''; position: absolute; inset: 0; z-index: -1;
+            background: radial-gradient(600px 220px at 15% 0%, rgba(52, 211, 153, 0.18), transparent 70%), radial-gradient(520px 220px at 85% 100%, rgba(245, 197, 66, 0.16), transparent 70%),
+                        linear-gradient(180deg, rgba(232, 245, 238, 0), rgba(232, 245, 238, 0.85) 18%, rgba(232, 245, 238, 0.85) 82%, rgba(232, 245, 238, 0)); }
+
+        /* Cards arrive one after another when their section scrolls in */
+        @keyframes rise-in { from { opacity: 0; transform: translateY(16px) scale(0.98); } }
+        .reveal.is-visible .type-card, .reveal.is-visible .journey-steps li, .reveal.is-visible .partner-card, .reveal.is-visible .faq-item {
+            animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards; animation-delay: calc(var(--i, 0) * 70ms + 80ms); }
+
+        /* Dark mode: deeper glows, light dots */
+        html.dark .page-bg .g1 { background: radial-gradient(circle, rgba(16, 185, 129, 0.20), rgba(16, 185, 129, 0) 62%); }
+        html.dark .page-bg .g2 { background: radial-gradient(circle, rgba(201, 151, 28, 0.14), rgba(201, 151, 28, 0) 62%); }
+        html.dark .page-bg .g3 { background: radial-gradient(circle, rgba(37, 99, 235, 0.14), rgba(37, 99, 235, 0) 62%); }
+        html.dark .page-bg .dots { background-image: radial-gradient(rgba(232, 241, 236, 0.07) 1px, transparent 1.2px); }
+        html.dark .page-bg .float { opacity: 0.06; }
+        html.dark body { background: var(--wash); }
+        html.dark .search-command-center, html.dark .type-card, html.dark .partner-card, html.dark .faq-item { background: rgba(16, 28, 22, 0.72); border-color: var(--line); }
+        html.dark .faq-item.is-open { background: rgba(16, 28, 22, 0.92); }
+        html.dark .section-title { background: linear-gradient(100deg, var(--ink) 30%, #6ee7b7); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        html.dark .journey .section-title { background: none; color: #fff; }
+        html.dark #partners::before { background: radial-gradient(600px 220px at 15% 0%, rgba(16, 185, 129, 0.12), transparent 70%), linear-gradient(180deg, rgba(16, 28, 22, 0), rgba(16, 28, 22, 0.7) 18%, rgba(16, 28, 22, 0.7) 82%, rgba(16, 28, 22, 0)); }
+
+        @media (prefers-reduced-motion: reduce) {
+            .page-bg .glow, .page-bg .float { animation: none; }
+            .reveal.is-visible .type-card, .reveal.is-visible .journey-steps li, .reveal.is-visible .partner-card, .reveal.is-visible .faq-item { animation: none; }
+        }
+        @media (max-width: 768px) { .page-bg .float { display: none; } }
     </style>
 </head>
 <body>
+    <!-- Decorative background (see LIVING BACKGROUND in the styles) -->
+    <div class="page-bg" aria-hidden="true">
+        <span class="glow g1"></span><span class="glow g2"></span><span class="glow g3"></span><span class="glow g4"></span>
+        <span class="dots"></span>
+        <i class="float fas fa-graduation-cap" style="top: 16%; left: 4%;"></i>
+        <i class="float gold fas fa-star" style="top: 38%; right: 3%; animation-delay: -3s;"></i>
+        <i class="float sky fas fa-book-open" style="top: 62%; left: 2.5%; animation-delay: -6s;"></i>
+        <i class="float gold fas fa-award" style="top: 80%; right: 4%; animation-delay: -1.5s;"></i>
+        <i class="float fas fa-seedling" style="top: 92%; left: 46%; animation-delay: -7s;"></i>
+    </div>
     <?php
         // ✨ ANNOUNCEMENT BAR: built from the active term and the open scholarships (or the admins' own text, landing_content "announcement")
         $announcement = trim((string) ($cms['announcement']['body'] ?? ''));
@@ -742,6 +822,7 @@ if ($is_logged_in) {
                 <i class="fas fa-bars"></i>
             </button>
         </nav>
+        <span class="scroll-progress" id="scrollProgress" aria-hidden="true"></span>
     </header>
 
     <main>
@@ -830,14 +911,14 @@ if ($is_logged_in) {
                             <div class="stat-tile">
                                 <span class="stat-icon green"><i class="fas fa-graduation-cap"></i></span>
                                 <div>
-                                    <strong><?= number_format($active_scholarship_count) ?></strong>
+                                    <strong data-count="<?= (int) $active_scholarship_count ?>"><?= number_format($active_scholarship_count) ?></strong>
                                     <span>Open Grants</span>
                                 </div>
                             </div>
                             <div class="stat-tile">
                                 <span class="stat-icon gold"><i class="fas fa-peso-sign"></i></span>
                                 <div>
-                                    <strong>₱<?= number_format($total_active_award_value) ?></strong>
+                                    <strong data-count="<?= (int) $total_active_award_value ?>" data-prefix="₱">₱<?= number_format($total_active_award_value) ?></strong>
                                     <span>Combined Awards</span>
                                 </div>
                             </div>
@@ -1367,6 +1448,39 @@ if ($is_logged_in) {
             heroSetAuto(false);
             document.getElementById('grants').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
+
+        // Cards in a section arrive one after another (their order sets the delay)
+        document.querySelectorAll('.type-grid, .journey-steps, .partner-grid, .faq-list').forEach(group => {
+            Array.from(group.children).forEach((child, i) => child.style.setProperty('--i', Math.min(i, 12)));
+        });
+
+        const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        // Hero numbers count up once
+        if (!calm) document.querySelectorAll('[data-count]').forEach(el => {
+            const target = parseInt(el.dataset.count, 10), prefix = el.dataset.prefix || '', start = performance.now(), ms = 1400;
+            if (!(target > 0)) return;
+            const step = now => {
+                const t = Math.min(1, (now - start) / ms), eased = 1 - Math.pow(1 - t, 3);
+                el.textContent = prefix + Math.round(target * eased).toLocaleString('en-US');
+                if (t < 1) requestAnimationFrame(step);
+            };
+            requestAnimationFrame(step);
+        });
+
+        // Progress line under the header
+        (function () {
+            const bar = document.getElementById('scrollProgress');
+            if (!bar) return;
+            let queued = false;
+            const update = () => {
+                const max = document.documentElement.scrollHeight - window.innerHeight;
+                bar.style.setProperty('--progress', max > 0 ? Math.min(1, window.scrollY / max).toFixed(4) : 0);
+                queued = false;
+            };
+            window.addEventListener('scroll', () => { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
+            update();
+        })();
 
         // Sections fade in as they scroll into view
         (function () {
