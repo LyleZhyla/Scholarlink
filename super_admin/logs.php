@@ -155,23 +155,16 @@ try {
         </div>
     </div>
 
-    <form action="../actions/process_crud.php" method="POST" id="batchDeleteForm" onsubmit="return confirm('Are you sure you want to delete the selected logs? This cannot be undone.');">
-        <input type="hidden" name="module" value="logs">
-        <input type="hidden" name="action" value="delete_batch">
+    <div id="batchDeleteForm">
 
         <div class="bg-slate-900 p-4 lg:p-5 rounded-[1.5rem] flex items-center justify-between mb-4 shadow-md sticky top-[5.5rem] z-40 backdrop-blur-md bg-slate-900/90 border border-slate-800">
-            <div class="flex items-center gap-3 px-2">
-                <input type="checkbox" id="selectAll" class="w-4 h-4 rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500 cursor-pointer">
-                <label for="selectAll" class="text-[12px] font-black text-slate-300 uppercase tracking-widest cursor-pointer select-none">Select Visible</label>
-            </div>
+            <div class="flex items-center gap-3 px-2 text-[12px] font-black text-slate-300 uppercase tracking-widest">Protected Audit Records</div>
             
             <div class="flex items-center gap-4">
                 <span class="hidden sm:flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
                     Live Feed <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
                 </span>
-                <button type="submit" id="deleteBtn" disabled class="bg-red-500 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-red-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-red-500 shadow-md">
-                    Delete Selected
-                </button>
+                <a href="privacy_lifecycle.php" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md">Retention &amp; Disposal</a>
             </div>
         </div>
         
@@ -190,8 +183,6 @@ try {
                 <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
                 
                 <div class="flex gap-4 items-center flex-1 min-w-0 pl-3 w-full lg:w-auto">
-                    <input type="checkbox" name="log_ids[]" value="<?= $log['AuditID'] ?>" class="log-checkbox w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0">
-                    
                     <div class="shrink-0 w-24 lg:w-28 border-r border-slate-100 pr-3 lg:pr-4 hidden sm:block">
                         <p class="text-[11px] lg:text-[12px] font-black text-slate-900 uppercase tracking-widest"><?= date('M d, Y', strtotime($log['ActionDate'])) ?></p>
                         <p class="text-[10px] font-black text-slate-500 font-mono tracking-wider mt-0.5"><?= date('h:i:s A', strtotime($log['ActionDate'])) ?></p>
@@ -220,9 +211,6 @@ try {
                         </p>
                     </div>
                     
-                    <button type="button" onclick="deleteSingleLog(<?= $log['AuditID'] ?>)" class="ml-4 lg:opacity-0 lg:group-hover:opacity-100 text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all shadow-sm active:scale-95" title="Delete this log">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                    </button>
                 </div>
             </div>
             <?php endforeach; ?>
@@ -246,13 +234,7 @@ try {
                 Showing 1 to X of X Logs
             </div>
         </div>
-    </form>
-    
-    <form id="singleDeleteForm" action="../actions/process_crud.php" method="POST" class="hidden">
-        <input type="hidden" name="module" value="logs">
-        <input type="hidden" name="action" value="delete_single">
-        <input type="hidden" name="log_id" id="singleDeleteId" value="">
-    </form>
+    </div>
 
 </main>
 
@@ -328,7 +310,6 @@ try {
         
         allCards.forEach(card => {
             card.style.display = 'none';
-            card.querySelector('.log-checkbox').checked = false; 
         });
 
         const start = (currentPage - 1) * itemsPerPage;
@@ -378,8 +359,6 @@ try {
         const paginationControls = document.getElementById('paginationControls');
         if(paginationControls) paginationControls.innerHTML = btnHtml;
 
-        document.getElementById('selectAll').checked = false;
-        updateDeleteButton();
     }
 
     function changePage(page) {
@@ -398,43 +377,6 @@ try {
 
     document.addEventListener('DOMContentLoaded', renderPagination);
 
-    // ========================================================
-    // BATCH DELETE LOGIC
-    // ========================================================
-    const selectAllBtn = document.getElementById('selectAll');
-    const deleteBtn = document.getElementById('deleteBtn');
-
-    function getVisibleCheckboxes() {
-        return Array.from(document.querySelectorAll('.log-card[style*="display: flex"] .log-checkbox'));
-    }
-
-    function updateDeleteButton() {
-        const visibleCheckboxes = getVisibleCheckboxes();
-        const anyChecked = visibleCheckboxes.some(cb => cb.checked);
-        deleteBtn.disabled = !anyChecked;
-    }
-
-    selectAllBtn.addEventListener('change', function() {
-        const visibleCheckboxes = getVisibleCheckboxes();
-        visibleCheckboxes.forEach(cb => cb.checked = this.checked);
-        updateDeleteButton();
-    });
-
-    document.getElementById('logsGrid').addEventListener('change', function(e) {
-        if(e.target.classList.contains('log-checkbox')) {
-            const visibleCheckboxes = getVisibleCheckboxes();
-            if (!e.target.checked) selectAllBtn.checked = false;
-            if (visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked)) selectAllBtn.checked = true;
-            updateDeleteButton();
-        }
-    });
-
-    function deleteSingleLog(id) {
-        if(confirm('Are you sure you want to delete this specific log entry?')) {
-            document.getElementById('singleDeleteId').value = id;
-            document.getElementById('singleDeleteForm').submit();
-        }
-    }
 </script>
 
 <?php include '../includes/footer.php'; ?>

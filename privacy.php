@@ -2,7 +2,7 @@
 // ✨ DATA PRIVACY NOTICE (Data Privacy Act of 2012, RA 10173)
 // Linked from the landing page footer and the registration form, where students must agree to it.
 require_once 'includes/ossd_contact.php';
-$updated = 'October 24, 2026';
+$updated = 'November 2, 2026';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -69,7 +69,8 @@ $updated = 'October 24, 2026';
             <p>We do <b>not</b> sell your personal information or use it for advertising.</p>
 
             <h2 class="text-slate-900">4. How long we keep it</h2>
-            <p>We keep your information for as long as you have an account and as long as needed for your scholarships and the records the University, sponsors and government agencies require to keep, following TAU's records retention rules. After that, it is securely deleted or anonymized.</p>
+            <p>Our operational retention schedule begins from the stated trigger: rejected or disqualified applicant records for <b>2 years</b>; withdrawn or otherwise closed applications and uploaded documents for <b>5 years</b>; scholar and benefit records for <b>10 years</b> subject to records-officer review; security audit logs for <b>7 years</b>; and database backups for <b>30 days</b>. Authorized administrators may update these periods when law, sponsor terms, accounting rules, or TAU records policies require it.</p>
+            <p>When a period ends, the record enters a review queue. Disposal is blocked by an investigation, appeal, legal hold, or continuing legal obligation. Approved records are anonymized or securely disposed of according to policy, and every approval, hold, and disposition is recorded in the audit trail.</p>
 
             <h2 class="text-slate-900">5. How we protect it</h2>
             <ul>
@@ -91,6 +92,7 @@ $updated = 'October 24, 2026';
                 <li><b>file a complaint</b> with the National Privacy Commission (privacy.gov.ph).</li>
             </ul>
             <p>Withdrawing consent may mean we can no longer process your scholarship applications.</p>
+            <p>Signed-in students can use <b>Privacy Rights</b> in the Student Portal to request access, correction, anonymization, erasure or blocking, or consent withdrawal, and to download a portable JSON copy of their data. Requests are restricted to authorized privacy personnel and carry a target response date.</p>
 
             <h2 class="text-slate-900">7. Contact us</h2>
             <p>For questions, requests or concerns about your personal information, contact the office below, which will coordinate with the University's Data Protection Officer.</p>

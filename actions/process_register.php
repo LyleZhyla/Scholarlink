@@ -201,6 +201,8 @@ try {
     ]);
 
     $new_user_id = (int) $pdo->lastInsertId();
+    $consent = $pdo->prepare("INSERT INTO privacy_consents (UserID, NoticeVersion, ConsentStatus, ConsentText, IPAddress) VALUES (?, '2026-11-02', 'Granted', ?, ?)");
+    $consent->execute([$new_user_id, 'I have read and agree to the ScholarLink Data Privacy Notice and consent to the processing described in it.', $_SERVER['REMOTE_ADDR'] ?? null]);
     unset($_SESSION['scanned_program_id'], $_SESSION['rog_verified']);
     if ($units_enrolled > 0) {
         $pdo->prepare("UPDATE users SET UnitsEnrolled = ? WHERE UserID = ?")->execute([$units_enrolled, $new_user_id]);

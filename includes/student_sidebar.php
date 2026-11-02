@@ -70,6 +70,10 @@
             <span class="icon-box">👤</span>
             <span class="sidebar-text">Profile</span>
         </a>
+        <a href="privacy_requests.php" class="nav-link <?= getSidebarClass('privacy_requests.php') ?>">
+            <span class="icon-box">🔐</span>
+            <span class="sidebar-text">Privacy Rights</span>
+        </a>
     </nav>
 
     <div class="pt-6 border-t border-slate-800">

@@ -33,6 +33,7 @@
             ['profile_requests.php',    '📝', 'Profile Requests'],
             ['logs.php',                '📋', 'Logs'],
             ['security.php',            '🛡️', 'Security'],
+            ['privacy_lifecycle.php',   '🔐', 'Privacy Lifecycle'],
             ['database.php',            '🗄️', 'Database']
         ];
 

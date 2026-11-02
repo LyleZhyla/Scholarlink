@@ -160,6 +160,10 @@ $need = [
     ['application_scorecards', null, '2026-11-02_scoring_rubrics.sql'],
     ['application_score_items', null, '2026-11-02_scoring_rubrics.sql'],
     ['score_overrides', null, '2026-11-02_scoring_rubrics.sql'],
+    ['privacy_retention_policies', null, '2026-11-02_data_privacy_lifecycle.sql'],
+    ['privacy_consents', null, '2026-11-02_data_privacy_lifecycle.sql'],
+    ['privacy_requests', null, '2026-11-02_data_privacy_lifecycle.sql'],
+    ['privacy_retention_cases', null, '2026-11-02_data_privacy_lifecycle.sql'],
 ];
 $missing = [];
 foreach ($need as [$table, $column, $migration]) {

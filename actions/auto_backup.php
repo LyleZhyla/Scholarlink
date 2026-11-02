@@ -6,6 +6,7 @@ ignore_user_abort(true);
 set_time_limit(0);
 
 require '../includes/db_connect.php';
+require_once '../includes/privacy_lifecycle.php';
 
 $backup_dir = '../backups/';
 
@@ -52,20 +53,21 @@ try {
     // I-save ang file sa loob ng backups folder
     file_put_contents($backup_file_name, $sqlScript);
 
-    // ✨ STORAGE MANAGEMENT: Auto-Delete ng mga backups na 7 days old na
+    // STORAGE MANAGEMENT: use the active, authorized retention policy.
+    $backup_retention_days = privacyRetentionDays($pdo, 'backups', 30);
     $files = glob($backup_dir . '*.sql');
     $now = time();
     foreach ($files as $file) {
         if (is_file($file)) {
-            if ($now - filemtime($file) >= 60 * 60 * 24 * 7) { // 7 Days limit
-                unlink($file);
+            if ($now - filemtime($file) >= 60 * 60 * 24 * $backup_retention_days) {
+                secureDisposeFile($file);
             }
         }
     }
 
     // I-log sa Audit Trail (Using UserID 1 or System Default)
-    $log = $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (1, 'System Auto-Backup', NOW(), 'Automated daily database backup completed.', 'System')");
-    $log->execute();
+    $log = $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (1, 'System Auto-Backup', NOW(), ?, 'System')");
+    $log->execute(["Automated daily database backup completed; retention policy is {$backup_retention_days} day(s)."]);
 
 } catch (Exception $e) {
     // Kung mag-error, isusulat sa error log ng server pero hindi makikita ng user

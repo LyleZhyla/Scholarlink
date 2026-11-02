@@ -1348,28 +1348,7 @@ if ($module === 'logs') {
         header("Location: ../super_admin/audit_unlock.php");
         exit();
     }
-    if ($action === 'delete_single') {
-        $log_id = $_POST['log_id'] ?? null;
-        if ($log_id) {
-            try {
-                $stmt = $pdo->prepare("DELETE FROM audit_log WHERE AuditID = :id");
-                $stmt->execute(['id' => $log_id]);
-                $_SESSION['success'] = "Log entry successfully deleted.";
-            } catch (PDOException $e) { $_SESSION['error'] = "Failed to delete log: " . $e->getMessage(); }
-        }
-    } elseif ($action === 'delete_batch') {
-        $log_ids = $_POST['log_ids'] ?? [];
-        if (!empty($log_ids)) {
-            try {
-                $placeholders = implode(',', array_fill(0, count($log_ids), '?'));
-                $stmt = $pdo->prepare("DELETE FROM audit_log WHERE AuditID IN ($placeholders)");
-                $stmt->execute($log_ids);
-                $_SESSION['success'] = count($log_ids) . " log entries successfully deleted.";
-            } catch (PDOException $e) { $_SESSION['error'] = "Failed to delete logs: " . $e->getMessage(); }
-        } else {
-            $_SESSION['error'] = "No logs were selected for deletion.";
-        }
-    }
+    $_SESSION['error'] = "Audit logs cannot be deleted directly. Use Privacy Lifecycle after retention eligibility, legal-hold review, and approval.";
     header("Location: ../super_admin/logs.php");
     exit();
 }
