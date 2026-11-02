@@ -22,6 +22,7 @@
             ['scholarships.php',        '🎓', 'Manage Scholarships'],
             ['manage_applications.php', '📂', 'Manage Applications'],
             ['appeals.php',             '⚖️', 'Appeals'],
+            ['waitlist.php',            '📋', 'Waitlist'],
             ['users.php',               '👥', 'Users'],
             ['profile_requests.php',    '📝', 'Profile Requests'],
             ['logs.php',                '📋', 'Logs'],

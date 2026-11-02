@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS `application_waitlist` (
+  `WaitlistID` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `ApplicationID` int(11) NOT NULL,
+  `ScholarshipID` int(11) NOT NULL,
+  `RankPosition` int unsigned NOT NULL,
+  `RankingScore` decimal(8,2) NOT NULL DEFAULT 0.00,
+  `Status` enum('Waiting','Offered','Promoted','Removed') NOT NULL DEFAULT 'Waiting',
+  `PlacedBy` int(11) DEFAULT NULL,
+  `PlacedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  `OfferedBy` int(11) DEFAULT NULL,
+  `OfferedAt` datetime DEFAULT NULL,
+  `PromotedBy` int(11) DEFAULT NULL,
+  `PromotedAt` datetime DEFAULT NULL,
+  `UpdatedAt` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`WaitlistID`),
+  UNIQUE KEY `uq_waitlist_application` (`ApplicationID`),
+  KEY `idx_waitlist_rank` (`ScholarshipID`,`Status`,`RankPosition`),
+  CONSTRAINT `fk_waitlist_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_waitlist_scholarship` FOREIGN KEY (`ScholarshipID`) REFERENCES `scholarship` (`ScholarshipID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_waitlist_placed_by` FOREIGN KEY (`PlacedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL,
+  CONSTRAINT `fk_waitlist_offered_by` FOREIGN KEY (`OfferedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL,
+  CONSTRAINT `fk_waitlist_promoted_by` FOREIGN KEY (`PromotedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

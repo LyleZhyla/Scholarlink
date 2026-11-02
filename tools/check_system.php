@@ -140,6 +140,7 @@ $need = [
     ['application', 'AppealDeadline', '2026-11-01_application_appeals.sql'],
     ['application_appeals', null, '2026-11-01_application_appeals.sql'],
     ['appeal_documents', null, '2026-11-01_application_appeals.sql'],
+    ['application_waitlist', null, '2026-11-02_ranked_waitlist.sql'],
 ];
 $missing = [];
 foreach ($need as [$table, $column, $migration]) {

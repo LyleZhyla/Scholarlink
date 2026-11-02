@@ -28,11 +28,13 @@ try {
                sch.ReleaseFrequency,
                sch.Deadline, a.LastSavedAt, a.WithdrawnAt, a.ResubmissionAllowed, a.AppealDeadline,
                ap.AppealID, ap.Status AS appeal_status,
+               wl.WaitlistID, wl.RankPosition, wl.Status AS waitlist_status, wl.OfferedAt, wl.PromotedAt,
                u.Major AS course, u.YearLevel AS year_level
         FROM application a
         JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID
         JOIN users u ON a.UserID = u.UserID
         LEFT JOIN application_appeals ap ON ap.ApplicationID = a.ApplicationID
+        LEFT JOIN application_waitlist wl ON wl.ApplicationID = a.ApplicationID
         WHERE a.UserID = :uid
         ORDER BY a.DateSubmitted DESC
     ");
@@ -101,6 +103,9 @@ function getStatusStyle($status) {
         'Draft' => 'bg-amber-50 text-amber-700 border-amber-200',
         'Withdrawn' => 'bg-slate-100 text-slate-600 border-slate-200',
         'For Resubmission' => 'bg-orange-50 text-orange-700 border-orange-200',
+        'Waitlisted' => 'bg-blue-50 text-blue-700 border-blue-200',
+        'Waitlist Offered' => 'bg-amber-50 text-amber-700 border-amber-200',
+        'Slot Vacated' => 'bg-slate-100 text-slate-600 border-slate-200',
         'Under Review', 'Verified' => 'bg-amber-50 text-amber-600 border-amber-100',
         'Shortlisted', 'Scored' => 'bg-purple-50 text-purple-600 border-purple-100',
         'Approved' => 'bg-green-50 text-green-600 border-green-100',
@@ -109,10 +114,10 @@ function getStatusStyle($status) {
     };
 }
 function getProgressWidth($status) {
-    return match($status) { 'Submitted' => 'w-1/4', 'Under Review', 'Verified' => 'w-2/4', 'Shortlisted', 'Scored' => 'w-3/4', 'Approved', 'Rejected', 'Disqualified' => 'w-full', default => 'w-1/4' };
+    return match($status) { 'Submitted' => 'w-1/4', 'Under Review', 'Verified' => 'w-2/4', 'Shortlisted', 'Scored', 'Waitlisted', 'Waitlist Offered' => 'w-3/4', 'Approved', 'Rejected', 'Disqualified', 'Slot Vacated' => 'w-full', default => 'w-1/4' };
 }
 function getProgressColor($status) {
-    return match($status) { 'Approved' => 'bg-green-500', 'Rejected', 'Disqualified' => 'bg-red-500', 'Shortlisted', 'Scored' => 'bg-purple-500', 'Under Review', 'Verified' => 'bg-amber-500', default => 'bg-blue-500' };
+    return match($status) { 'Approved' => 'bg-green-500', 'Rejected', 'Disqualified' => 'bg-red-500', 'Waitlist Offered' => 'bg-amber-500', 'Shortlisted', 'Scored', 'Waitlisted' => 'bg-purple-500', 'Under Review', 'Verified' => 'bg-amber-500', default => 'bg-blue-500' };
 }
 ?>
 
@@ -182,11 +187,18 @@ function getProgressColor($status) {
                     </div>
                 </div>
 
+                <?php if(!empty($app['WaitlistID'])): ?>
+                    <div class="mt-4 p-4 rounded-2xl border <?= $app['waitlist_status'] === 'Offered' ? 'bg-amber-50 border-amber-200' : ($app['waitlist_status'] === 'Promoted' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200') ?>">
+                        <p class="text-[10px] font-black uppercase tracking-widest <?= $app['waitlist_status'] === 'Offered' ? 'text-amber-700' : ($app['waitlist_status'] === 'Promoted' ? 'text-green-700' : 'text-blue-700') ?>">Ranked Waitlist · #<?= (int) $app['RankPosition'] ?></p>
+                        <p class="text-xs font-bold text-slate-600 mt-1"><?= $app['waitlist_status'] === 'Offered' ? 'A vacant slot has been offered. Final promotion is awaiting administrator approval.' : ($app['waitlist_status'] === 'Promoted' ? 'Your promotion from the waitlist was approved.' : 'You remain qualified and will be considered when a slot becomes vacant.') ?></p>
+                    </div>
+                <?php endif; ?>
+
                 <div class="mt-6 border-t border-slate-100 pt-5 w-full hidden sm:block">
                     <div class="flex justify-between text-[9px] lg:text-[10px] font-black uppercase tracking-widest mb-2">
                         <span class="text-blue-600">Submitted</span>
-                        <span class="<?= in_array($app['status'], ['Under Review', 'Verified', 'Shortlisted', 'Scored', 'Approved', 'Rejected', 'Disqualified']) ? 'text-amber-600' : 'text-slate-300' ?>">Docs Checked</span>
-                        <span class="<?= in_array($app['status'], ['Shortlisted', 'Scored', 'Approved', 'Rejected', 'Disqualified']) ? 'text-purple-600' : 'text-slate-300' ?>">Shortlisted</span>
+                        <span class="<?= in_array($app['status'], ['Under Review', 'Verified', 'Shortlisted', 'Scored', 'Waitlisted', 'Waitlist Offered', 'Approved', 'Rejected', 'Disqualified', 'Slot Vacated']) ? 'text-amber-600' : 'text-slate-300' ?>">Docs Checked</span>
+                        <span class="<?= in_array($app['status'], ['Shortlisted', 'Scored', 'Waitlisted', 'Waitlist Offered', 'Approved', 'Rejected', 'Disqualified', 'Slot Vacated']) ? 'text-purple-600' : 'text-slate-300' ?>">Shortlisted</span>
                         <?php if(in_array($app['status'], ['Rejected', 'Disqualified'], true)): ?>
                             <span class="text-red-600"><?= htmlspecialchars($app['status']) ?></span>
                         <?php else: ?>

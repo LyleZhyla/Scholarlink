@@ -8,7 +8,7 @@
 
 if (!function_exists('approvalBlocker')) {
 
-function approvalBlocker(PDO $pdo, int $application_id): ?string {
+function approvalBlockerDetails(PDO $pdo, int $application_id): ?array {
     $stmt = $pdo->prepare("
         SELECT a.ApplicationID, a.UserID, a.Status, s.ScholarshipID, s.Name, s.NumberOfSlots, s.AllowsDual,
                CONCAT(u.FirstName, ' ', u.LastName) AS Student
@@ -20,17 +20,7 @@ function approvalBlocker(PDO $pdo, int $application_id): ?string {
     $app = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$app || $app['Status'] === 'Approved') return null;   // nothing to check / already counted
 
-    // 1. Slots
-    if ($app['NumberOfSlots'] !== null && (int) $app['NumberOfSlots'] > 0) {
-        $count = $pdo->prepare("SELECT COUNT(*) FROM application WHERE ScholarshipID = ? AND Status = 'Approved'");
-        $count->execute([$app['ScholarshipID']]);
-        $approved = (int) $count->fetchColumn();
-        if ($approved >= (int) $app['NumberOfSlots']) {
-            return "{$app['Name']} is already full ({$approved} of {$app['NumberOfSlots']} slots taken). Increase its slots or decline another scholar before approving {$app['Student']}.";
-        }
-    }
-
-    // 2. Single grant
+    // A student who cannot legally hold this grant is not a qualified waitlist candidate.
     $held = $pdo->prepare("
         SELECT s.Name, s.AllowsDual
         FROM application a JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID
@@ -39,10 +29,25 @@ function approvalBlocker(PDO $pdo, int $application_id): ?string {
     foreach ($held->fetchAll(PDO::FETCH_ASSOC) as $h) {
         if ($app['AllowsDual'] !== 'Yes' || $h['AllowsDual'] !== 'Yes') {
             $which = $app['AllowsDual'] !== 'Yes' ? $app['Name'] : $h['Name'];
-            return "{$app['Student']} is already a scholar of {$h['Name']}, and {$which} does not allow holding another scholarship at the same time.";
+            return ['code' => 'dual_grant', 'message' => "{$app['Student']} is already a scholar of {$h['Name']}, and {$which} does not allow holding another scholarship at the same time."];
+        }
+    }
+
+    // 1. Slots
+    if ($app['NumberOfSlots'] !== null && (int) $app['NumberOfSlots'] > 0) {
+        $count = $pdo->prepare("SELECT COUNT(*) FROM application WHERE ScholarshipID = ? AND Status = 'Approved'");
+        $count->execute([$app['ScholarshipID']]);
+        $approved = (int) $count->fetchColumn();
+        if ($approved >= (int) $app['NumberOfSlots']) {
+            return ['code' => 'slots_full', 'message' => "{$app['Name']} is already full ({$approved} of {$app['NumberOfSlots']} slots taken). {$app['Student']} will be placed on the ranked waitlist."];
         }
     }
     return null;
+}
+
+function approvalBlocker(PDO $pdo, int $application_id): ?string {
+    $details = approvalBlockerDetails($pdo, $application_id);
+    return $details['message'] ?? null;
 }
 
 // How full a scholarship is, for showing next to the approve buttons: ['approved' => n, 'slots' => n|null]

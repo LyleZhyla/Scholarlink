@@ -716,9 +716,17 @@ if ($module === 'applications' && $action === 'update_status') {
     
     // Slots and single-grant rules (includes/approval_rules.php)
     if ($app_id && $status === 'Approved') {
-        require_once '../includes/approval_rules.php';
-        if ($blocked = approvalBlocker($pdo, (int) $app_id)) {
-            $_SESSION['error'] = "Not approved: $blocked";
+        require_once '../includes/waitlist.php';
+        try {
+            $waitlisted = waitlistIfScholarshipFull($pdo, (int) $app_id, (int) $_SESSION['user_id']);
+            if ($waitlisted) {
+                $_SESSION['success'] = "All slots are filled. The qualified applicant was placed at rank #{$waitlisted['rank']} on the waitlist.";
+                $waitlist_pages = ['Internal_Admin' => '../internal_admin/waitlist.php', 'External_Admin' => '../external_admin/waitlist.php', 'Super_Admin' => '../super_admin/waitlist.php'];
+                header('Location: ' . $waitlist_pages[$_SESSION['role']]);
+                exit();
+            }
+        } catch (Throwable $e) {
+            $_SESSION['error'] = 'Not approved: ' . $e->getMessage();
             header("Location: " . ($_SERVER['HTTP_REFERER'] ?? ($_SESSION['role'] === 'Super_Admin' ? '../super_admin/scholarships.php' : '../external_admin/scholarships.php')));
             exit();
         }
@@ -1180,9 +1188,17 @@ if ($module === 'applications' && $action === 'final_decision') {
 
     // Slots and single-grant rules (includes/approval_rules.php)
     if ($status === 'Approved') {
-        require_once '../includes/approval_rules.php';
-        if ($blocked = approvalBlocker($pdo, (int) $application_id)) {
-            $_SESSION['error'] = "Not approved: $blocked";
+        require_once '../includes/waitlist.php';
+        try {
+            $waitlisted = waitlistIfScholarshipFull($pdo, (int) $application_id, (int) $_SESSION['user_id']);
+            if ($waitlisted) {
+                $_SESSION['success'] = "All slots are filled. The qualified applicant was placed at rank #{$waitlisted['rank']} on the waitlist.";
+                $waitlist_pages = ['Internal_Admin' => '../internal_admin/waitlist.php', 'External_Admin' => '../external_admin/waitlist.php', 'Super_Admin' => '../super_admin/waitlist.php'];
+                header('Location: ' . $waitlist_pages[$_SESSION['role']]);
+                exit();
+            }
+        } catch (Throwable $e) {
+            $_SESSION['error'] = 'Not approved: ' . $e->getMessage();
             $decision_pages = ['Internal_Admin' => '../internal_admin/shortlist.php', 'External_Admin' => '../external_admin/manage_applications.php', 'Super_Admin' => '../super_admin/manage_applications.php'];
             header("Location: " . ($_SERVER['HTTP_REFERER'] ?? $decision_pages[$_SESSION['role']]));
             exit();

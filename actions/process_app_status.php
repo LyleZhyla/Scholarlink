@@ -28,9 +28,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Slots and single-grant rules (includes/approval_rules.php)
     if ($new_status === 'Approved') {
-        require_once '../includes/approval_rules.php';
-        if ($blocked = approvalBlocker($pdo, (int) $application_id)) {
-            $_SESSION['error'] = "Not approved: $blocked";
+        require_once '../includes/waitlist.php';
+        try {
+            $waitlisted = waitlistIfScholarshipFull($pdo, (int) $application_id, (int) $_SESSION['user_id']);
+            if ($waitlisted) {
+                $_SESSION['success'] = "All slots are filled. Applicant added at waitlist rank #{$waitlisted['rank']}.";
+                $page = $_SESSION['role'] === 'External_Admin' ? '../external_admin/waitlist.php' : '../internal_admin/waitlist.php';
+                header("Location: $page");
+                exit();
+            }
+        } catch (Throwable $e) {
+            $_SESSION['error'] = 'Not approved: ' . $e->getMessage();
             header("Location: " . ($_SERVER['HTTP_REFERER'] ?? '../internal_admin/dashboard.php'));
             exit();
         }
