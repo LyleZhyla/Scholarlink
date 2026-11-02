@@ -25,6 +25,7 @@
             ['manage_applications.php', '🗂️', 'Masterlist'],
             ['appeals.php',             '⚖️', 'Appeals'],
             ['waitlist.php',            '📋', 'Waitlist'],
+            ['benefits.php',            '💳', 'Benefits'],
         ];
 
         foreach ($nav_items as $item):

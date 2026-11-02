@@ -23,6 +23,7 @@
             ['manage_applications.php', '📂', 'Manage Applications'],
             ['appeals.php',             '⚖️', 'Appeals'],
             ['waitlist.php',            '📋', 'Waitlist'],
+            ['benefits.php',            '💳', 'Benefits'],
             ['users.php',               '👥', 'Users'],
             ['profile_requests.php',    '📝', 'Profile Requests'],
             ['logs.php',                '📋', 'Logs'],

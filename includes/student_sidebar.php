@@ -53,6 +53,9 @@
             <span class="icon-box">📂</span>
             <span class="sidebar-text">Apps</span>
         </a>
+        <a href="benefits.php" class="nav-link <?= getSidebarClass('benefits.php') ?>">
+            <span class="icon-box">💳</span><span class="sidebar-text">Benefits</span>
+        </a>
         <a href="requirements.php" data-tour="nav-requirements" class="nav-link <?= getSidebarClass('requirements.php') ?>">
             <span class="icon-box">📜</span>
             <span class="sidebar-text">Requirements</span>
