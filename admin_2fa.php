@@ -59,8 +59,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if (strlen($code) !== 6 || !password_verify($code, $pending['code_hash'])) {
         $_SESSION['pending_2fa']['attempts'] = ++$pending['attempts'];
+        $locked = recordLoginFailure($pdo, $pending['identifier'] ?? $user['Username'], (int)$user['UserID']);
         logAudit($pdo, $user['UserID'], 'Login Failed', "Wrong two-factor code for $name (attempt {$pending['attempts']} of " . TWO_FA_MAX_ATTEMPTS . ')');
-        if ($pending['attempts'] >= TWO_FA_MAX_ATTEMPTS) $fail('Too many wrong codes. Please sign in again.', true);
+        if ($locked || $pending['attempts'] >= TWO_FA_MAX_ATTEMPTS) $fail('Too many wrong codes. Access is temporarily locked; use secure recovery if needed.', true);
         $fail('Incorrect code. ' . (TWO_FA_MAX_ATTEMPTS - $pending['attempts']) . ' attempt(s) left.');
     }
 
@@ -70,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $fail($blocked, true);
     }
 
-    completeLogin($pdo, $user, $pending['portal'], ' with two-factor authentication');
+    completeLogin($pdo, $user, $pending['portal'], ' with two-factor authentication', $pending['identifier'] ?? $user['Username']);
     header('Location: ' . dashboardFor($user['Role']));
     exit();
 }

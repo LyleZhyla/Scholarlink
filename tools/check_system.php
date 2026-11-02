@@ -164,6 +164,10 @@ $need = [
     ['privacy_consents', null, '2026-11-02_data_privacy_lifecycle.sql'],
     ['privacy_requests', null, '2026-11-02_data_privacy_lifecycle.sql'],
     ['privacy_retention_cases', null, '2026-11-02_data_privacy_lifecycle.sql'],
+    ['users', 'AuthVersion', '2026-11-02_account_security_lifecycle.sql'],
+    ['users', 'ProviderAccessStatus', '2026-11-02_account_security_lifecycle.sql'],
+    ['users', 'ProviderAccessUntil', '2026-11-02_account_security_lifecycle.sql'],
+    ['security_rate_limits', null, '2026-11-02_account_security_lifecycle.sql'],
 ];
 $missing = [];
 foreach ($need as [$table, $column, $migration]) {

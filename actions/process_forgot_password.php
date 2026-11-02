@@ -16,14 +16,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     try {
+        if (!recoveryRequestAllowed($pdo, $email)) {
+            logAudit($pdo, null, 'Recovery Rate Limited', 'Repeated password-recovery requests were blocked for this address.');
+            $_SESSION['success'] = "If the email is registered and eligible for recovery, instructions will be sent. Please wait before requesting another link.";
+            header('Location: ' . $back);exit();
+        }
         // 1. Hanapin kung nag-e-exist ang email sa database
-        $stmt = $pdo->prepare("SELECT UserID, FirstName FROM Users WHERE Email = :email");
+        $stmt = $pdo->prepare("SELECT UserID,FirstName,Role,AccountStatus,ProviderAccessStatus,ProviderAccessUntil FROM Users WHERE Email = :email");
         $stmt->execute(['email' => $email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($user) {
-            // ✨ FIX 1: Ginawang 16 bytes (32 characters) na lang para iwas-putol sa database
-            $token = bin2hex(random_bytes(16)); 
+        if ($user && !accountArchivedMessage($user)) {
+            // A 256-bit, single-use recovery token; only the newest unexpired token works.
+            $token = bin2hex(random_bytes(32));
 
             // ✨ FIX 2: Ginamit ang MySQL native function na DATE_ADD(NOW()) para iwas Timezone Mismatch
             $update = $pdo->prepare("UPDATE Users SET ResetToken = :token, ResetTokenExpire = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE Email = :email");
@@ -47,6 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['error'] = "System Error: Failed to send the reset email. Please try again later.";
             }
         } else {
+            if ($user) logAudit($pdo, $user['UserID'], 'Recovery Denied', 'Password recovery was denied because account access is inactive or revoked.');
             // SECURITY BEST PRACTICE: Wag ipaalam sa hacker kung registered o hindi ang email
             $_SESSION['success'] = "If the email is registered, a password reset link has been sent. Check your inbox (and Spam); only the newest link works.";
         }

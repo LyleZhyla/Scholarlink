@@ -80,6 +80,7 @@ if (isset($_GET['code'])) {
                 exit();
             } else {
                 // AFTER (Full Session Payload):
+                    session_regenerate_id(true);
                     $_SESSION['logged_in']     = true;
                     $_SESSION['user_id']       = $user['UserID'];
                     $_SESSION['username']      = $user['Username'];
@@ -88,6 +89,8 @@ if (isset($_GET['code'])) {
                     $_SESSION['last_name']     = $user['LastName'];
                     $_SESSION['email']         = $user['Email'];
                     $_SESSION['last_activity'] = time(); // Refreshes session_manager timeout
+                    $_SESSION['login_started_at'] = time();
+                    $_SESSION['auth_version'] = (int)($user['AuthVersion'] ?? 1);
 
                     $_SESSION['success'] = "Welcome back, " . ($user['FirstName'] ?: $first_name) . "!";
                     header("Location: ../student/dashboard.php");

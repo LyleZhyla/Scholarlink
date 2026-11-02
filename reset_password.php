@@ -10,11 +10,11 @@ if ($token) {
     // Debug: Tingnan natin kung ano ang nakukuha mula sa URL
     // echo "Token from URL: " . htmlspecialchars($token) . "<br>";
 
-    $stmt = $pdo->prepare("SELECT UserID FROM Users WHERE ResetToken = :token AND ResetTokenExpire > NOW()");
+    $stmt = $pdo->prepare("SELECT UserID,Role,AccountStatus,ProviderAccessStatus,ProviderAccessUntil FROM Users WHERE ResetToken = :token AND ResetTokenExpire > NOW()");
     $stmt->execute(['token' => $token]);
     $user = $stmt->fetch();
 
-    if ($user) {
+    if ($user && !accountArchivedMessage($user)) {
         $valid_token = true;
         $user_id = $user['UserID'];
     } else {

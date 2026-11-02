@@ -1409,12 +1409,16 @@ if ($module === 'users' && $action === 'create') {
             ->execute([$username, $first_name, $last_name, $email, $role, password_hash($_POST['password'], PASSWORD_DEFAULT),
                        $role === 'Student' ? $student_number : null, $role === 'External_Admin' ? $organization : null]);
         $new_id = (int) $pdo->lastInsertId();
+        if ($role === 'External_Admin') {
+            $days=securitySettingInt($pdo,'provider_default_access_days',365,1,3650);
+            $pdo->prepare('UPDATE users SET ProviderAccessUntil=DATE_ADD(CURDATE(),INTERVAL ? DAY),ProviderAccessReviewedAt=NOW(),ProviderAccessReviewedBy=? WHERE UserID=?')->execute([$days,$_SESSION['user_id'],$new_id]);
+        }
         unset($_SESSION['old_user_form']);
         logAudit($pdo, $_SESSION['user_id'], 'User Account Created', (AUDIT_ROLE_LABELS[$role] ?? $role) . " account for $first_name $last_name ($email), username $username"
             . ($role === 'External_Admin' ? ", organization $organization" : ''));
 
         // Welcome email: username, sign-in page and a 24-hour "set your password" link
-        $token = bin2hex(random_bytes(16));
+        $token = bin2hex(random_bytes(32));
         $pdo->prepare("UPDATE users SET ResetToken = ?, ResetTokenExpire = DATE_ADD(NOW(), INTERVAL 24 HOUR) WHERE UserID = ?")->execute([$token, $new_id]);
         $base = appPublicUrl();   // works from the recipient's device, not just "localhost"
         $role_label = ['Student' => 'Student', 'Internal_Admin' => 'OSSD (Internal Admin)', 'External_Admin' => 'Scholarship Provider'][$role];
@@ -1459,7 +1463,7 @@ if ($module === 'users' && $action === 'toggle_archive') {
         }
     }
     try {
-        $pdo->prepare("UPDATE users SET AccountStatus = :status WHERE UserID = :uid")->execute(['status' => $new_status, 'uid' => $user_id]);
+        $pdo->prepare("UPDATE users SET AccountStatus = :status, AuthVersion=AuthVersion+1 WHERE UserID = :uid")->execute(['status' => $new_status, 'uid' => $user_id]);
         $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (?, ?, NOW(), ?, ?)")->execute([$_SESSION['user_id'], "User $new_status", "Super Admin changed UserID $user_id status to $new_status", $_SERVER['REMOTE_ADDR']]);
         $_SESSION['success'] = "User account successfully marked as $new_status!";
     } catch (PDOException $e) { $_SESSION['error'] = "Database Error: " . $e->getMessage(); }
@@ -1481,7 +1485,7 @@ if ($module === 'users' && $action === 'bulk_status') {
     try {
         $pdo->beginTransaction();
         $find = $pdo->prepare("SELECT UserID, Role, COALESCE(NULLIF(AccountStatus, ''), 'Active') AS Status, CONCAT(FirstName, ' ', LastName) AS Name FROM users WHERE UserID = ?");
-        $set = $pdo->prepare("UPDATE users SET AccountStatus = ? WHERE UserID = ?");
+        $set = $pdo->prepare("UPDATE users SET AccountStatus = ?, AuthVersion=AuthVersion+1 WHERE UserID = ?");
         foreach ($ids as $id) {
             $find->execute([$id]);
             $u = $find->fetch(PDO::FETCH_ASSOC);
@@ -1518,20 +1522,21 @@ if ($module === 'users' && $action === 'bulk_status') {
 // ✨ PASSWORD RESET LINK for a locked-out user: same email and 1-hour link as "Forgot password", so the admin never picks or sees the password
 if ($module === 'users' && $action === 'send_reset') {
     $user_id = (int) ($_POST['user_id'] ?? 0);
-    $stmt = $pdo->prepare("SELECT UserID, Email, FirstName, LastName, AccountStatus FROM users WHERE UserID = ?");
+    $stmt = $pdo->prepare("SELECT UserID,Email,FirstName,LastName,Role,AccountStatus,ProviderAccessStatus,ProviderAccessUntil FROM users WHERE UserID = ?");
     $stmt->execute([$user_id]);
     $u = $stmt->fetch(PDO::FETCH_ASSOC);
     $name = $u ? $u['FirstName'] . ' ' . $u['LastName'] : '';
     $why = !$u ? "User not found."
          : (($u['AccountStatus'] ?? '') === 'Archived' ? "$name's account is archived. Restore it first, then send the reset link."
+         : (providerAccessMessage($u) ? "$name's provider access is inactive. Restore provider access before sending a reset link."
          : (!filter_var($u['Email'] ?? '', FILTER_VALIDATE_EMAIL) ? "$name has no valid email address on file, so a reset link can't be sent."
-         : (str_ends_with(strtolower($u['Email']), '@demo.tau.edu.ph') ? "$name is a demo account; its email address doesn't exist." : null)));
+         : (str_ends_with(strtolower($u['Email']), '@demo.tau.edu.ph') ? "$name is a demo account; its email address doesn't exist." : null))));
     if ($why) {
         $_SESSION['error'] = $why;
         header("Location: ../super_admin/users.php");
         exit();
     }
-    $token = bin2hex(random_bytes(16));
+    $token = bin2hex(random_bytes(32));
     $pdo->prepare("UPDATE users SET ResetToken = ?, ResetTokenExpire = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE UserID = ?")->execute([$token, $user_id]);
     $reset_link = appPublicUrl() . '/reset_password.php?token=' . $token;
 
@@ -1553,6 +1558,10 @@ if ($module === 'security' && $action === 'toggle_setting') {
     $new_value = (string) ($_POST['new_value'] ?? '');
 
     // Only the known switches, with values they can actually take
+    if ($setting_key === 'require_2fa' && $new_value !== '1') {
+        $_SESSION['error'] = 'MFA is mandatory for privileged accounts and cannot be disabled.';
+        header('Location: ../super_admin/security.php');exit();
+    }
     $valid = ($setting_key === 'session_timeout') ? isset(SESSION_TIMEOUT_OPTIONS[(int) $new_value]) && ctype_digit($new_value)
            : (in_array($setting_key, ['require_2fa', 'strict_password'], true) && in_array($new_value, ['0', '1'], true));
     if (!$valid) {
@@ -1589,6 +1598,17 @@ if ($module === 'security' && $action === 'toggle_setting') {
     exit();
 
     
+}
+
+if ($module === 'security' && $action === 'provider_access') {
+    $providerId=(int)($_POST['provider_id']??0);$status=(string)($_POST['provider_status']??'');$until=trim((string)($_POST['access_until']??''));$reason=trim((string)($_POST['reason']??''));
+    if(!in_array($status,['Active','Suspended','Revoked'],true)||($until!==''&&!preg_match('/^\d{4}-\d{2}-\d{2}$/',$until))||mb_strlen($reason)<10){$_SESSION['error']='Select a valid provider status and enter a reason of at least 10 characters.';header('Location: ../super_admin/security.php');exit();}
+    $q=$pdo->prepare("SELECT CONCAT(FirstName,' ',LastName) Name,ProviderAccessStatus FROM users WHERE UserID=? AND Role='External_Admin'");$q->execute([$providerId]);$provider=$q->fetch(PDO::FETCH_ASSOC);
+    if(!$provider){$_SESSION['error']='Scholarship provider account not found.';header('Location: ../super_admin/security.php');exit();}
+    $effective=$status;if($status==='Active'&&$until!==''&&strtotime($until.' 23:59:59')<time())$effective='Expired';
+    $pdo->prepare('UPDATE users SET ProviderAccessStatus=?,ProviderAccessUntil=?,ProviderAccessReason=?,ProviderAccessReviewedAt=NOW(),ProviderAccessReviewedBy=?,AuthVersion=AuthVersion+1 WHERE UserID=?')->execute([$effective,$until?:null,$reason,$_SESSION['user_id'],$providerId]);
+    logAudit($pdo,$_SESSION['user_id'],'Provider Access Updated',"{$provider['Name']} provider access changed from {$provider['ProviderAccessStatus']} to $effective".($until?" until $until":'').". Reason: $reason");
+    $_SESSION['success']="Provider access updated to $effective. Any open provider session was revoked immediately.";header('Location: ../super_admin/security.php');exit();
 }
 
 // ✨ ACADEMIC TERMS & MASS RENEWAL MODULE

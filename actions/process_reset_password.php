@@ -26,17 +26,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         // 2. Simplified Check: Just verify the token exists
-        $stmt = $pdo->prepare("SELECT UserID, Role FROM Users WHERE UserID = :uid AND ResetToken = :token AND ResetTokenExpire > NOW()");
+        $stmt = $pdo->prepare("SELECT UserID,Role,AccountStatus,ProviderAccessStatus,ProviderAccessUntil FROM Users WHERE UserID = :uid AND ResetToken = :token AND ResetTokenExpire > NOW()");
         $stmt->execute(['uid' => $user_id, 'token' => $token]);
 
-        if ($reset_user = $stmt->fetch()) {
+        if (($reset_user = $stmt->fetch()) && !accountArchivedMessage($reset_user)) {
             // Staff sign in on the admin portal, students on the student portal
             $login_page = $reset_user['Role'] === 'Student' ? 'student_login.php' : 'admin_login.php';
             // 3. Hash the new password securely
             $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
 
             // 4. Update `PasswordHash` and wipe out the reset token
-            $update = $pdo->prepare("UPDATE Users SET PasswordHash = :pass, ResetToken = NULL, ResetTokenExpire = NULL WHERE UserID = :uid");
+            $update = $pdo->prepare("UPDATE Users SET PasswordHash = :pass, ResetToken = NULL, ResetTokenExpire = NULL, FailedLoginCount=0, LockedUntil=NULL, AuthVersion=AuthVersion+1 WHERE UserID = :uid");
             $update->execute(['pass' => $hashed_password, 'uid' => $user_id]);
 
             // ✨ THE FIX: Audit Log for Password Reset!

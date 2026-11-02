@@ -9,6 +9,8 @@ const SESSION_TIMEOUT_OPTIONS = [180 => '3 Minutes', 300 => '5 Minutes', 600 => 
 const DEFAULT_SESSION_TIMEOUT = 600;
 const TWO_FA_CODE_LIFETIME = 300;    // seconds
 const TWO_FA_MAX_ATTEMPTS = 5;
+const DEFAULT_ABSOLUTE_SESSION_TIMEOUT = 28800;
+const SECURITY_RATE_WINDOW_MINUTES = 15;
 
 function getSecuritySettings(PDO $pdo, bool $fresh = false): array {
     static $cache = null;
@@ -26,7 +28,78 @@ function sessionTimeoutSeconds(PDO $pdo): int {
 }
 
 function isTwoFactorRequired(PDO $pdo, string $role): bool {
-    return $role !== 'Student' && getSecuritySettings($pdo)['require_2fa'] === '1';
+    // Privileged accounts may never bypass MFA. The stored setting is retained for
+    // backward compatibility and reporting, but cannot weaken this rule.
+    return in_array($role, ['Internal_Admin', 'External_Admin', 'Super_Admin'], true);
+}
+
+function securitySettingInt(PDO $pdo, string $key, int $fallback, int $min, int $max): int {
+    $value = (int)(getSecuritySettings($pdo)[$key] ?? $fallback);
+    return ($value >= $min && $value <= $max) ? $value : $fallback;
+}
+
+function absoluteSessionTimeoutSeconds(PDO $pdo): int {
+    return securitySettingInt($pdo, 'absolute_session_timeout', DEFAULT_ABSOLUTE_SESSION_TIMEOUT, 900, 86400);
+}
+
+function securityIdentifierHash(string $identifier): string {
+    return hash('sha256', mb_strtolower(trim($identifier)));
+}
+
+function loginThrottleStatus(PDO $pdo, string $identifier, ?array $user = null): int {
+    $remaining = 0;
+    if ($user && !empty($user['LockedUntil'])) $remaining = max(0, strtotime($user['LockedUntil']) - time());
+    $stmt = $pdo->prepare("SELECT LockedUntil FROM security_rate_limits WHERE Scope='Login' AND IdentifierHash=? AND IPAddress=?");
+    $stmt->execute([securityIdentifierHash($identifier), $_SERVER['REMOTE_ADDR'] ?? 'Unknown']);
+    $rateLocked = $stmt->fetchColumn();
+    if ($rateLocked) $remaining = max($remaining, max(0, strtotime($rateLocked) - time()));
+    return $remaining;
+}
+
+function recordLoginFailure(PDO $pdo, string $identifier, ?int $userId = null): int {
+    $maxAttempts = securitySettingInt($pdo, 'login_max_attempts', 5, 3, 20);
+    $lockMinutes = securitySettingInt($pdo, 'login_lock_minutes', 15, 1, 1440);
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'Unknown';
+    $hash = securityIdentifierHash($identifier);
+    $stmt = $pdo->prepare("SELECT RateLimitID,AttemptCount,WindowStartedAt FROM security_rate_limits WHERE Scope='Login' AND IdentifierHash=? AND IPAddress=?");
+    $stmt->execute([$hash,$ip]);$row=$stmt->fetch(PDO::FETCH_ASSOC);
+    $count = (!$row || strtotime($row['WindowStartedAt']) < time() - SECURITY_RATE_WINDOW_MINUTES * 60) ? 1 : (int)$row['AttemptCount'] + 1;
+    $lockedUntil = $count >= $maxAttempts ? date('Y-m-d H:i:s', time() + $lockMinutes * 60) : null;
+    if ($row) $pdo->prepare('UPDATE security_rate_limits SET AttemptCount=?,WindowStartedAt=IF(?>1,WindowStartedAt,NOW()),LastAttemptAt=NOW(),LockedUntil=? WHERE RateLimitID=?')->execute([$count,$count,$lockedUntil,$row['RateLimitID']]);
+    else $pdo->prepare("INSERT INTO security_rate_limits(Scope,IdentifierHash,IPAddress,AttemptCount,LockedUntil) VALUES('Login',?,?,?,?)")->execute([$hash,$ip,$count,$lockedUntil]);
+    if ($userId) {
+        $u=$pdo->prepare('SELECT FailedLoginCount,LockedUntil FROM users WHERE UserID=?');$u->execute([$userId]);$state=$u->fetch(PDO::FETCH_ASSOC);
+        $accountCount=(!$state||(!empty($state['LockedUntil'])&&strtotime($state['LockedUntil'])<time()))?1:(int)$state['FailedLoginCount']+1;
+        $accountLock=$accountCount >= $maxAttempts ? $lockedUntil : null;
+        $pdo->prepare('UPDATE users SET FailedLoginCount=?,LockedUntil=? WHERE UserID=?')->execute([$accountCount,$accountLock,$userId]);
+    }
+    return $lockedUntil ? $lockMinutes * 60 : 0;
+}
+
+function clearLoginFailures(PDO $pdo, string $identifier, int $userId): void {
+    $identifiers=[$identifier];$u=$pdo->prepare('SELECT Username,Email FROM users WHERE UserID=?');$u->execute([$userId]);$account=$u->fetch(PDO::FETCH_ASSOC);
+    if($account)$identifiers=array_merge($identifiers,[$account['Username']??'',$account['Email']??'']);
+    $hashes=array_values(array_unique(array_map('securityIdentifierHash',array_filter($identifiers,fn($v)=>trim((string)$v)!==''))));
+    if($hashes){$marks=implode(',',array_fill(0,count($hashes),'?'));$pdo->prepare("DELETE FROM security_rate_limits WHERE Scope='Login' AND IdentifierHash IN ($marks)")->execute($hashes);}
+    $pdo->prepare('UPDATE users SET FailedLoginCount=0,LockedUntil=NULL WHERE UserID=?')->execute([$userId]);
+}
+
+function recoveryRequestAllowed(PDO $pdo, string $identifier): bool {
+    $max = securitySettingInt($pdo, 'recovery_max_requests', 3, 1, 10);$ip=$_SERVER['REMOTE_ADDR']??'Unknown';$hash=securityIdentifierHash($identifier);
+    $s=$pdo->prepare("SELECT RateLimitID,AttemptCount,WindowStartedAt,LockedUntil FROM security_rate_limits WHERE Scope='Recovery' AND IdentifierHash=? AND IPAddress=?");$s->execute([$hash,$ip]);$row=$s->fetch(PDO::FETCH_ASSOC);
+    if($row&&!empty($row['LockedUntil'])&&strtotime($row['LockedUntil'])>time())return false;
+    $count=(!$row||strtotime($row['WindowStartedAt'])<time()-1800)?1:(int)$row['AttemptCount']+1;$lock=$count>$max?date('Y-m-d H:i:s',time()+1800):null;
+    if($row)$pdo->prepare('UPDATE security_rate_limits SET AttemptCount=?,WindowStartedAt=IF(?>1,WindowStartedAt,NOW()),LastAttemptAt=NOW(),LockedUntil=? WHERE RateLimitID=?')->execute([$count,$count,$lock,$row['RateLimitID']]);
+    else $pdo->prepare("INSERT INTO security_rate_limits(Scope,IdentifierHash,IPAddress,AttemptCount,LockedUntil) VALUES('Recovery',?,?,?,?)")->execute([$hash,$ip,$count,$lock]);
+    return $count <= $max;
+}
+
+function providerAccessMessage(array $user): ?string {
+    if (($user['Role'] ?? '') !== 'External_Admin') return null;
+    $status = $user['ProviderAccessStatus'] ?? 'Active';
+    if ($status !== 'Active') return "This scholarship provider account is $status and its access has been revoked. Contact the OSSD.";
+    if (!empty($user['ProviderAccessUntil']) && strtotime($user['ProviderAccessUntil'].' 23:59:59') < time()) return 'This scholarship provider account has expired. Contact the OSSD for an access review.';
+    return null;
 }
 
 function isStrictPasswordOn(PDO $pdo): bool {
@@ -62,7 +135,7 @@ function enforceSessionTimeout(PDO $pdo): void {
 
     // An account archived (or deleted) by the Super Admin loses access at once, even in a session already open
     try {
-        $st = $pdo->prepare("SELECT AccountStatus, GPA FROM users WHERE UserID = ?");
+        $st = $pdo->prepare("SELECT AccountStatus,GPA,Role,AuthVersion,ProviderAccessStatus,ProviderAccessUntil FROM users WHERE UserID = ?");
         $st->execute([$_SESSION['user_id'] ?? 0]);
         $account = $st->fetch(PDO::FETCH_ASSOC);
         $account_status = $account ? $account['AccountStatus'] : false;
@@ -71,6 +144,21 @@ function enforceSessionTimeout(PDO $pdo): void {
         endSessionAndRedirect($pdo, $script, 'Signed Out (Account Archived)',
             $account_status === false ? 'The account no longer exists; its open session was ended.' : 'The account is archived; its open session was ended.',
             'Your account has been archived, so you can no longer use ScholarLink. Please contact the OSSD if you think this is a mistake.');
+    }
+
+    if ($account && ($providerBlocked = providerAccessMessage($account))) {
+        if (($account['ProviderAccessStatus'] ?? 'Active') === 'Active') {
+            $pdo->prepare("UPDATE users SET ProviderAccessStatus='Expired',AuthVersion=AuthVersion+1 WHERE UserID=?")->execute([$_SESSION['user_id']]);
+        }
+        endSessionAndRedirect($pdo, $script, 'Signed Out (Provider Access Revoked)', $providerBlocked, $providerBlocked);
+    }
+    if ($account && isset($_SESSION['auth_version']) && (int)$_SESSION['auth_version'] !== (int)$account['AuthVersion']) {
+        endSessionAndRedirect($pdo, $script, 'Signed Out (Access Revoked)', 'The account security version changed; its open session was immediately revoked.', 'Your access or credentials changed. Please sign in again.');
+    }
+    if ($account && !isset($_SESSION['auth_version'])) $_SESSION['auth_version'] = (int)$account['AuthVersion'];
+
+    if (isset($_SESSION['login_started_at']) && time() - (int)$_SESSION['login_started_at'] > absoluteSessionTimeoutSeconds($pdo)) {
+        endSessionAndRedirect($pdo, $script, 'Absolute Session Expired', 'The maximum signed-in session lifetime was reached.', 'Your secure session has expired. Please sign in again.');
     }
 
     if (isset($_SESSION['last_activity']) && time() - $_SESSION['last_activity'] > sessionTimeoutSeconds($pdo)) {
@@ -137,9 +225,10 @@ function endSessionAndRedirect(PDO $pdo, string $script, string $action, string 
 
 // Sign-in is refused for archived accounts (password, Google and the 2FA step all check this)
 function accountArchivedMessage(array $user): ?string {
-    return ($user['AccountStatus'] ?? 'Active') === 'Archived'
+    $archived = ($user['AccountStatus'] ?? 'Active') === 'Archived'
         ? 'This account has been archived and can no longer sign in. Please contact the OSSD if you think this is a mistake.'
         : null;
+    return $archived ?: providerAccessMessage($user);
 }
 
 // ---------- Two-factor authentication (admins) ----------
@@ -151,12 +240,14 @@ function startTwoFactor(PDO $pdo, array $user, string $portal_label): bool {
         'user_id' => (int) $user['UserID'], 'portal' => $portal_label,
         'code_hash' => password_hash($code, PASSWORD_DEFAULT), 'expires' => time() + TWO_FA_CODE_LIFETIME,
         'attempts' => 0, 'sent_at' => time(), 'email' => $user['Email'],
+        'identifier' => $user['Username'] ?: $user['Email'],
     ];
     return sendLoginCodeEmail($user['Email'], $user['FirstName'], $code);
 }
 
 // Signs the user in for real (after the password, and the code when 2FA is on)
-function completeLogin(PDO $pdo, array $user, string $portal_label, string $method = ''): void {
+function completeLogin(PDO $pdo, array $user, string $portal_label, string $method = '', string $identifier = ''): void {
+    clearLoginFailures($pdo, $identifier !== '' ? $identifier : ($user['Username'] ?: $user['Email']), (int)$user['UserID']);
     session_regenerate_id(true);
     unset($_SESSION['pending_2fa'], $_SESSION['csrf_token']);   // a new security token for the new sign-in
     $_SESSION['logged_in']  = true;
@@ -167,6 +258,8 @@ function completeLogin(PDO $pdo, array $user, string $portal_label, string $meth
     $_SESSION['last_name']  = $user['LastName'];
     $_SESSION['email']      = $user['Email'];
     $_SESSION['last_activity'] = time();
+    $_SESSION['login_started_at'] = time();
+    $_SESSION['auth_version'] = (int)($user['AuthVersion'] ?? 1);
     logAudit($pdo, $user['UserID'], 'Login', $user['FirstName'] . ' ' . $user['LastName'] . ' logged in as ' . $user['Role'] . ' via ' . $portal_label . $method);
 }
 

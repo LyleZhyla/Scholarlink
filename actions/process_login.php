@@ -36,6 +36,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute(['identifier' => $username]);
         $user = $stmt->fetch();
 
+        if (($retryAfter = loginThrottleStatus($pdo, $username, $user ?: null)) > 0) {
+            if ($user) logAudit($pdo, $user['UserID'], 'Login Rate Limited', 'Sign-in blocked after repeated failed attempts via ' . $portal_label);
+            $_SESSION['error'] = 'Too many failed sign-in attempts. Try again in ' . max(1, (int)ceil($retryAfter / 60)) . ' minute(s), or use secure account recovery.';
+            header('Location: ' . $error_redirect);exit();
+        }
+
         // 1. Verify user and check password
         if ($user && password_verify($password, $user['PasswordHash'])) {
 
@@ -87,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // --- SESSION INITIALIZATION ---
-            completeLogin($pdo, $user, $portal_label);
+            completeLogin($pdo, $user, $portal_label, '', $username);
 
             // --- REDIRECTION ---
             switch ($user['Role']) {
@@ -118,7 +124,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 logAudit($pdo, null, 'Login Failed', 'Unknown account "' . $shown_name . '" via ' . $portal_label);
             }
 
-            $_SESSION['error'] = "Invalid student number or password.";
+            $lockSeconds = recordLoginFailure($pdo, $username, $user ? (int)$user['UserID'] : null);
+
+            $_SESSION['error'] = $lockSeconds > 0
+                ? 'Too many failed sign-in attempts. Access is temporarily locked for security.'
+                : 'Invalid account identifier or password.';
             header("Location: " . $error_redirect);
             exit();
         }
