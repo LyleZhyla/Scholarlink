@@ -5,7 +5,8 @@
 
 if (!function_exists('readIdText')) {
 
-    // Sends the image to Google Vision and returns ['text' => ..., 'error' => ...]
+    // Sends the image to Google Vision and returns the OCR text and Google's
+    // average word confidence. Consumers must treat the result as a suggestion.
     function readIdText(string $image_path): array {
         $env_path = __DIR__ . '/../.env';
         if (!file_exists($env_path)) {
@@ -20,7 +21,7 @@ if (!function_exists('readIdText')) {
         $request_body = [
             'requests' => [[
                 'image' => ['content' => base64_encode(file_get_contents($image_path))],
-                'features' => [['type' => 'TEXT_DETECTION', 'maxResults' => 1]]
+                'features' => [['type' => 'DOCUMENT_TEXT_DETECTION', 'maxResults' => 1]]
             ]]
         ];
 
@@ -34,8 +35,29 @@ if (!function_exists('readIdText')) {
         curl_close($ch);
 
         $vision_data = json_decode($response, true);
-        if (isset($vision_data['responses'][0]['textAnnotations'][0]['description'])) {
-            return ['text' => $vision_data['responses'][0]['textAnnotations'][0]['description'], 'error' => ''];
+        $vision_response = $vision_data['responses'][0] ?? [];
+        $detected_text = $vision_response['fullTextAnnotation']['text']
+            ?? $vision_response['textAnnotations'][0]['description']
+            ?? '';
+        if ($detected_text !== '') {
+            $word_confidences = [];
+            foreach (($vision_response['fullTextAnnotation']['pages'] ?? []) as $page) {
+                foreach (($page['blocks'] ?? []) as $block) {
+                    foreach (($block['paragraphs'] ?? []) as $paragraph) {
+                        foreach (($paragraph['words'] ?? []) as $word) {
+                            if (isset($word['confidence']) && is_numeric($word['confidence'])) {
+                                $word_confidences[] = (float)$word['confidence'];
+                            }
+                        }
+                    }
+                }
+            }
+            // Some Vision responses do not expose word confidence. A conservative
+            // fallback keeps the result below the automatic-acceptance threshold.
+            $confidence = $word_confidences
+                ? round(array_sum($word_confidences) / count($word_confidences) * 100, 2)
+                : 70.0;
+            return ['text' => $detected_text, 'confidence' => $confidence, 'error' => ''];
         }
 
         // A real API problem (bad key, quota, etc.)
@@ -49,23 +71,38 @@ if (!function_exists('readIdText')) {
     }
 
     // 🧠 DATA EXTRACTION LOGIC (PERFECTED FOR TAU)
-    function parseIdData(string $extracted_text): array {
+    function parseIdData(string $extracted_text, float $ocr_confidence = 0): array {
         $data = [
             'student_id' => '',
             'first_name' => '',
             'last_name' => '',
             'course' => '',
-            'date_of_birth' => ''
+            'date_of_birth' => '',
+            '_extractions' => []
         ];
+
+        $addEvidence = static function (array &$target, string $field, string $label, string $value, string $source_field, float $confidence): void {
+            if ($value === '') return;
+            $target['_extractions'][] = [
+                'field' => $field,
+                'label' => $label,
+                'value' => $value,
+                'confidence' => round(max(0, min(100, $confidence)), 2),
+                'source_document' => 'Student ID',
+                'source_field' => $source_field
+            ];
+        };
 
         // 1. STUDENT NUMBER
         if (preg_match('/\b(20[0-9]{8})\b/', $extracted_text, $matches)) {
             $data['student_id'] = $matches[1];
+            $addEvidence($data, 'student_id', 'Student number', $data['student_id'], '10-digit student number', $ocr_confidence);
         }
 
         // 2. DATE OF BIRTH
         if (preg_match('/(?:Date of Birth|DOB)[\s\S]{0,10}?([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{2}[\/\-]\d{2}[\/\-]\d{4})/i', $extracted_text, $matches)) {
             $data['date_of_birth'] = date('Y-m-d', strtotime(trim($matches[1])));
+            $addEvidence($data, 'date_of_birth', 'Date of birth', $data['date_of_birth'], 'Date of Birth / DOB', $ocr_confidence - 2);
         }
 
         // 3. COURSE / PROGRAM (raw text, for display only — see matchProgramFromText)
@@ -74,6 +111,7 @@ if (!function_exists('readIdText')) {
         } elseif (preg_match('/(BSIT|BS[A-Z]{2,5})/i', $extracted_text, $matches)) {
             $data['course'] = trim($matches[1]);
         }
+        $addEvidence($data, 'course', 'Program text', $data['course'], 'Degree / program line', $ocr_confidence - 3);
 
         // 4. SMART NAME PARSING
         $lines = explode("\n", $extracted_text);
@@ -96,6 +134,8 @@ if (!function_exists('readIdText')) {
             if (empty($data['last_name']) && preg_match('/^([A-ZÑ\-\s]+),\s*([A-ZÑ\-\s\.]+)$/i', $line, $matches)) {
                 $data['last_name'] = ucwords(strtolower(trim($matches[1])));
                 $data['first_name'] = ucwords(strtolower(trim($matches[2])));
+                $addEvidence($data, 'last_name', 'Last name', $data['last_name'], 'Printed name line (before comma)', $ocr_confidence - 3);
+                $addEvidence($data, 'first_name', 'First name', $data['first_name'], 'Printed name line (after comma)', $ocr_confidence - 3);
                 break;
             }
         }

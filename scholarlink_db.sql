@@ -906,3 +906,104 @@ ALTER TABLE `application`
   ADD KEY `idx_application_configuration_version` (`ConfigurationVersionID`),
   ADD CONSTRAINT `fk_application_configuration_version` FOREIGN KEY (`ConfigurationVersionID`) REFERENCES `scholarship_configuration_versions` (`ConfigurationVersionID`) ON DELETE RESTRICT;
 
+-- Auditable AI/OCR suggestions with mandatory human review controls (2026-11-02)
+CREATE TABLE IF NOT EXISTS `ai_document_analyses` (
+  `AnalysisID` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `ApplicationID` int(11) NOT NULL,
+  `SubmittedDocID` int(11) NOT NULL,
+  `SourceDocument` varchar(150) NOT NULL,
+  `SourceFileHash` char(64) NOT NULL,
+  `ModelName` varchar(100) DEFAULT NULL,
+  `OverallConfidence` decimal(5,2) NOT NULL DEFAULT 0.00,
+  `AuthenticitySuggestion` enum('Likely Authentic','Needs Review','Potential Issue') NOT NULL DEFAULT 'Needs Review',
+  `QualificationSuggestion` enum('Meets Criterion','Fails Criterion','Not Applicable','Needs Review') NOT NULL DEFAULT 'Needs Review',
+  `ExtractedFieldsJson` longtext DEFAULT NULL,
+  `FailedCriteriaJson` longtext DEFAULT NULL,
+  `Explanation` text DEFAULT NULL,
+  `RequiresManualReview` tinyint(1) NOT NULL DEFAULT 1,
+  `ReviewStatus` enum('Pending','Confirmed','Overridden','Inconclusive') NOT NULL DEFAULT 'Pending',
+  `ManualDecision` enum('Verify Document','Request Correction','Inconclusive') DEFAULT NULL,
+  `OverrideReason` text DEFAULT NULL,
+  `ReviewedBy` int(11) DEFAULT NULL,
+  `ReviewedAt` datetime DEFAULT NULL,
+  `CreatedBy` int(11) DEFAULT NULL,
+  `CreatedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`AnalysisID`),
+  KEY `idx_ai_review_queue` (`RequiresManualReview`,`ReviewStatus`,`CreatedAt`),
+  KEY `idx_ai_analysis_application` (`ApplicationID`,`SubmittedDocID`),
+  CONSTRAINT `fk_ai_analysis_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ai_analysis_document` FOREIGN KEY (`SubmittedDocID`) REFERENCES `submitted_document` (`SubmittedDocID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ai_analysis_creator` FOREIGN KEY (`CreatedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ai_analysis_reviewer` FOREIGN KEY (`ReviewedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Secure content-validated document metadata (2026-11-02)
+ALTER TABLE `submitted_document`
+  ADD COLUMN `OriginalFileName` varchar(255) DEFAULT NULL AFTER `FilePath`,
+  ADD COLUMN `MimeType` varchar(100) DEFAULT NULL AFTER `OriginalFileName`,
+  ADD COLUMN `FileSize` bigint unsigned DEFAULT NULL AFTER `MimeType`,
+  ADD COLUMN `FileChecksum` char(64) DEFAULT NULL AFTER `FileSize`,
+  ADD COLUMN `MalwareScanStatus` enum('Clean','Rejected','Error','LegacyUnchecked') NOT NULL DEFAULT 'LegacyUnchecked' AFTER `FileChecksum`,
+  ADD COLUMN `ScannerEngine` varchar(150) DEFAULT NULL AFTER `MalwareScanStatus`,
+  ADD COLUMN `ScannedAt` datetime DEFAULT NULL AFTER `ScannerEngine`,
+  ADD KEY `idx_submitted_checksum` (`FileChecksum`);
+
+ALTER TABLE `submitted_document_versions`
+  ADD COLUMN `MimeType` varchar(100) DEFAULT NULL AFTER `OriginalFileName`,
+  ADD COLUMN `FileSize` bigint unsigned DEFAULT NULL AFTER `MimeType`,
+  ADD COLUMN `FileChecksum` char(64) DEFAULT NULL AFTER `FileSize`,
+  ADD COLUMN `MalwareScanStatus` enum('Clean','Rejected','Error','LegacyUnchecked') NOT NULL DEFAULT 'LegacyUnchecked' AFTER `FileChecksum`,
+  ADD COLUMN `ScannerEngine` varchar(150) DEFAULT NULL AFTER `MalwareScanStatus`,
+  ADD COLUMN `ScannedAt` datetime DEFAULT NULL AFTER `ScannerEngine`;
+
+ALTER TABLE `user_vault`
+  ADD COLUMN `OriginalFileName` varchar(255) DEFAULT NULL AFTER `FilePath`,
+  ADD COLUMN `MimeType` varchar(100) DEFAULT NULL AFTER `OriginalFileName`,
+  ADD COLUMN `FileSize` bigint unsigned DEFAULT NULL AFTER `MimeType`,
+  ADD COLUMN `FileChecksum` char(64) DEFAULT NULL AFTER `FileSize`,
+  ADD COLUMN `MalwareScanStatus` enum('Clean','Rejected','Error','LegacyUnchecked') NOT NULL DEFAULT 'LegacyUnchecked' AFTER `FileChecksum`,
+  ADD COLUMN `ScannerEngine` varchar(150) DEFAULT NULL AFTER `MalwareScanStatus`,
+  ADD COLUMN `ScannedAt` datetime DEFAULT NULL AFTER `ScannerEngine`,
+  ADD KEY `idx_vault_checksum` (`FileChecksum`);
+
+-- Evaluator conflict-of-interest declarations and per-application reassignment (2026-11-02)
+CREATE TABLE IF NOT EXISTS `evaluation_assignments` (
+  `AssignmentID` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `ApplicationID` int(11) NOT NULL,
+  `EvaluatorID` int(11) NOT NULL,
+  `AssignedBy` int(11) DEFAULT NULL,
+  `AssignmentStatus` enum('Active','Conflict','Reassigned','Completed') NOT NULL DEFAULT 'Active',
+  `AssignmentReason` varchar(255) DEFAULT NULL,
+  `AssignedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  `EndedAt` datetime DEFAULT NULL,
+  PRIMARY KEY (`AssignmentID`),
+  KEY `idx_evaluation_assignment_active` (`ApplicationID`,`AssignmentStatus`),
+  KEY `idx_evaluation_assignment_evaluator` (`EvaluatorID`,`AssignmentStatus`),
+  CONSTRAINT `fk_eval_assignment_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_eval_assignment_evaluator` FOREIGN KEY (`EvaluatorID`) REFERENCES `users` (`UserID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_eval_assignment_assigner` FOREIGN KEY (`AssignedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `evaluation_conflict_declarations` (
+  `DeclarationID` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `AssignmentID` bigint unsigned NOT NULL,
+  `ApplicationID` int(11) NOT NULL,
+  `EvaluatorID` int(11) NOT NULL,
+  `ConflictStatus` enum('No Conflict','Conflict Disclosed') NOT NULL,
+  `RelationshipType` enum('None','Relative','Personally Known','Financial or Business Interest','Other Prohibited Relationship') NOT NULL DEFAULT 'None',
+  `Details` text DEFAULT NULL,
+  `ResolutionStatus` enum('Cleared','Pending Reassignment','Reassigned') NOT NULL,
+  `ReassignedTo` int(11) DEFAULT NULL,
+  `ResolvedBy` int(11) DEFAULT NULL,
+  `DeclaredAt` datetime NOT NULL DEFAULT current_timestamp(),
+  `ResolvedAt` datetime DEFAULT NULL,
+  PRIMARY KEY (`DeclarationID`),
+  UNIQUE KEY `uq_conflict_assignment` (`AssignmentID`),
+  KEY `idx_conflict_queue` (`ResolutionStatus`,`DeclaredAt`),
+  CONSTRAINT `fk_conflict_assignment` FOREIGN KEY (`AssignmentID`) REFERENCES `evaluation_assignments` (`AssignmentID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_conflict_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_conflict_evaluator` FOREIGN KEY (`EvaluatorID`) REFERENCES `users` (`UserID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_conflict_reassigned_to` FOREIGN KEY (`ReassignedTo`) REFERENCES `users` (`UserID`) ON DELETE SET NULL,
+  CONSTRAINT `fk_conflict_resolver` FOREIGN KEY (`ResolvedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+

@@ -423,6 +423,7 @@ unset($versionedApplication);
                     <h4 class="text-[14px] font-black uppercase tracking-widest mb-4 text-slate-900">Scoring Breakdown</h4>
                     <div id="dynamicCriteriaContainer" class="space-y-3"></div>
                 </div>
+                <label class="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm font-bold text-amber-900"><input type="checkbox" name="coi_certification" value="1" required class="mt-1"><span>I certify that no relative, personally known applicant, financial interest, or other prohibited relationship is involved.</span></label>
             </div>
 
             <div class="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
@@ -461,6 +462,7 @@ unset($versionedApplication);
                 <h4 class="text-sm font-black text-slate-900 mb-4 border-b border-slate-100 pb-3 flex items-center gap-2">
                     <span class="text-lg">🤖</span> AI Analysis Report
                 </h4>
+                <div class="mb-4 rounded-xl bg-purple-50 border border-purple-200 p-3 text-[10px] font-bold text-purple-800"><strong>AI suggestion only.</strong> This result cannot automatically reject an applicant. Low-confidence or adverse findings require authorized manual verification.</div><div id="aiEvidenceDetails" class="mb-4 text-[10px] text-slate-600 space-y-2"></div>
                 <div class="mb-5">
                     <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Authenticity & Layout Check</p>
                     <div id="aiAuthStatus" class="flex items-center gap-2 text-sm font-black text-slate-900 bg-slate-50 p-2.5 rounded-xl border border-slate-100">--</div>
@@ -472,6 +474,7 @@ unset($versionedApplication);
                     <p id="aiQualDetails" class="text-[10px] font-bold text-slate-500 mt-2 leading-relaxed">Waiting for scan...</p>
                 </div>
                 <button type="button" onclick="document.getElementById('aiAnalysisResults').classList.add('hidden')" class="w-full bg-slate-900 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-md hover:bg-slate-800 transition-all active:scale-95">Dismiss</button>
+                <a href="ai_reviews.php" class="mt-2 block text-center text-[10px] font-black uppercase tracking-widest text-purple-700">Open manual review queue →</a>
             </div>
 
             <div id="zoomControls" class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md p-2 rounded-2xl flex items-center gap-2 z-40 hidden shadow-2xl border border-white/10">
@@ -559,6 +562,7 @@ unset($versionedApplication);
         }
 
         document.getElementById('modalAppId').value = app.ApplicationID;
+        document.querySelector('#scoreModal input[name="coi_certification"]').checked = false;
         document.getElementById('modalStudentName').innerText = app.FirstName + ' ' + app.LastName;
         document.getElementById('refGPA').innerText = app.GPA || 'N/A';
 
@@ -852,6 +856,7 @@ unset($versionedApplication);
             reportPanel.classList.remove('hidden');
             
             if (data.success) {
+                const safeAIText = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
                 btn.classList.remove('bg-slate-800'); 
                 btn.classList.add('from-green-500', 'to-emerald-600'); 
                 icon.innerText = "✅"; text.innerText = "AI SCAN COMPLETE";
@@ -861,10 +866,10 @@ unset($versionedApplication);
                 
                 if(data.authenticity.is_authentic) {
                     authEl.innerHTML = `<span class="text-green-500 text-lg">🛡️</span> <span class="text-green-700">Valid Document Match</span>`;
-                    authDet.innerHTML = `Layout and structure match a standard <b>${expectedDocType}</b>.<br><b>Confidence:</b> ${data.authenticity.confidence}%`;
+                    authDet.innerHTML = `Layout appears consistent with <b>${safeAIText(expectedDocType)}</b>.<br><b>Confidence:</b> ${Number(data.authenticity.confidence).toFixed(1)}%<br><b>Source:</b> ${safeAIText(data.authenticity.source_document)} → ${safeAIText(data.authenticity.source_field)}`;
                 } else {
-                    authEl.innerHTML = `<span class="text-red-500 text-lg">🚨</span> <span class="text-red-700">MISMATCH / FAKE</span>`;
-                    authDet.innerHTML = `<b>Reason:</b> ${data.authenticity.flag_reason}`;
+                    authEl.innerHTML = `<span class="text-amber-500 text-lg">⚠️</span> <span class="text-amber-700">Potential issue — manual review</span>`;
+                    authDet.innerHTML = `<b>AI explanation:</b> ${safeAIText(data.authenticity.flag_reason)}<br><b>Confidence:</b> ${Number(data.authenticity.confidence).toFixed(1)}%<br><b>Source:</b> ${safeAIText(data.authenticity.source_document)} → ${safeAIText(data.authenticity.source_field)}`;
                 }
 
                 const qualEl = document.getElementById('aiQualStatus');
@@ -873,15 +878,16 @@ unset($versionedApplication);
                 if(data.qualification.is_applicable) {
                     if(data.qualification.is_qualified) {
                         qualEl.innerHTML = `<span class="text-blue-500 text-lg">🎯</span> <span class="text-blue-700">Qualified (GWA Met)</span>`;
-                        qualDet.innerHTML = `Extracted GWA: <b>${data.qualification.extracted_gwa}</b> (Required: ${currentReqGWA})`;
+                        qualDet.innerHTML = `Extracted GWA: <b>${safeAIText(data.qualification.extracted_gwa)}</b> (Required: ${Number(currentReqGWA)})<br><b>Confidence:</b> ${Number(data.qualification.confidence).toFixed(1)}%<br><b>Source:</b> ${safeAIText(data.qualification.source_document)} → ${safeAIText(data.qualification.source_field)}`;
                     } else {
-                        qualEl.innerHTML = `<span class="text-orange-500 text-lg">⚠️</span> <span class="text-orange-700">Unqualified GWA</span>`;
-                        qualDet.innerHTML = `Extracted GWA: <b>${data.qualification.extracted_gwa}</b> (Required: ${currentReqGWA})`;
+                        qualEl.innerHTML = `<span class="text-orange-500 text-lg">⚠️</span> <span class="text-orange-700">Criterion appears unmet — verify manually</span>`;
+                        qualDet.innerHTML = `Extracted GWA: <b>${safeAIText(data.qualification.extracted_gwa)}</b> (Required: ${Number(currentReqGWA)})<br><b>Confidence:</b> ${Number(data.qualification.confidence).toFixed(1)}%<br><b>Source:</b> ${safeAIText(data.qualification.source_document)} → ${safeAIText(data.qualification.source_field)}`;
                     }
                 } else {
                     qualEl.innerHTML = `<span class="text-slate-400 text-lg">ℹ️</span> <span class="text-slate-600">N/A for this file</span>`;
                     qualDet.innerHTML = `This document type does not require GWA threshold evaluation.`;
                 }
+                const evidence=document.getElementById('aiEvidenceDetails');const failures=(data.failed_criteria||[]).map(f=>`<div class="rounded-lg bg-red-50 border border-red-100 p-2"><b>${safeAIText(f.criterion)}</b><br>${safeAIText(f.explanation)}</div>`).join('');evidence.innerHTML=`<div class="rounded-lg ${data.manual_verification_required?'bg-amber-50 border-amber-200':'bg-blue-50 border-blue-200'} border p-2 font-black">${data.manual_verification_required?'Manual verification required before any adverse action.':'Human confirmation is still required for a final decision.'}</div>${failures}`;
 
             } else { throw new Error(data.error || "Scan failed"); }
         } catch (error) {

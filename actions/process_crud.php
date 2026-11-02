@@ -6,6 +6,7 @@ require_once '../includes/appeals.php';
 require_once '../includes/application_authority.php';
 require_once '../includes/approval_workflow.php';
 require_once '../includes/scholarship_config_versions.php';
+require_once '../includes/evaluation_conflicts.php';
 
 // Using require_once to ensure the function is defined and paths are correct
 if (file_exists('../includes/email_config.php')) {
@@ -66,8 +67,10 @@ if (!in_array($_SESSION['role'] ?? '', $roles, true)) {
 // ✨ DECISION AUTHORITY: internally funded scholarships are decided by the OSSD (Internal Admin),
 // externally funded ones only by the provider account that created them (see application_authority.php)
 if ($module === 'applications' && in_array($action, ['score', 'update_status', 'final_decision'], true)) {
-    require_once '../includes/application_authority.php';
-    requireApplicationAuthority($pdo, $_POST['id'] ?? $_POST['application_id'] ?? 0, '../admin_login.php');
+    $decision_app_id=(int)($_POST['id'] ?? $_POST['application_id'] ?? 0);
+    if($action==='score'){
+        if(!canEvaluateApplication($pdo,$decision_app_id,$_SESSION['role']??'',(int)($_SESSION['user_id']??0))){$_SESSION['error']='This application is assigned to another evaluator or awaiting reassignment.';header('Location: '.(($_SESSION['role']??'')==='External_Admin'?'../external_admin/score.php':'../super_admin/manage_applications.php'));exit;}
+    }else requireApplicationAuthority($pdo,$decision_app_id,'../admin_login.php');
 }
 
 // ==========================================
@@ -335,66 +338,10 @@ if ($module === 'student_apply') {
                     $ans_stmt->execute([$new_app_id, $fieldId, $answerText]);
                 }
 
-                // ✨ 3. SAVE UPLOADED / VAULT DOCUMENTS
-                $upload_dir = '../uploads/documents/';
-                if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
-
-                // A. Handling Direct PC Uploads (Sinasalo ang 'files' o 'new_docs' depende sa pinanggalingang form)
-                $fileFieldName = isset($_FILES['files']) ? 'files' : (isset($_FILES['new_docs']) ? 'new_docs' : null);
-
-                if ($fileFieldName !== null) {
-                    foreach ($_FILES[$fileFieldName]['tmp_name'] as $req_id => $tmp_name) {
-                        if ($_FILES[$fileFieldName]['error'][$req_id] === UPLOAD_ERR_OK) {
-                            $file_name = $_FILES[$fileFieldName]['name'][$req_id];
-                            $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
-                            
-                            $new_file_name = "STU-" . $user_id . "-APP-" . $new_app_id . "-REQ-" . $req_id . "-" . uniqid() . "." . $file_ext;
-                            $destination = $upload_dir . $new_file_name;
-
-                            if (move_uploaded_file($tmp_name, $destination)) {
-                                $ins_doc = $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')");
-                                $ins_doc->execute([$new_app_id, $req_id, $destination]);
-                                recordDocumentVersion($pdo, (int) $pdo->lastInsertId(), (int) $new_app_id, (int) $req_id, $destination, $file_name, $user_id, 'Uploaded');
-                            }
-                        }
-                    }
-                }
-
-                // B. Handling Vault Documents (Sinasalo ang vault_docs o vault_files)
-                $vaultInput = $_POST['vault_docs'] ?? ($_POST['vault_files'] ?? []);
-                
-                if (!empty($vaultInput) && is_array($vaultInput)) {
-                    $upload_dir = '../uploads/documents/';
-                    if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
-
-                    foreach ($vaultInput as $req_id => $vault_id) {
-                        if (!empty($vault_id)) {
-                            $v_stmt = $pdo->prepare("SELECT FilePath FROM user_vault WHERE VaultID = ? AND UserID = ?");
-                            $v_stmt->execute([$vault_id, $user_id]);
-                            $vault_file = $v_stmt->fetch();
-                            
-                            if ($vault_file) {
-                                $vault_file_path = $vault_file['FilePath'];
-                                $final_file_path = $vault_file_path; 
-                                
-                                // Kopyahin ang physical file kung nandiyan
-                                if (file_exists($vault_file_path)) {
-                                    $file_ext = pathinfo($vault_file_path, PATHINFO_EXTENSION);
-                                    $new_file_name = "STU-" . $user_id . "-APP-" . $new_app_id . "-REQ-" . $req_id . "-" . uniqid() . "." . $file_ext;
-                                    $target_path = $upload_dir . $new_file_name;
-
-                                    if (copy($vault_file_path, $target_path)) {
-                                        $final_file_path = $target_path;
-                                    }
-                                }
-                                
-                                $ins_doc = $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')");
-                                $ins_doc->execute([$new_app_id, $req_id, $final_file_path]);
-                                recordDocumentVersion($pdo, (int) $pdo->lastInsertId(), (int) $new_app_id, (int) $req_id, $final_file_path, basename($vault_file_path), $user_id, 'Uploaded');
-                            }
-                        }
-                    }
-                }
+                // Every direct or vault-backed document passes through the same
+                // ownership, MIME/signature, size, malware, and checksum controls.
+                if (!isset($_FILES['files']) && isset($_FILES['new_docs'])) $_FILES['files'] = $_FILES['new_docs'];
+                saveRequestedApplicationDocuments($pdo, (int)$new_app_id, (int)$scholarship_id, (int)$user_id);
 
                 snapshotApplicationVersion($pdo, (int) $new_app_id, 'Submitted', $user_id);
                 logAudit($pdo, $user_id, 'Application Submitted', "Submitted application #$new_app_id");
@@ -455,41 +402,7 @@ if ($module === 'student_apply') {
                 $ans_stmt->execute([$app_id, $fieldId, $answerText]);
             }
 
-            // ✨ 3. NEW: HANDLE DOCUMENT UPLOADS FROM THE EDIT MODAL
-            if (isset($_FILES['files'])) {
-                $upload_dir = '../uploads/documents/';
-                if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
-
-                foreach ($_FILES['files']['tmp_name'] as $req_id => $tmp_name) {
-                    if ($_FILES['files']['error'][$req_id] === UPLOAD_ERR_OK) {
-                        $file_name = $_FILES['files']['name'][$req_id];
-                        $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
-                        
-                        // Force a clean, unique file name to avoid overlaps
-                        $new_file_name = "STU-" . $user_id . "-APP-" . $app_id . "-REQ-" . $req_id . "-" . uniqid() . "." . $file_ext;
-                        $destination = $upload_dir . $new_file_name;
-
-                        if (move_uploaded_file($tmp_name, $destination)) {
-                            // Check if this document requirement already has an uploaded file
-                            $check_doc = $pdo->prepare("SELECT SubmittedDocID, FilePath FROM submitted_document WHERE ApplicationID = ? AND RequirementID = ?");
-                            $check_doc->execute([$app_id, $req_id]);
-                            $existing = $check_doc->fetch();
-
-                            if ($existing) {
-                                // Update DB record
-                                $upd_doc = $pdo->prepare("UPDATE submitted_document SET FilePath = ?, VerificationStatus = 'Pending', UploadDate = NOW() WHERE SubmittedDocID = ?");
-                                $upd_doc->execute([$destination, $existing['SubmittedDocID']]);
-                                recordDocumentVersion($pdo, (int) $existing['SubmittedDocID'], (int) $app_id, (int) $req_id, $destination, $file_name, $user_id, 'Replaced');
-                            } else {
-                                // Insert new DB record
-                                $ins_doc = $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')");
-                                $ins_doc->execute([$app_id, $req_id, $destination]);
-                                recordDocumentVersion($pdo, (int) $pdo->lastInsertId(), (int) $app_id, (int) $req_id, $destination, $file_name, $user_id, 'Uploaded');
-                            }
-                        }
-                    }
-                }
-            }
+            saveRequestedApplicationDocuments($pdo, (int)$app_id, $own_scholarship_id, (int)$user_id);
 
             $resubmitted = in_array($owned_app['Status'], ['For Resubmission', 'Withdrawn'], true);
             if ($resubmitted) {
@@ -500,7 +413,7 @@ if ($module === 'student_apply') {
             snapshotApplicationVersion($pdo, (int) $app_id, $resubmitted ? 'Resubmitted' : 'Updated', $user_id);
             logAudit($pdo, $user_id, $resubmitted ? 'Application Resubmitted' : 'Application Updated', "Updated application #$app_id");
             $_SESSION['success'] = $resubmitted ? "Corrected application resubmitted successfully!" : "Application updated successfully!";
-        } catch (PDOException $e) { 
+        } catch (Throwable $e) {
             $_SESSION['error'] = "Update Error: " . $e->getMessage(); 
         }
         
@@ -666,6 +579,10 @@ if ($module === 'student_documents') {
 if ($module === 'applications' && $action === 'score') {
     $application_id = (int) $_POST['id'];
     $total_score = $_POST['score'] ?? '';
+    if(($_POST['coi_certification']??'')!=='1'){
+        $_SESSION['error']='You must certify that no prohibited relationship or conflict of interest exists before scoring.';
+        header("Location: " . ($_SESSION['role'] === 'External_Admin' ? '../external_admin/score.php' : '../super_admin/manage_applications.php'));exit;
+    }
 
     // A merit score is 0-100, and only applications still waiting for one can be scored
     // (re-scoring an approved or rejected applicant would quietly move them back to Shortlisted)
@@ -683,6 +600,8 @@ if ($module === 'applications' && $action === 'score') {
     $workflow_managed = applicationUsesConfiguredWorkflow($pdo, $application_id);
 
     try {
+        $pdo->beginTransaction();
+        recordNoConflictDeclaration($pdo,$application_id,(int)$_SESSION['user_id']);
         $stmt = $pdo->prepare("
             UPDATE application 
             SET TotalScore = :score
@@ -690,6 +609,7 @@ if ($module === 'applications' && $action === 'score') {
             WHERE ApplicationID = :id
         ");
         $stmt->execute(['score' => $total_score, 'id' => $application_id]);
+        $pdo->prepare("UPDATE evaluation_assignments SET AssignmentStatus='Completed',EndedAt=NOW() WHERE ApplicationID=? AND EvaluatorID=? AND AssignmentStatus='Active'")->execute([$application_id,$_SESSION['user_id']]);
         
         // ✨ NEW: NOTIFY THE STUDENT!
         $info_stmt = $pdo->prepare("SELECT a.UserID, sch.Name FROM application a JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID WHERE a.ApplicationID = ?");
@@ -710,8 +630,11 @@ if ($module === 'applications' && $action === 'score') {
         $_SESSION['success'] = $workflow_managed
             ? "Score saved ($total_score/100). Complete the assigned workflow stage to advance the application."
             : "Application successfully scored ($total_score/100) and Shortlisted!";
-    } catch (PDOException $e) {
-        $_SESSION['error'] = "Database Error: " . $e->getMessage();
+        logAudit($pdo,(int)$_SESSION['user_id'],'Conflict-Free Evaluation Completed',"Application #$application_id scored $total_score/100 after no-conflict certification.");
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if($pdo->inTransaction())$pdo->rollBack();
+        $_SESSION['error'] = "Evaluation Error: " . $e->getMessage();
     }
     header("Location: ../external_admin/score.php");
     exit();

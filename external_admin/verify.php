@@ -5,6 +5,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'External_Admin') {
     exit(); 
 }
 include '../includes/db_connect.php'; 
+require_once '../includes/document_security.php';
 include '../includes/header.php'; 
 include '../includes/external_sidebar.php'; 
 
@@ -45,6 +46,8 @@ try {
     ");
     $stmt->execute($params);
     $pending_docs_raw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($pending_docs_raw as &$row) $row['file_path'] = protectedDocumentUrl((int)$row['document_id']);
+    unset($row);
 
     // ✨ STEP 3: GROUP DOCUMENTS BY USER
     $grouped_docs = [];
@@ -216,6 +219,7 @@ $highlight_doc_id = $_GET['doc_id'] ?? null;
                 <h4 class="text-sm font-black text-slate-900 mb-4 border-b border-slate-100 pb-3 flex items-center gap-2">
                     <span class="text-lg">🤖</span> AI Analysis Report
                 </h4>
+                <div class="mb-4 rounded-xl bg-purple-50 border border-purple-200 p-3 text-[10px] font-bold text-purple-800"><strong>AI suggestion only.</strong> No applicant is automatically rejected. Low-confidence and adverse findings require authorized manual verification.</div><div id="aiEvidenceDetails" class="mb-4 text-[10px] text-slate-600 space-y-2"></div>
                 
                 <!-- Authenticity & Mismatch Section -->
                 <div class="mb-5">
@@ -236,6 +240,7 @@ $highlight_doc_id = $_GET['doc_id'] ?? null;
                 </div>
                 
                 <button onclick="document.getElementById('aiAnalysisResults').classList.add('hidden')" class="w-full bg-slate-900 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-md hover:bg-slate-800 transition-all active:scale-95">Dismiss</button>
+                <a href="ai_reviews.php" class="mt-2 block text-center text-[10px] font-black uppercase tracking-widest text-purple-700">Open manual review queue →</a>
             </div>
 
             <!-- Zoom Controls -->
@@ -363,6 +368,7 @@ $highlight_doc_id = $_GET['doc_id'] ?? null;
             reportPanel.classList.remove('hidden');
             
             if (data.success) {
+                const safeAIText = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
                 btn.classList.remove('bg-slate-800'); 
                 btn.classList.add('from-green-500', 'to-emerald-600'); 
                 icon.innerText = "✅"; text.innerText = "AI SCAN COMPLETE";
@@ -373,10 +379,10 @@ $highlight_doc_id = $_GET['doc_id'] ?? null;
                 
                 if(data.authenticity.is_authentic) {
                     authEl.innerHTML = `<span class="text-green-500 text-lg">🛡️</span> <span class="text-green-700">Valid Document Match</span>`;
-                    authDet.innerHTML = `Layout and structure match a standard <b>${expectedDocType}</b>.<br><b>Confidence:</b> ${data.authenticity.confidence}%`;
+                    authDet.innerHTML = `Layout appears consistent with <b>${safeAIText(expectedDocType)}</b>.<br><b>Confidence:</b> ${Number(data.authenticity.confidence).toFixed(1)}%<br><b>Source:</b> ${safeAIText(data.authenticity.source_document)} → ${safeAIText(data.authenticity.source_field)}`;
                 } else {
-                    authEl.innerHTML = `<span class="text-red-500 text-lg">🚨</span> <span class="text-red-700">MISMATCH / FAKE</span>`;
-                    authDet.innerHTML = `<b>Reason:</b> ${data.authenticity.flag_reason}`;
+                    authEl.innerHTML = `<span class="text-amber-500 text-lg">⚠️</span> <span class="text-amber-700">Potential issue — manual review</span>`;
+                    authDet.innerHTML = `<b>AI explanation:</b> ${safeAIText(data.authenticity.flag_reason)}<br><b>Confidence:</b> ${Number(data.authenticity.confidence).toFixed(1)}%<br><b>Source:</b> ${safeAIText(data.authenticity.source_document)} → ${safeAIText(data.authenticity.source_field)}`;
                 }
 
                 // 2. QUALIFICATION CHECK
@@ -386,15 +392,16 @@ $highlight_doc_id = $_GET['doc_id'] ?? null;
                 if(data.qualification.is_applicable) {
                     if(data.qualification.is_qualified) {
                         qualEl.innerHTML = `<span class="text-blue-500 text-lg">🎯</span> <span class="text-blue-700">Qualified (GWA Met)</span>`;
-                        qualDet.innerHTML = `Extracted GWA: <b>${data.qualification.extracted_gwa}</b> (Required: ${currentReqGWA})`;
+                        qualDet.innerHTML = `Extracted GWA: <b>${safeAIText(data.qualification.extracted_gwa)}</b> (Required: ${Number(currentReqGWA)})<br><b>Confidence:</b> ${Number(data.qualification.confidence).toFixed(1)}%<br><b>Source:</b> ${safeAIText(data.qualification.source_document)} → ${safeAIText(data.qualification.source_field)}`;
                     } else {
-                        qualEl.innerHTML = `<span class="text-orange-500 text-lg">⚠️</span> <span class="text-orange-700">Unqualified GWA</span>`;
-                        qualDet.innerHTML = `Extracted GWA: <b>${data.qualification.extracted_gwa}</b> (Required: ${currentReqGWA})`;
+                        qualEl.innerHTML = `<span class="text-orange-500 text-lg">⚠️</span> <span class="text-orange-700">Criterion appears unmet — verify manually</span>`;
+                        qualDet.innerHTML = `Extracted GWA: <b>${safeAIText(data.qualification.extracted_gwa)}</b> (Required: ${Number(currentReqGWA)})<br><b>Confidence:</b> ${Number(data.qualification.confidence).toFixed(1)}%<br><b>Source:</b> ${safeAIText(data.qualification.source_document)} → ${safeAIText(data.qualification.source_field)}`;
                     }
                 } else {
                     qualEl.innerHTML = `<span class="text-slate-400 text-lg">ℹ️</span> <span class="text-slate-600">N/A for this file</span>`;
                     qualDet.innerHTML = `This document type does not require GWA threshold evaluation.`;
                 }
+                const evidence=document.getElementById('aiEvidenceDetails');const failures=(data.failed_criteria||[]).map(f=>`<div class="rounded-lg bg-red-50 border border-red-100 p-2"><b>${safeAIText(f.criterion)}</b><br>${safeAIText(f.explanation)}</div>`).join('');evidence.innerHTML=`<div class="rounded-lg ${data.manual_verification_required?'bg-amber-50 border-amber-200':'bg-blue-50 border-blue-200'} border p-2 font-black">${data.manual_verification_required?'Manual verification required before any adverse action.':'Human confirmation is still required for a final decision.'}</div>${failures}`;
 
             } else {
                 throw new Error(data.error || "Scan failed");

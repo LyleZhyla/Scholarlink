@@ -80,7 +80,7 @@ try {
         
         // Fetch Documents
         $doc_stmt = $pdo->prepare("
-            SELECT sd.FilePath, sd.VerificationStatus, sd.UploadDate,
+            SELECT sd.SubmittedDocID, sd.FilePath, sd.VerificationStatus, sd.UploadDate,
                    dr.DocumentName, sd.ApplicationID
             FROM submitted_document sd
             JOIN document_requirement dr ON sd.RequirementID = dr.RequirementID
@@ -88,6 +88,7 @@ try {
         ");
         $doc_stmt->execute($app_ids);
         foreach($doc_stmt->fetchAll(PDO::FETCH_ASSOC) as $d) {
+            $d['FilePath'] = '../actions/serve_document.php?type=submitted&id=' . (int)$d['SubmittedDocID'];
             $docs_by_app[$d['ApplicationID']][] = $d;
         }
 
@@ -445,7 +446,7 @@ try {
             docs.forEach(doc => {
                 const safeUrl = doc.FilePath.replace(/'/g, "\\'");
                 const safeName = doc.DocumentName.replace(/'/g, "\\'");
-                const actualDownloadPath = `../${doc.FilePath.replace('../', '')}`;
+                const actualDownloadPath = `${doc.FilePath}&download=1`;
                 container.innerHTML += `
                     <div class="bg-white p-6 rounded-[1.5rem] border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-blue-300 transition-all">
                         <div>

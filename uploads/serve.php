@@ -54,16 +54,21 @@ if ($owner === null && preg_match('#^vault/(\d+)/|(?:^|/)(?:STU-|USER_)(\d+)[-_]
 }
 
 $allowed = false;
-if (in_array($role, ['Super_Admin', 'Internal_Admin'], true)) {
+if ($role === 'Super_Admin') {
     $allowed = true;
 } elseif ($role === 'Student') {
     $allowed = $owner !== null && $owner === $me;
-} elseif ($role === 'External_Admin' && $owner !== null) {
-    // The provider's own scholarships: the file's application, or any application by this student
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM application a JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID
-                           WHERE s.CreatedBy = ? AND " . ($scholarship_ids ? 'a.ScholarshipID IN (' . implode(',', array_map('intval', $scholarship_ids)) . ')' : 'a.UserID = ?'));
-    $stmt->execute($scholarship_ids ? [$me] : [$me, $owner]);
-    $allowed = (int) $stmt->fetchColumn() > 0;
+} elseif ($role === 'Internal_Admin' && $scholarship_ids) {
+    $ids = implode(',', array_map('intval', array_unique($scholarship_ids)));
+    $allowed = (int)$pdo->query("SELECT COUNT(*) FROM scholarship s LEFT JOIN users creator ON creator.UserID=s.CreatedBy WHERE s.ScholarshipID IN ($ids) AND (creator.Role IS NULL OR creator.Role IN ('Internal_Admin','Super_Admin'))")->fetchColumn() > 0;
+} elseif ($role === 'External_Admin' && $scholarship_ids) {
+    $ids = implode(',', array_map('intval', array_unique($scholarship_ids)));
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM scholarship WHERE ScholarshipID IN ($ids) AND CreatedBy=?");
+    $stmt->execute([$me]);
+    $allowed = (int)$stmt->fetchColumn() > 0;
+} elseif (in_array($role, ['Internal_Admin','External_Admin'], true) && str_starts_with($rel, 'profile')) {
+    // Profile photos are not application/vault documents and remain available to staff directories.
+    $allowed = true;
 }
 if (!$allowed) deny(403, 'You do not have access to this file.');
 

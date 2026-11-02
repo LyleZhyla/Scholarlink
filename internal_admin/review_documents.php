@@ -77,7 +77,7 @@ try {
                     </p>
                 </div>
                 <div class="mt-8">
-                    <a href="<?= htmlspecialchars($doc['FilePath']) ?>" target="_blank" class="block w-full text-center bg-slate-100 text-slate-900 py-3.5 lg:py-4 rounded-xl lg:rounded-2xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-green-600 hover:text-white transition-all">
+                    <a href="../actions/serve_document.php?type=submitted&amp;id=<?= (int)$doc['SubmittedDocID'] ?>" target="_blank" class="block w-full text-center bg-slate-100 text-slate-900 py-3.5 lg:py-4 rounded-xl lg:rounded-2xl font-black text-[10px] lg:text-xs uppercase tracking-widest hover:bg-green-600 hover:text-white transition-all">
                         View File 👁️
                     </a>
                 </div>

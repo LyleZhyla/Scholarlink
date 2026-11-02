@@ -15,6 +15,7 @@ if (!isset($_SESSION['logged_in']) || strtolower(trim($_SESSION['role'] ?? '')) 
     exit(); 
 }
 include '../includes/db_connect.php'; 
+require_once '../includes/document_security.php';
 include '../includes/header.php'; 
 include '../includes/student_sidebar.php'; 
 
@@ -33,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $doc = $stmt->fetch();
         
         if ($doc) {
-            if (file_exists($doc['FilePath'])) { unlink($doc['FilePath']); } // Delete physical file
+            try { $absolute = resolveProtectedDocumentPath($doc['FilePath']); unlink($absolute); } catch (Throwable $ignored) {}
             $pdo->prepare("DELETE FROM user_vault WHERE VaultID = ?")->execute([$vault_id]); // Delete DB record
             $upload_msg = "<div class='p-4 mb-4 text-md text-green-800 rounded-lg bg-green-50 font-bold border border-green-200'>🗑️ Document deleted successfully.</div>";
         }
@@ -41,46 +42,44 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     // 2. Handle Upload/Replace Action
     elseif (($action === 'upload' || $action === 'replace') && isset($_FILES['vault_file'])) {
-        $doc_type = $_POST['document_type'];
+        $doc_type = trim((string)($_POST['document_type'] ?? ''));
         $file_name = $_FILES['vault_file']['name'];
         $tmp_name = $_FILES['vault_file']['tmp_name'];
         $file_size = $_FILES['vault_file']['size'];
         $file_err = $_FILES['vault_file']['error'];
         
-        // STRICT PDF & 10MB SIZE CHECK INJECTED HERE
-        $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
-        if ($file_err === UPLOAD_ERR_INI_SIZE || $file_err === UPLOAD_ERR_FORM_SIZE || $file_size > 10 * 1024 * 1024) {
-            $upload_msg = "<div class='p-4 mb-4 text-md text-red-800 rounded-lg bg-red-50 font-bold border border-red-200'>⚠️ Upload failed. File exceeds the maximum allowed size of 10MB.</div>";
-        } elseif ($file_ext !== 'pdf') {
-            $upload_msg = "<div class='p-4 mb-4 text-md text-red-800 rounded-lg bg-red-50 font-bold border border-red-200'>⚠️ Upload failed. Only PDF files are allowed in the vault.</div>";
-        } else {
-            // PROCEED WITH UPLOAD IF IT IS A PDF UNDER 10MB
-            $upload_dir = '../uploads/vault/' . $user_id . '/';
-            if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
-            
-            $new_file_name = time() . '_' . basename($file_name);
-            $target_path = $upload_dir . $new_file_name;
+        try {
+            if ($doc_type === '' || mb_strlen($doc_type) > 100) throw new RuntimeException('Select a valid document type.');
+            if ($file_err !== UPLOAD_ERR_OK) throw new RuntimeException($file_err === UPLOAD_ERR_INI_SIZE || $file_err === UPLOAD_ERR_FORM_SIZE ? 'File exceeds the 10 MB limit.' : 'The upload did not complete.');
+            $metadata = inspectDocumentFile($tmp_name, $file_name);
+            $upload_dir = dirname(__DIR__) . '/uploads/vault/' . (int)$user_id . '/';
+            if (!is_dir($upload_dir) && !mkdir($upload_dir, 0775, true)) throw new RuntimeException('The secure vault folder could not be created.');
+            $new_file_name = 'VAULT-' . (int)$user_id . '-' . bin2hex(random_bytes(8)) . '.' . $metadata['extension'];
+            $absolute_target = $upload_dir . $new_file_name;
+            $target_path = '../uploads/vault/' . (int)$user_id . '/' . $new_file_name;
 
-            if (move_uploaded_file($tmp_name, $target_path)) {
+            if (move_uploaded_file($tmp_name, $absolute_target)) {
                 $check_stmt = $pdo->prepare("SELECT VaultID, FilePath FROM user_vault WHERE UserID = ? AND DocumentType = ?");
                 $check_stmt->execute([$user_id, $doc_type]);
                 $existing_doc = $check_stmt->fetch(PDO::FETCH_ASSOC);
 
                 if ($existing_doc) {
                     // Overwrite existing
-                    if (file_exists($existing_doc['FilePath'])) { unlink($existing_doc['FilePath']); }
-                    $update_stmt = $pdo->prepare("UPDATE user_vault SET FilePath = ?, UploadDate = CURRENT_TIMESTAMP WHERE VaultID = ?");
-                    $update_stmt->execute([$target_path, $existing_doc['VaultID']]);
-                    $upload_msg = "<div class='p-4 mb-4 text-md text-blue-800 rounded-lg bg-blue-50 font-bold border border-blue-200'>🔄 Document replaced and updated!</div>";
+                    $update_stmt = $pdo->prepare("UPDATE user_vault SET FilePath=?,OriginalFileName=?,MimeType=?,FileSize=?,FileChecksum=?,MalwareScanStatus=?,ScannerEngine=?,ScannedAt=?,UploadDate=CURRENT_TIMESTAMP WHERE VaultID=? AND UserID=?");
+                    $update_stmt->execute([$target_path,$metadata['original_name'],$metadata['mime_type'],$metadata['file_size'],$metadata['checksum'],$metadata['malware_status'],$metadata['scanner_engine'],$metadata['scanned_at'],$existing_doc['VaultID'],$user_id]);
+                    try { $old = resolveProtectedDocumentPath($existing_doc['FilePath']); if ($old !== $absolute_target) unlink($old); } catch (Throwable $ignored) {}
+                    $upload_msg = "<div class='p-4 mb-4 text-md text-blue-800 rounded-lg bg-blue-50 font-bold border border-blue-200'>🔄 Document replaced, scanned, and integrity-protected.</div>";
                 } else {
-                    // Insert new
-                    $insert_stmt = $pdo->prepare("INSERT INTO user_vault (UserID, DocumentType, FilePath) VALUES (?, ?, ?)");
-                    $insert_stmt->execute([$user_id, $doc_type, $target_path]);
-                    $upload_msg = "<div class='p-4 mb-4 text-md text-green-800 rounded-lg bg-green-50 font-bold border border-green-200'>🔒 Document secured in your vault!</div>";
+                    $insert_stmt = $pdo->prepare("INSERT INTO user_vault (UserID,DocumentType,FilePath,OriginalFileName,MimeType,FileSize,FileChecksum,MalwareScanStatus,ScannerEngine,ScannedAt) VALUES (?,?,?,?,?,?,?,?,?,?)");
+                    $insert_stmt->execute([$user_id,$doc_type,$target_path,$metadata['original_name'],$metadata['mime_type'],$metadata['file_size'],$metadata['checksum'],$metadata['malware_status'],$metadata['scanner_engine'],$metadata['scanned_at']]);
+                    $upload_msg = "<div class='p-4 mb-4 text-md text-green-800 rounded-lg bg-green-50 font-bold border border-green-200'>🔒 Document scanned and secured in your vault.</div>";
                 }
             } else {
-                $upload_msg = "<div class='p-4 mb-4 text-md text-red-800 rounded-lg bg-red-50 font-bold border border-red-200'>⚠️ Upload failed. Please try again.</div>";
+                throw new RuntimeException('The validated document could not be saved.');
             }
+        } catch (Throwable $e) {
+            if (isset($absolute_target) && is_file($absolute_target)) @unlink($absolute_target);
+            $upload_msg = "<div class='p-4 mb-4 text-md text-red-800 rounded-lg bg-red-50 font-bold border border-red-200'>⚠️ Upload failed. " . htmlspecialchars($e->getMessage()) . "</div>";
         }
     }
 }
@@ -175,11 +174,12 @@ $all_requirements = $req_stmt->fetchAll(PDO::FETCH_COLUMN);
                                     <div>
                                         <p class="text-md font-black text-slate-900"><?= htmlspecialchars($file['DocumentType']) ?></p>
                                         <p class="text-md text-slate-500 mt-1">Uploaded: <?= date('M d, Y', strtotime($file['UploadDate'])) ?></p>
+                                        <p class="text-[10px] text-emerald-700 mt-1 font-bold"><?= htmlspecialchars($file['MalwareScanStatus']) ?> · SHA-256 <?= htmlspecialchars(substr((string)$file['FileChecksum'], 0, 12)) ?>…</p>
                                     </div>
                                 </div>
 
                                 <div class="flex items-center gap-4 sm:ml-auto pt-3 sm:pt-0 border-t sm:border-0 border-slate-100 w-full sm:w-auto">
-                                    <button onclick="openDocumentModal('<?= htmlspecialchars($file['FilePath']) ?>', '<?= htmlspecialchars($file['DocumentType']) ?>')" type="button" class="text-md font-bold text-blue-600 hover:text-blue-800">
+                                    <button onclick="openDocumentModal('../actions/serve_document.php?type=vault&id=<?= (int)$file['VaultID'] ?>', '<?= htmlspecialchars($file['DocumentType'], ENT_QUOTES) ?>')" type="button" class="text-md font-bold text-blue-600 hover:text-blue-800">
                                         View
                                     </button>
 

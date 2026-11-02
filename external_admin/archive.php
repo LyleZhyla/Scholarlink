@@ -6,6 +6,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'External_Admin') {
 }
 
 include '../includes/db_connect.php';
+require_once '../includes/document_security.php';
 include '../includes/header.php';
 include '../includes/external_sidebar.php'; 
 
@@ -61,6 +62,8 @@ try {
     ");
     $query->execute($params);
     $assignments = $query->fetchAll();
+    foreach ($assignments as &$assignment) $assignment['file_path'] = protectedDocumentUrl((int)$assignment['document_id']);
+    unset($assignment);
 
 } catch (PDOException $e) {
     $assignments = [];
@@ -148,8 +151,7 @@ try {
                     'Rejected' => 'bg-red-500',
                     default => 'bg-orange-500'
                 };
-                $cleanUrl = str_replace('../', '', $task['file_path']);
-                $actualDownloadPath = "../" . $cleanUrl;
+                $actualDownloadPath = $task['file_path'] . '&download=1';
             ?>
             <div class="archive-card bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col lg:flex-row items-start lg:items-center justify-between p-5 relative overflow-hidden group">
                 <div class="absolute top-0 left-0 w-1 h-full <?= $status_color ?>"></div>

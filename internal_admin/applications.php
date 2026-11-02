@@ -72,6 +72,7 @@ try {
         ");
         $doc_stmt->execute($app_ids);
         foreach($doc_stmt->fetchAll(PDO::FETCH_ASSOC) as $d) {
+            $d['FilePath'] = '../actions/serve_document.php?type=submitted&id=' . (int)$d['SubmittedDocID'];
             $docs_by_app[$d['ApplicationID']][] = $d;
         }
 
@@ -357,7 +358,7 @@ try {
             docs.forEach(doc => {
                 const safeUrl = doc.FilePath.replace(/'/g, "\\'");
                 const safeName = doc.DocumentName.replace(/'/g, "\\'");
-                const actualDownloadPath = `../${doc.FilePath.replace('../', '')}`;
+                const actualDownloadPath = `${doc.FilePath}&download=1`;
                 container.innerHTML += `
                     <div class="bg-white p-6 rounded-[1.5rem] border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-blue-300 transition-all">
                         <div>

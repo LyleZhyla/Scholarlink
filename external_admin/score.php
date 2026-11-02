@@ -15,8 +15,8 @@ include '../includes/external_sidebar.php';
 
 $courses = $pdo->query("SELECT DISTINCT Major FROM users WHERE Major IS NOT NULL AND Major != ''")->fetchAll();
 // Only the provider's own active scholarships (fetch_live_score.php lists only their applicants too)
-$sch_stmt = $pdo->prepare("SELECT ScholarshipID, Name FROM scholarship WHERE Status = 'Active' AND CreatedBy = ? ORDER BY Name ASC");
-$sch_stmt->execute([$_SESSION['user_id']]);
+$sch_stmt = $pdo->prepare("SELECT DISTINCT s.ScholarshipID,s.Name FROM scholarship s LEFT JOIN application a ON a.ScholarshipID=s.ScholarshipID LEFT JOIN evaluation_assignments ea ON ea.ApplicationID=a.ApplicationID AND ea.AssignmentStatus='Active' WHERE s.Status='Active' AND (s.CreatedBy=? OR ea.EvaluatorID=?) ORDER BY s.Name");
+$sch_stmt->execute([$_SESSION['user_id'],$_SESSION['user_id']]);
 $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
@@ -127,6 +127,7 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
                         <h4 class="text-[14px] font-black uppercase tracking-widest mb-4 text-slate-900">Scoring Breakdown</h4>
                         <div id="dynamicCriteriaContainer" class="space-y-3"></div>
                     </div>
+                    <label class="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm font-bold text-amber-900"><input type="checkbox" name="coi_certification" value="1" required class="mt-1"><span>I certify that this applicant is not my relative, is not personally known to me, and has no financial, business, or other prohibited relationship with me. This declaration is audited.</span></label>
                 </div>
 
                 <div class="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
@@ -136,6 +137,8 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
             </form>
         </div>
     </div>
+
+    <div id="conflictModal" class="fixed inset-0 bg-slate-900/60 z-[10001] hidden items-center justify-center p-4"><form action="../actions/process_evaluation_conflict.php" method="post" class="bg-white rounded-3xl p-7 w-full max-w-lg shadow-2xl"><input type="hidden" name="application_id" id="conflictAppId"><h3 class="text-xl font-black">Disclose Conflict of Interest</h3><p id="conflictApplicant" class="text-sm text-slate-500 mt-1"></p><label class="block mt-5 text-xs font-black uppercase text-slate-500">Prohibited relationship<select name="relationship_type" required class="mt-2 w-full p-3 rounded-xl border border-slate-200"><option value="">Select…</option><option>Relative</option><option>Personally Known</option><option>Financial or Business Interest</option><option>Other Prohibited Relationship</option></select></label><label class="block mt-4 text-xs font-black uppercase text-slate-500">Explanation<textarea name="details" minlength="10" required rows="4" class="mt-2 w-full p-3 rounded-xl border border-slate-200"></textarea></label><div class="flex justify-end gap-3 mt-5"><button type="button" onclick="closeConflictModal()" class="px-5 py-3 font-black text-slate-500">Cancel</button><button class="px-5 py-3 rounded-xl bg-red-600 text-white font-black">Disclose and withdraw</button></div></form></div>
 
     <script>
     let scoringData = [];
@@ -181,6 +184,7 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
                     </div>
 
                     <div class="mt-4 lg:mt-0 flex items-center justify-end w-full lg:w-auto shrink-0 gap-3 pl-0 lg:pl-6">
+                        <button onclick="openConflictModal(${app.ApplicationID})" class="bg-red-50 text-red-700 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-200">Disclose Conflict</button>
                         <button onclick="triggerScoreModal(${app.ApplicationID})" class="bg-slate-900 text-white hover:bg-blue-600 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-md active:scale-95 whitespace-nowrap">Evaluate ✍️</button>
                     </div>
                 </div>
@@ -225,6 +229,9 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
         document.getElementById('scoreGrid').scrollIntoView({ behavior: 'smooth' });
     }
 
+    function openConflictModal(appId){const app=scoringData.find(a=>a.ApplicationID==appId);if(!app)return;document.getElementById('conflictAppId').value=appId;document.getElementById('conflictApplicant').innerText=`${app.FirstName} ${app.LastName} · ${app.scholarship_name}`;document.getElementById('conflictModal').classList.remove('hidden');document.getElementById('conflictModal').classList.add('flex');}
+    function closeConflictModal(){document.getElementById('conflictModal').classList.add('hidden');document.getElementById('conflictModal').classList.remove('flex');}
+
     function changeItemsPerPage() {
         const selector = document.getElementById('itemsPerPage');
         if(selector) {
@@ -259,6 +266,7 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
         if(!app) return;
         
         document.getElementById('modalAppId').value = app.ApplicationID;
+        document.querySelector('#scoreModal input[name="coi_certification"]').checked = false;
         document.getElementById('modalStudentName').innerText = app.FirstName + ' ' + app.LastName;
         document.getElementById('refGPA').innerText = app.GPA || 'N/A';
 

@@ -17,7 +17,8 @@ if ($ocr['error'] !== '') {
     exit;
 }
 
-$data = parseIdData($ocr['text']);
+$confidence = (float)($ocr['confidence'] ?? 0);
+$data = parseIdData($ocr['text'], $confidence);
 
 // 3. ✨ PROGRAM IS PARSED FROM THE ID, NOT ENCODED
 // The matched program is kept in the session; process_register.php reads it from there
@@ -27,11 +28,32 @@ $data['program_id'] = $program['ProgramID'] ?? null;
 $data['program_name'] = $program['ProgramName'] ?? null;
 
 if ($program) {
+    $data['_extractions'][] = [
+        'field' => 'program_id',
+        'label' => 'Matched program',
+        'value' => $program['ProgramName'],
+        'confidence' => round(max(0, $confidence - 3), 2),
+        'source_document' => 'Student ID',
+        'source_field' => 'Degree / program line'
+    ];
+}
+
+$minimum_confidence = 80.0;
+$requires_manual_verification = $confidence < $minimum_confidence;
+
+if ($program && !$requires_manual_verification) {
     $_SESSION['scanned_program_id'] = (int)$program['ProgramID'];
+} else {
+    unset($_SESSION['scanned_program_id']);
 }
 
 // 4. I-bato pabalik sa frontend ang extracted data
 echo json_encode([
     'success' => true,
+    'policy' => 'AI suggestion only. Extracted information must be verified by a person and cannot be used as the sole basis for rejection.',
+    'confidence' => round($confidence, 2),
+    'source_document' => 'Student ID',
+    'manual_verification_required' => $requires_manual_verification,
+    'minimum_confidence' => $minimum_confidence,
     'data' => $data
 ]);

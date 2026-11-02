@@ -78,7 +78,7 @@ try {
                         <tbody class="divide-y divide-slate-50">
                             <?php
                             $snapshot = applicationConfigurationSnapshot($pdo, (int) $app['ApplicationID']) ?: captureScholarshipConfiguration($pdo, (int) $app['ScholarshipID']);
-                            $req_stmt = $pdo->prepare('SELECT RequirementID, FilePath, VerificationStatus FROM submitted_document WHERE ApplicationID = ?');
+                            $req_stmt = $pdo->prepare('SELECT SubmittedDocID, RequirementID, FilePath, VerificationStatus FROM submitted_document WHERE ApplicationID = ?');
                             $req_stmt->execute([$app['ApplicationID']]);
                             $submitted = [];
                             foreach ($req_stmt->fetchAll(PDO::FETCH_ASSOC) as $doc) $submitted[(int) $doc['RequirementID']] = $doc;
@@ -115,7 +115,7 @@ try {
                                 <td class="p-8 text-center">
                                     <div class="flex justify-center items-center gap-3">
                                     <?php if ($isUploaded): ?>
-                                        <button onclick="openViewerModal('<?= $req['FilePath'] ?>', '<?= htmlspecialchars(addslashes($req['DocumentName'])) ?>')" class="px-6 py-3 bg-slate-50 text-slate-900 rounded-xl text-[14px] font-black uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all">View 👁️</button>
+                                        <button onclick="openViewerModal('../actions/serve_document.php?type=submitted&id=<?= (int)$req['SubmittedDocID'] ?>', '<?= htmlspecialchars(addslashes($req['DocumentName'])) ?>')" class="px-6 py-3 bg-slate-50 text-slate-900 rounded-xl text-[14px] font-black uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all">View 👁️</button>
                                         
                                         <?php if ($isLocked): ?>
                                             <span class="px-5 py-3 bg-slate-100 text-slate-400 rounded-xl text-[12px] font-black uppercase tracking-widest cursor-not-allowed select-none flex items-center gap-1.5" title="Locked after approval/verification">

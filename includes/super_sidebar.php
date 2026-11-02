@@ -22,6 +22,8 @@
             ['scholarships.php',        '🎓', 'Manage Scholarships'],
             ['manage_applications.php', '📂', 'Manage Applications'],
             ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
+            ['ai_reviews.php',           '🤖', 'AI Manual Review'],
+            ['evaluation_conflicts.php', '⚠️', 'Evaluator Conflicts'],
             ['appeals.php',             '⚖️', 'Appeals'],
             ['waitlist.php',            '📋', 'Waitlist'],
             ['benefits.php',            '💳', 'Benefits'],

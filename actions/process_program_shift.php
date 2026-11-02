@@ -34,7 +34,11 @@ try {
     if ($ocr['error'] !== '') {
         backToProfile('error', "ID scan failed. " . $ocr['error']);
     }
-    $id_data = parseIdData($ocr['text']);
+    $confidence = (float)($ocr['confidence'] ?? 0);
+    $id_data = parseIdData($ocr['text'], $confidence);
+    if ($confidence < 80) {
+        backToProfile('error', "AI suggestion only: the ID scan confidence was " . number_format($confidence, 1) . "%. Manual verification is required, so no program change was made.");
+    }
 
     // 2. Siguraduhing ID ito ng parehong estudyante
     if ($id_data['student_id'] === '') {
@@ -60,11 +64,11 @@ try {
     $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (?, 'Program Shift', NOW(), ?, ?)")
         ->execute([
             $user_id,
-            "{$student['FirstName']} {$student['LastName']} ({$student['StudentID_Num']}) shifted from {$old_program} to {$program['ProgramName']} (read from scanned ID)",
+            "{$student['FirstName']} {$student['LastName']} ({$student['StudentID_Num']}) shifted from {$old_program} to {$program['ProgramName']} (Student ID degree/program field; OCR confidence " . number_format($confidence, 1) . "%; manually confirmed by applicant)",
             $_SERVER['REMOTE_ADDR'] ?? 'Unknown'
         ]);
 
-    backToProfile('success', "Program updated to " . $program['ProgramName'] . " based on your new ID.");
+    backToProfile('success', "Program updated to " . $program['ProgramName'] . " from the Student ID degree/program field (OCR confidence " . number_format($confidence, 1) . "%).");
 
 } catch (PDOException $e) {
     backToProfile('error', "Update failed: " . $e->getMessage());

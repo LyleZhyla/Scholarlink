@@ -217,6 +217,7 @@ try {
                     <div id="scanSuccess" class="hidden mt-4 text-[11px] uppercase tracking-widest text-green-600 font-black bg-green-100 py-2 rounded-lg border border-green-200">
                         ✅ ID Scanned! Verify details below.
                     </div>
+                    <div id="ocrEvidencePanel" class="hidden mt-3 text-left rounded-xl border p-3 text-[10px] space-y-2"></div>
                 </div>
 
                 <form id="registerForm" action="actions/process_register.php" method="POST" class="space-y-4 md:space-y-5">
@@ -1417,6 +1418,7 @@ try {
             const loader = document.getElementById('scanLoader');
             const successMsg = document.getElementById('scanSuccess');
             const toggle = document.getElementById('scanMethodToggle');
+            const evidencePanel = document.getElementById('ocrEvidencePanel');
 
             const formData = new FormData();
             formData.append('id_image', file);
@@ -1444,6 +1446,12 @@ try {
                 toggle.classList.remove('hidden'); 
                 
                 if (result.success) {
+                    const safeText = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+                    const extractions = result.data._extractions || [];
+                    const evidenceRows = extractions.map(item => `<div class="border-t border-current/10 pt-1"><b>${safeText(item.label)}:</b> ${safeText(item.value)}<br><span>Source: ${safeText(item.source_document)} → ${safeText(item.source_field)} · Confidence: ${Number(item.confidence).toFixed(1)}%</span></div>`).join('');
+                    evidencePanel.className = `mt-3 text-left rounded-xl border p-3 text-[10px] space-y-2 ${result.manual_verification_required ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-blue-50 border-blue-200 text-blue-900'}`;
+                    evidencePanel.innerHTML = `<div class="font-black">AI suggestion only · Overall confidence: ${Number(result.confidence).toFixed(1)}%</div><div>${safeText(result.policy)}</div>${result.manual_verification_required ? '<div class="font-black">Low confidence: manual verification is required. The detected program was not accepted.</div>' : ''}${evidenceRows}`;
+                    evidencePanel.classList.remove('hidden');
                     document.getElementById('reg_first_name').value = result.data.first_name || '';
                     document.getElementById('reg_last_name').value = result.data.last_name || '';
                     
@@ -1475,7 +1483,11 @@ try {
                         }
                     }
 
-                    successMsg.classList.remove('hidden');
+                    if (!result.manual_verification_required) {
+                        successMsg.classList.remove('hidden');
+                    } else {
+                        successMsg.classList.add('hidden');
+                    }
                     
                     ['reg_first_name', 'reg_last_name', 'reg_student_number'].forEach(id => {
                         const el = document.getElementById(id);

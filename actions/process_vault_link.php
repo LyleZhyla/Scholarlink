@@ -1,65 +1,37 @@
 <?php
 session_start();
 require '../includes/db_connect.php';
+require_once '../includes/application_lifecycle.php';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['user_id'])) {
-    $user_id = $_SESSION['user_id'];
-    $application_id = $_POST['application_id'] ?? null;
-    $requirement_id = $_POST['requirement_id'] ?? null;
-    $vault_id = $_POST['vault_id'] ?? null;
-
-    if (!$application_id || !$requirement_id || !$vault_id) {
-        $_SESSION['error'] = "Missing application or vault data.";
-        header("Location: ../student/requirements.php");
-        exit();
-    }
-
-    try {
-        // 1. Verify the user owns this vault document and fetch its path
-        $stmt = $pdo->prepare("SELECT FilePath FROM user_vault WHERE VaultID = ? AND UserID = ?");
-        $stmt->execute([$vault_id, $user_id]);
-        $vault_file = $stmt->fetch();
-
-        if ($vault_file && file_exists($vault_file['FilePath'])) {
-            
-            // Ensure the application uploads directory exists
-            $target_dir = "../uploads/documents/";
-            if (!is_dir($target_dir)) mkdir($target_dir, 0777, true);
-
-            // 2. Generate a new secure filename and COPY the file
-            // We copy it so if they delete it from their vault later, the application still has a copy!
-            $file_ext = pathinfo($vault_file['FilePath'], PATHINFO_EXTENSION);
-            $new_name = "STU-" . $user_id . "-APP-" . $application_id . "-REQ-" . $requirement_id . "-VAULT-" . uniqid() . "." . $file_ext;
-            $final_file_path = $target_dir . $new_name;
-
-            if (copy($vault_file['FilePath'], $final_file_path)) {
-                
-                // 3. Check if we are inserting a new requirement or replacing an old one
-                $check_stmt = $pdo->prepare("SELECT SubmittedDocID FROM submitted_document WHERE ApplicationID = ? AND RequirementID = ?");
-                $check_stmt->execute([$application_id, $requirement_id]);
-                $existing = $check_stmt->fetch();
-
-                if ($existing) {
-                    // Update existing
-                    $upd = $pdo->prepare("UPDATE submitted_document SET FilePath = ?, VerificationStatus = 'Pending' WHERE SubmittedDocID = ?");
-                    $upd->execute([$final_file_path, $existing['SubmittedDocID']]);
-                } else {
-                    // Insert new
-                    $ins = $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')");
-                    $ins->execute([$application_id, $requirement_id, $final_file_path]);
-                }
-                
-                $_SESSION['success'] = "Document successfully linked from your Vault! 🔒";
-            } else {
-                $_SESSION['error'] = "Failed to copy the file from your Vault.";
-            }
-        } else {
-            $_SESSION['error'] = "Vault document not found or may have been deleted.";
-        }
-    } catch (PDOException $e) {
-        $_SESSION['error'] = "Database Error: " . $e->getMessage();
-    }
-    
-    header("Location: ../student/requirements.php");
-    exit();
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || ($_SESSION['role'] ?? '') !== 'Student') {
+    header('Location: ../student_login.php'); exit;
 }
+
+$user_id = (int)$_SESSION['user_id'];
+$application_id = (int)($_POST['application_id'] ?? 0);
+$requirement_id = (int)($_POST['requirement_id'] ?? 0);
+$vault_id = (int)($_POST['vault_id'] ?? 0);
+
+try {
+    if (!$application_id || !$requirement_id || !$vault_id) throw new RuntimeException('Missing application or vault data.');
+    $pdo->beginTransaction();
+    $stmt = $pdo->prepare("SELECT a.ScholarshipID,a.Status,a.ResubmissionAllowed,s.Deadline FROM application a JOIN scholarship s ON s.ScholarshipID=a.ScholarshipID JOIN document_requirement r ON r.ScholarshipID=a.ScholarshipID WHERE a.ApplicationID=? AND a.UserID=? AND r.RequirementID=? FOR UPDATE");
+    $stmt->execute([$application_id,$user_id,$requirement_id]);
+    $application = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$application) throw new RuntimeException('You do not own this application or requirement.');
+    $before_deadline = strtotime($application['Deadline']) >= strtotime(date('Y-m-d'));
+    $editable = $application['Status']==='For Resubmission' || (in_array($application['Status'],['Draft','Submitted'],true)&&$before_deadline) || ($application['Status']==='Withdrawn'&&(int)$application['ResubmissionAllowed']&&$before_deadline);
+    if (!$editable) throw new RuntimeException('Documents can no longer be changed for this application.');
+
+    $_POST['vault_files'] = [$requirement_id => $vault_id];
+    saveRequestedApplicationDocuments($pdo,$application_id,(int)$application['ScholarshipID'],$user_id);
+    snapshotApplicationVersion($pdo,$application_id,'Document Updated',$user_id,"Requirement #$requirement_id linked from owned vault file #$vault_id");
+    logAudit($pdo,$user_id,'Vault Document Linked',"Validated vault file #$vault_id for application #$application_id requirement #$requirement_id");
+    $pdo->commit();
+    $_SESSION['success']='Vault document ownership, content, malware scan, and checksum validated.';
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    $_SESSION['error']=$e->getMessage();
+}
+header('Location: ../student/requirements.php');
+exit;

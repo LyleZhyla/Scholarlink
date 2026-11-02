@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/document_security.php';
 
 function applicationBeforeDeadline(PDO $pdo, int $application_id): bool {
     $stmt = $pdo->prepare("SELECT Deadline >= CURDATE() FROM scholarship s JOIN application a ON a.ScholarshipID = s.ScholarshipID WHERE a.ApplicationID = ?");
@@ -30,11 +31,11 @@ function snapshotApplicationVersion(PDO $pdo, int $application_id, string $event
     ]);
 }
 
-function recordDocumentVersion(PDO $pdo, int $submitted_doc_id, int $application_id, int $requirement_id, string $path, ?string $original_name, ?int $actor_id, string $change = 'Uploaded'): void {
+function recordDocumentVersion(PDO $pdo, int $submitted_doc_id, int $application_id, int $requirement_id, string $path, ?string $original_name, ?int $actor_id, string $change = 'Uploaded', ?array $metadata = null): void {
     $next = $pdo->prepare("SELECT COALESCE(MAX(VersionNumber), 0) + 1 FROM submitted_document_versions WHERE ApplicationID = ? AND RequirementID = ?");
     $next->execute([$application_id, $requirement_id]);
-    $insert = $pdo->prepare("INSERT INTO submitted_document_versions (SubmittedDocID, ApplicationID, RequirementID, VersionNumber, FilePath, OriginalFileName, VerificationStatus, ChangeType, UploadedBy) VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?, ?)");
-    $insert->execute([$submitted_doc_id, $application_id, $requirement_id, (int) $next->fetchColumn(), $path, $original_name, $change, $actor_id]);
+    $insert = $pdo->prepare("INSERT INTO submitted_document_versions (SubmittedDocID, ApplicationID, RequirementID, VersionNumber, FilePath, OriginalFileName, MimeType, FileSize, FileChecksum, MalwareScanStatus, ScannerEngine, ScannedAt, VerificationStatus, ChangeType, UploadedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, ?)");
+    $insert->execute([$submitted_doc_id, $application_id, $requirement_id, (int) $next->fetchColumn(), $path, $original_name, $metadata['mime_type'] ?? null, $metadata['file_size'] ?? null, $metadata['checksum'] ?? null, $metadata['malware_status'] ?? 'LegacyUnchecked', $metadata['scanner_engine'] ?? null, $metadata['scanned_at'] ?? null, $change, $actor_id]);
 }
 
 function replaceApplicationAnswers(PDO $pdo, int $application_id, array $field_ids, array $answers): void {
@@ -48,6 +49,9 @@ function replaceApplicationAnswers(PDO $pdo, int $application_id, array $field_i
 }
 
 function saveRequestedApplicationDocuments(PDO $pdo, int $application_id, int $scholarship_id, int $user_id): void {
+    $owner = $pdo->prepare('SELECT 1 FROM application WHERE ApplicationID=? AND ScholarshipID=? AND UserID=?');
+    $owner->execute([$application_id, $scholarship_id, $user_id]);
+    if (!$owner->fetchColumn()) throw new RuntimeException('You do not own this application.');
     $valid = $pdo->prepare("SELECT RequirementID FROM document_requirement WHERE ScholarshipID = ?");
     $valid->execute([$scholarship_id]);
     $valid_ids = array_flip(array_map('intval', $valid->fetchAll(PDO::FETCH_COLUMN)));
@@ -56,26 +60,33 @@ function saveRequestedApplicationDocuments(PDO $pdo, int $application_id, int $s
 
     $save = function (int $req_id, string $source, string $original_name, bool $move) use ($pdo, $application_id, $user_id, $valid_ids, $upload_dir): void {
         if (!isset($valid_ids[$req_id])) throw new RuntimeException('Invalid document requirement.');
-        $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
-        if (!in_array($ext, ['pdf', 'jpg', 'jpeg', 'png'], true)) throw new RuntimeException('Only PDF, JPG, and PNG files are allowed.');
+        $metadata = inspectDocumentFile($source, $original_name);
+        $ext = $metadata['extension'];
         $name = "STU-$user_id-APP-$application_id-REQ-$req_id-" . bin2hex(random_bytes(6)) . ".$ext";
         $absolute = $upload_dir . $name;
         $ok = $move ? move_uploaded_file($source, $absolute) : copy($source, $absolute);
         if (!$ok) throw new RuntimeException('The document could not be saved.');
         $path = '../uploads/documents/' . $name;
-
-        $current = $pdo->prepare("SELECT SubmittedDocID FROM submitted_document WHERE ApplicationID = ? AND RequirementID = ?");
-        $current->execute([$application_id, $req_id]);
-        $doc_id = $current->fetchColumn();
-        if ($doc_id) {
-            $pdo->prepare("UPDATE submitted_document SET FilePath = ?, VerificationStatus = 'Pending', UploadDate = NOW() WHERE SubmittedDocID = ?")->execute([$path, $doc_id]);
-            $change = 'Replaced';
-        } else {
-            $pdo->prepare("INSERT INTO submitted_document (ApplicationID, RequirementID, FilePath, VerificationStatus) VALUES (?, ?, ?, 'Pending')")->execute([$application_id, $req_id, $path]);
-            $doc_id = (int) $pdo->lastInsertId();
-            $change = 'Uploaded';
+        try {
+            $current = $pdo->prepare("SELECT SubmittedDocID, FilePath FROM submitted_document WHERE ApplicationID = ? AND RequirementID = ?");
+            $current->execute([$application_id, $req_id]);
+            $existing = $current->fetch(PDO::FETCH_ASSOC);
+            $doc_id = $existing['SubmittedDocID'] ?? null;
+            if ($doc_id) {
+                $pdo->prepare("UPDATE submitted_document SET FilePath=?, OriginalFileName=?, MimeType=?, FileSize=?, FileChecksum=?, MalwareScanStatus=?, ScannerEngine=?, ScannedAt=?, VerificationStatus='Pending', UploadDate=NOW() WHERE SubmittedDocID=?")
+                    ->execute([$path,$metadata['original_name'],$metadata['mime_type'],$metadata['file_size'],$metadata['checksum'],$metadata['malware_status'],$metadata['scanner_engine'],$metadata['scanned_at'],$doc_id]);
+                $change = 'Replaced';
+            } else {
+                $pdo->prepare("INSERT INTO submitted_document (ApplicationID,RequirementID,FilePath,OriginalFileName,MimeType,FileSize,FileChecksum,MalwareScanStatus,ScannerEngine,ScannedAt,VerificationStatus) VALUES (?,?,?,?,?,?,?,?,?,?,'Pending')")
+                    ->execute([$application_id,$req_id,$path,$metadata['original_name'],$metadata['mime_type'],$metadata['file_size'],$metadata['checksum'],$metadata['malware_status'],$metadata['scanner_engine'],$metadata['scanned_at']]);
+                $doc_id = (int) $pdo->lastInsertId();
+                $change = 'Uploaded';
+            }
+            recordDocumentVersion($pdo, (int) $doc_id, $application_id, $req_id, $path, $metadata['original_name'], $user_id, $change, $metadata);
+        } catch (Throwable $e) {
+            @unlink($absolute);
+            throw $e;
         }
-        recordDocumentVersion($pdo, (int) $doc_id, $application_id, $req_id, $path, $original_name, $user_id, $change);
     };
 
     if (isset($_FILES['files']['tmp_name']) && is_array($_FILES['files']['tmp_name'])) {
@@ -90,13 +101,12 @@ function saveRequestedApplicationDocuments(PDO $pdo, int $application_id, int $s
     if (is_array($vault)) {
         foreach ($vault as $req_id => $vault_id) {
             if (!$vault_id) continue;
-            $stmt = $pdo->prepare("SELECT FilePath FROM user_vault WHERE VaultID = ? AND UserID = ?");
+            $stmt = $pdo->prepare("SELECT FilePath, OriginalFileName FROM user_vault WHERE VaultID = ? AND UserID = ?");
             $stmt->execute([(int) $vault_id, $user_id]);
-            $stored = $stmt->fetchColumn();
-            if (!$stored) throw new RuntimeException('A selected vault document is unavailable.');
-            $source = dirname(__DIR__) . '/' . ltrim(str_replace('..', '', $stored), '/\\');
-            if (!is_file($source)) throw new RuntimeException('A selected vault document file is missing.');
-            $save((int) $req_id, $source, basename($stored), false);
+            $stored = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$stored) throw new RuntimeException('A selected vault document is unavailable or is not owned by you.');
+            $source = resolveProtectedDocumentPath($stored['FilePath']);
+            $save((int) $req_id, $source, $stored['OriginalFileName'] ?: basename($stored['FilePath']), false);
         }
     }
 }

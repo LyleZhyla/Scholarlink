@@ -149,6 +149,12 @@ $need = [
     ['scholarship_criteria', 'IsActive', '2026-11-02_scholarship_configuration_versions.sql'],
     ['scholarship_configuration_versions', null, '2026-11-02_scholarship_configuration_versions.sql'],
     ['application', 'ConfigurationVersionID', '2026-11-02_scholarship_configuration_versions.sql'],
+    ['ai_document_analyses', null, '2026-11-02_ai_assisted_review.sql'],
+    ['submitted_document', 'FileChecksum', '2026-11-02_secure_document_uploads.sql'],
+    ['submitted_document_versions', 'FileChecksum', '2026-11-02_secure_document_uploads.sql'],
+    ['user_vault', 'FileChecksum', '2026-11-02_secure_document_uploads.sql'],
+    ['evaluation_assignments', null, '2026-11-02_evaluator_conflicts.sql'],
+    ['evaluation_conflict_declarations', null, '2026-11-02_evaluator_conflicts.sql'],
 ];
 $missing = [];
 foreach ($need as [$table, $column, $migration]) {

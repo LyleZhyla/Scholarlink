@@ -33,8 +33,12 @@ $params = [];
 
 // ✨ Providers only see (and score) applicants of the scholarships they fund
 if ($_SESSION['role'] === 'External_Admin') {
-    $query .= " AND sch.CreatedBy = :provider_id";
+    $query .= " AND ((sch.CreatedBy = :provider_id AND NOT EXISTS (SELECT 1 FROM evaluation_assignments eh WHERE eh.ApplicationID=a.ApplicationID)) OR EXISTS (SELECT 1 FROM evaluation_assignments ea WHERE ea.ApplicationID=a.ApplicationID AND ea.EvaluatorID=:assigned_evaluator AND ea.AssignmentStatus='Active'))";
     $params['provider_id'] = $_SESSION['user_id'];
+    $params['assigned_evaluator'] = $_SESSION['user_id'];
+} else {
+    $query .= " AND (NOT EXISTS (SELECT 1 FROM evaluation_assignments eh WHERE eh.ApplicationID=a.ApplicationID) OR EXISTS (SELECT 1 FROM evaluation_assignments ea WHERE ea.ApplicationID=a.ApplicationID AND ea.EvaluatorID=:assigned_evaluator AND ea.AssignmentStatus='Active'))";
+    $params['assigned_evaluator'] = $_SESSION['user_id'];
 }
 
 if (!empty($search)) {

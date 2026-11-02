@@ -1,6 +1,9 @@
 <?php
 session_start();
 require_once __DIR__ . '/../includes/db_connect.php'; // records the activity in the audit trail
+require_once __DIR__ . '/../includes/application_authority.php';
+require_once __DIR__ . '/../includes/document_security.php';
+require_once __DIR__ . '/../includes/evaluation_conflicts.php';
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 header('Content-Type: application/json');
@@ -38,63 +41,58 @@ $input = json_decode($inputJSON, true);
 $file_url =$input['file_url'] ?? '';
 $document_type =$input['document_type'] ?? '';
 $required_gwa =$input['required_gwa'] ?? 0;
+$application_id = (int)($input['application_id'] ?? 0);
 
-if (empty($file_url) || empty($document_type)) {
+if (empty($file_url) || empty($document_type) || !$application_id) {
     echo json_encode(["success" => false, "error" => "Missing file or document type."]);
     exit;
 }
 
-// Hanapin ang totoong file sa server
-// Only files inside uploads/: the resolved path must stay there (stripping "../" alone can be bypassed with "....//")
-$uploads_dir = realpath(__DIR__ . '/../uploads');
-$relative = ltrim(preg_replace('#^(\.\./)+#', '', str_replace('\\', '/', parse_url($file_url, PHP_URL_PATH) ?? '')), '/');
-$relative = preg_replace('#^.*?(?=uploads/)#', '', $relative);   // accept "../uploads/..." and "/scholarlink/uploads/..."
-$full_path = realpath(__DIR__ . '/../' . $relative);
+$authority = getApplicationAuthority($pdo, $application_id);
+if (!$authority || (!canDecideApplication($authority, $_SESSION['role'], (int)$_SESSION['user_id']) && !canEvaluateApplication($pdo,$application_id,$_SESSION['role'],(int)$_SESSION['user_id']))) {
+    http_response_code(403); echo json_encode(['success'=>false,'error'=>'You are not authorized to analyze this application.']); exit;
+}
+$secure_id = 0;
+parse_str((string)parse_url($file_url, PHP_URL_QUERY), $file_query);
+if (($file_query['type'] ?? '') === 'submitted') $secure_id = (int)($file_query['id'] ?? 0);
+$doc_stmt=$pdo->prepare('SELECT sd.SubmittedDocID,sd.FilePath,sd.FileChecksum,dr.DocumentName FROM submitted_document sd JOIN document_requirement dr ON dr.RequirementID=sd.RequirementID WHERE sd.ApplicationID=? AND (? > 0 AND sd.SubmittedDocID=? OR ? = 0 AND (sd.FilePath=? OR sd.FilePath LIKE ?)) LIMIT 1');
+$legacy_basename=basename((string)parse_url($file_url,PHP_URL_PATH));
+$doc_stmt->execute([$application_id,$secure_id,$secure_id,$secure_id,$file_url,'%'.$legacy_basename]);$document=$doc_stmt->fetch(PDO::FETCH_ASSOC);
+if(!$document){echo json_encode(['success'=>false,'error'=>'The submitted document record could not be matched.']);exit;}
+$full_path=resolveProtectedDocumentPath($document['FilePath']);
+if(!empty($document['FileChecksum'])&&!hash_equals($document['FileChecksum'],hash_file('sha256',$full_path))){echo json_encode(['success'=>false,'error'=>'Document integrity check failed.']);exit;}
+$document_type=$document['DocumentName'];
 
-if ($full_path === false || $uploads_dir === false || strpos($full_path, $uploads_dir . DIRECTORY_SEPARATOR) !== 0 || !is_file($full_path)) {
-    echo json_encode(["success" => false, "error" => "File not found on server."]);
-    exit;
+function emitAiSuggestion(PDO $pdo,array $document,int $applicationId,int $userId,string $sourceHash,float $requiredGwa,bool $authentic,float $confidence,string $reason,bool $applicable,$extracted,string $model='rules+gemini-3.5-flash'): void {
+    $confidence=max(0,min(100,$confidence));$fields=[];$failed=[];
+    if($applicable){$fields[]=['label'=>'Extracted GWA','value'=>is_numeric($extracted)?(float)$extracted:$extracted,'confidence'=>$confidence,'source_document'=>$document['DocumentName'],'source_field'=>'General Weighted Average / computed subject grades'];}
+    if(!$authentic)$failed[]=['criterion'=>'Document authenticity and consistency','explanation'=>$reason];
+    $qualified=null;
+    if($applicable&&is_numeric($extracted)&&$requiredGwa>0){$qualified=(float)$extracted<=$requiredGwa;if(!$qualified)$failed[]=['criterion'=>'Required GWA','explanation'=>'Extracted GWA '.number_format((float)$extracted,2).' is above the required maximum '.number_format($requiredGwa,2).'.'];}
+    if($confidence<80)$failed[]=['criterion'=>'Minimum AI confidence for automated assistance','explanation'=>'Confidence is '.number_format($confidence,1).'%, below the 80% manual-verification threshold.'];
+    $authSuggestion=$authentic?'Likely Authentic':'Potential Issue';
+    $qualSuggestion=!$applicable?'Not Applicable':($qualified===null?'Needs Review':($qualified?'Meets Criterion':'Fails Criterion'));
+    $manual=$confidence<80||!$authentic||count($failed)>0;
+    $explanation=$reason.($manual?' Human verification is required before any adverse action.':' This remains an AI suggestion until an authorized reviewer confirms it.');
+    $insert=$pdo->prepare('INSERT INTO ai_document_analyses (ApplicationID,SubmittedDocID,SourceDocument,SourceFileHash,ModelName,OverallConfidence,AuthenticitySuggestion,QualificationSuggestion,ExtractedFieldsJson,FailedCriteriaJson,Explanation,RequiresManualReview,CreatedBy) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    $insert->execute([$applicationId,$document['SubmittedDocID'],$document['DocumentName'],$sourceHash,$model,$confidence,$authSuggestion,$qualSuggestion,json_encode($fields,JSON_UNESCAPED_UNICODE),json_encode($failed,JSON_UNESCAPED_UNICODE),$explanation,$manual?1:0,$userId]);
+    echo json_encode(['success'=>true,'analysis_id'=>(int)$pdo->lastInsertId(),'policy'=>'AI suggestion only — no applicant is automatically rejected based on this output.','manual_verification_required'=>$manual,'authenticity'=>['is_authentic'=>$authentic,'suggestion'=>$authSuggestion,'confidence'=>$confidence,'flag_reason'=>$reason,'source_document'=>$document['DocumentName'],'source_field'=>'Document layout, metadata, text consistency and mathematical checks'],'qualification'=>['is_applicable'=>$applicable,'is_qualified'=>$qualified,'suggestion'=>$qualSuggestion,'extracted_gwa'=>$extracted??'N/A','confidence'=>$confidence,'source_document'=>$document['DocumentName'],'source_field'=>'General Weighted Average / computed subject grades','required_gwa'=>$requiredGwa],'extracted_fields'=>$fields,'failed_criteria'=>$failed]);exit;
 }
 
 $raw_binary = file_get_contents($full_path);
 $mime_type = mime_content_type($full_path);
+$source_hash=hash('sha256',$raw_binary);
 
 // ✨ 2. LAYER 1 FORENSICS: BINARY METADATA & EDITING SOFTWARE FOOTPRINT CHECK
 if (preg_match('/(photoshop|illustrator|canva|photopea|gimp|corel|ilovepdf|sejda|smallpdf|jspdf|pdfkit|foxit|nitro|picsart|lightroom|snapseed)/i', $raw_binary,$matches)) {
-    echo json_encode([
-        "success" => true,
-        "authenticity" => [
-            "is_authentic" => false,
-            "confidence" => 99,
-            "flag_reason" => "Tampering Detected: File metadata contains an editing software signature (" . strtoupper($matches[1]) . ")."
-        ],
-        "qualification" => [
-            "is_applicable" => ($document_type === 'Report of Grades'),
-            "is_qualified" => false,
-            "extracted_gwa" => "Tampered"
-        ]
-    ]);
-    exit;
+    emitAiSuggestion($pdo,$document,$application_id,(int)$_SESSION['user_id'],$source_hash,(float)$required_gwa,false,99,"File metadata contains an editing-software signature (".strtoupper($matches[1]).").",$document_type==='Report of Grades','Unreadable due to flagged metadata','metadata-rules');
 }
 
 // ✨ 3. LAYER 2 FORENSICS: FLATTENED RASTER PDF CHECK (For Report of Grades / COR)
 // Official TAU Portal PDFs have embedded font streams (/Font). Photopea image-flattened PDFs do not.
 if ($mime_type === 'application/pdf' && in_array($document_type, ['Report of Grades', 'Certificate of Registration (COR)', 'Certificate of Registration'])) {
     if (!preg_match('/\/Font\b/', $raw_binary)) {
-        echo json_encode([
-            "success" => true,
-            "authenticity" => [
-                "is_authentic" => false,
-                "confidence" => 95,
-                "flag_reason" => "Tampering Detected: PDF has been flattened into a raster image (no original text/font layers found), indicating export from an image editor."
-            ],
-            "qualification" => [
-                "is_applicable" => ($document_type === 'Report of Grades'),
-                "is_qualified" => false,
-                "extracted_gwa" => "Tampered"
-            ]
-        ]);
-        exit;
+        emitAiSuggestion($pdo,$document,$application_id,(int)$_SESSION['user_id'],$source_hash,(float)$required_gwa,false,95,'PDF is flattened and has no original text/font layer; manual inspection is required.',$document_type==='Report of Grades','Unreadable due to flattened PDF','metadata-rules');
     }
 }
 
@@ -176,17 +174,5 @@ if ($is_authentic && $extracted !== null && is_numeric($extracted) && $required_
     $is_qualified = ($extracted <= $required_gwa);
 }
 
-echo json_encode([
-    "success" => true,
-    "authenticity" => [
-        "is_authentic" => $is_authentic,
-        "confidence" => $ai_json['confidence'] ?? 0,
-        "flag_reason" => $ai_json['flag_reason'] ?? 'Could not verify document structure.'
-    ],
-    "qualification" => [
-        "is_applicable" => $ai_json['is_applicable'] ?? false,
-        "is_qualified" => $is_qualified,
-        "extracted_gwa" => $extracted ?? 'N/A'
-    ]
-]);
+emitAiSuggestion($pdo,$document,$application_id,(int)$_SESSION['user_id'],$source_hash,(float)$required_gwa,(bool)$is_authentic,(float)($ai_json['confidence']??0),(string)($ai_json['flag_reason']??'Could not verify document structure.'),(bool)($ai_json['is_applicable']??false),$extracted);
 ?>
