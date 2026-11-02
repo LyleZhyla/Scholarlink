@@ -29,8 +29,14 @@
             flex-direction: column;
             padding: 0 !important;
         }
-        
-        main { 
+        /* The menu scrolls when it is taller than the screen, so Sign Out (below it) always stays visible */
+        aside#main-sidebar > nav { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; }
+        aside#main-sidebar > nav::-webkit-scrollbar { width: 5px; }
+        aside#main-sidebar > nav::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 5px; }
+        aside#main-sidebar > nav::-webkit-scrollbar-track { background: transparent; }
+        aside#main-sidebar > :not(nav) { flex-shrink: 0; }
+
+        main {
             margin-left: var(--sidebar-width) !important; 
             width: calc(100vw - var(--sidebar-width));
         }

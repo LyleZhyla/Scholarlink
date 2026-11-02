@@ -14,6 +14,17 @@
     }
     syncSidebarHints();
 
+    // The menu keeps its scroll position between pages and always shows the current page
+    (function () {
+        const nav = document.querySelector('#main-sidebar > nav');
+        if (!nav) return;
+        try { nav.scrollTop = parseInt(sessionStorage.getItem('scholarlink_nav_scroll'), 10) || 0; } catch (e) {}
+        const here = location.pathname.split('/').pop();
+        const current = Array.from(nav.querySelectorAll('a')).find(a => a.getAttribute('href') === here);
+        if (current) current.scrollIntoView({ block: 'nearest' });
+        nav.addEventListener('scroll', () => { try { sessionStorage.setItem('scholarlink_nav_scroll', nav.scrollTop); } catch (e) {} }, { passive: true });
+    })();
+
     // The single toggle function
     function toggleSidebar() {
         const isNowExpanded = document.body.classList.toggle('sidebar-expanded');
