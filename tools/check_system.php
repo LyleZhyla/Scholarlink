@@ -168,6 +168,9 @@ $need = [
     ['users', 'ProviderAccessStatus', '2026-11-02_account_security_lifecycle.sql'],
     ['users', 'ProviderAccessUntil', '2026-11-02_account_security_lifecycle.sql'],
     ['security_rate_limits', null, '2026-11-02_account_security_lifecycle.sql'],
+    ['disaster_recovery_settings', null, '2026-11-02_disaster_recovery_standards.sql'],
+    ['backup_records', null, '2026-11-02_disaster_recovery_standards.sql'],
+    ['restoration_drills', null, '2026-11-02_disaster_recovery_standards.sql'],
 ];
 $missing = [];
 foreach ($need as [$table, $column, $migration]) {

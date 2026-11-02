@@ -1,88 +1,28 @@
 <?php
-session_start();
-
-// ✨ 1. SESSION MANAGER
-include '../includes/session_manager.php';
-
-// 🛑 2. THE BACK BUTTON KILLER
-header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
-header("Cache-Control: post-check=0, pre-check=0", false);
-header("Pragma: no-cache");
-
-// 🔒 3. THE SECURITY GATEKEEPER
-if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Super_Admin') {
-    session_destroy();
-    header("Location: ../admin_login.php"); 
-    exit();
-}
-include '../includes/db_connect.php'; 
-include '../includes/header.php'; 
-include '../includes/super_sidebar.php'; 
+session_start();include '../includes/session_manager.php';
+if(empty($_SESSION['logged_in'])||($_SESSION['role']??'')!=='Super_Admin'){session_destroy();header('Location: ../admin_login.php');exit;}
+include '../includes/db_connect.php';require_once '../includes/disaster_recovery.php';
+$settings=drSettings($pdo);$backups=$pdo->query('SELECT b.*,GREATEST(0,TIMESTAMPDIFF(SECOND,b.CreatedAt,NOW())/3600) AgeHours FROM backup_records b ORDER BY b.CreatedAt DESC LIMIT 100')->fetchAll(PDO::FETCH_ASSOC);$drills=$pdo->query('SELECT d.*,b.FileName FROM restoration_drills d JOIN backup_records b ON b.BackupID=d.BackupID ORDER BY d.StartedAt DESC LIMIT 30')->fetchAll(PDO::FETCH_ASSOC);
+$latest=$backups[0]??null;$latestPassed=null;foreach($drills as $drill)if($drill['Status']==='Passed'){$latestPassed=$drill;break;}
+$ageHours=$latest?(float)$latest['AgeHours']:null;$rpoOk=$ageHours!==null&&$ageHours<=(float)$settings['RPOHours'];$rtoOk=$latestPassed&&$latestPassed['RTOCompliant'];
+try{$storage=drStorageDirectory($pdo);$keyInfo=drEncryptionKeyInfo();$configurationError=null;}catch(Throwable $e){$storage=$settings['SecondaryStoragePath']?:'Not available';$keyInfo=['source'=>'Unavailable'];$configurationError=$e->getMessage();}
+include '../includes/header.php';include '../includes/super_sidebar.php';function drh($v):string{return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8');}
 ?>
+<main class="min-h-screen bg-slate-50 p-6 lg:p-10"><div class="max-w-7xl mx-auto">
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-5"><div><p class="text-xs font-black uppercase tracking-widest text-blue-700">Backup &amp; disaster recovery</p><h1 class="text-3xl font-black mt-2">Recovery Readiness</h1><p class="text-slate-500 mt-2">Encrypted off-site-style backups, policy retention, isolated restoration drills, and measurable RPO/RTO.</p></div><form action="../actions/process_database.php" method="post"><input type="hidden" name="action" value="manual_backup"><button class="px-5 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest">Create Encrypted Backup</button></form></div>
+<?php if(!empty($_SESSION['success'])):?><div class="my-5 p-4 bg-green-50 text-green-800 border border-green-200 rounded-xl font-bold">✅ <?=drh($_SESSION['success']);unset($_SESSION['success'])?></div><?php endif;?><?php if(!empty($_SESSION['error'])):?><div class="my-5 p-4 bg-red-50 text-red-800 border border-red-200 rounded-xl font-bold">⚠️ <?=drh($_SESSION['error']);unset($_SESSION['error'])?></div><?php endif;?><?php if($configurationError):?><div class="my-5 p-4 bg-red-50 text-red-800 border rounded-xl font-bold"><?=drh($configurationError)?></div><?php endif;?>
 
-<main class="flex-1 p-5 lg:p-10 lg:ml-72 bg-slate-50/50 min-h-screen transition-all duration-300">
-    <header class="mb-10">
-        <h2 class="text-3xl lg:text-4xl font-black text-slate-900 tracking-tight">Data Management</h2>
-        <p class="text-slate-500 font-medium mt-1">Enforce system backups, restores, and data resets.</p>
-    </header>
+<div class="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 mt-7">
+<div class="bg-white border rounded-2xl p-5"><p class="text-xs font-black uppercase text-slate-400">Recovery Point Objective</p><p class="text-2xl font-black mt-2"><?=drh($settings['RPOHours'])?> hours</p><p class="text-xs mt-2 <?=$rpoOk?'text-green-700':'text-red-600'?> font-bold"><?=$latest?number_format($ageHours,2).' hours since latest backup':'No backup yet'?> · <?=$rpoOk?'Compliant':'Not compliant'?></p></div>
+<div class="bg-white border rounded-2xl p-5"><p class="text-xs font-black uppercase text-slate-400">Recovery Time Objective</p><p class="text-2xl font-black mt-2"><?=drh($settings['RTOHours'])?> hours</p><p class="text-xs mt-2 <?=$rtoOk?'text-green-700':'text-amber-600'?> font-bold"><?=$latestPassed?drh($latestPassed['RestoreDurationSeconds']).' sec latest drill':'No passed drill yet'?> · <?=$rtoOk?'Compliant':'Unverified'?></p></div>
+<div class="bg-white border rounded-2xl p-5"><p class="text-xs font-black uppercase text-slate-400">Schedule</p><p class="text-2xl font-black mt-2"><?=$settings['ScheduleEnabled']?'Every '.(int)$settings['ScheduleIntervalHours'].'h':'Disabled'?></p><p class="text-xs text-slate-500 mt-2">Last scheduled: <?=drh($settings['LastScheduledAt']?:'Never')?></p></div>
+<div class="bg-white border rounded-2xl p-5"><p class="text-xs font-black uppercase text-slate-400">Available recovery points</p><p class="text-2xl font-black mt-2"><?=count(array_filter($backups,fn($b)=>$b['Status']==='Available'))?></p><p class="text-xs text-slate-500 mt-2">AES-256-GCM authenticated encryption</p></div>
+</div>
 
-    <?php if (isset($_SESSION['success'])): ?>
-        <div class="bg-green-50 border border-green-200 text-green-700 px-6 py-4 rounded-xl mb-8 font-bold text-sm flex items-center gap-3 shadow-sm">
-            ✅ <?= $_SESSION['success']; unset($_SESSION['success']); ?>
-        </div>
-    <?php endif; ?>
-    
-    <?php if (isset($_SESSION['error'])): ?>
-        <div class="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-xl mb-8 font-bold text-sm flex items-center gap-3 shadow-sm">
-            ⚠️ <?= $_SESSION['error']; unset($_SESSION['error']); ?>
-        </div>
-    <?php endif; ?>
+<div class="grid xl:grid-cols-[1.1fr_.9fr] gap-6 mt-8"><form action="../actions/process_database.php" method="post" class="bg-white border rounded-2xl p-6 space-y-4"><input type="hidden" name="action" value="save_settings"><h2 class="text-xl font-black">Recovery standards</h2><div class="grid sm:grid-cols-2 gap-4"><label class="text-xs font-black uppercase text-slate-500">Schedule<select name="interval_hours" class="mt-2 w-full p-3 border rounded-xl"><?php foreach([1=>'Hourly',6=>'Every 6 hours',12=>'Every 12 hours',24=>'Daily',48=>'Every 2 days',168=>'Weekly'] as $hours=>$label):?><option value="<?=$hours?>" <?=$hours==(int)$settings['ScheduleIntervalHours']?'selected':''?>><?=drh($label)?></option><?php endforeach;?></select></label><label class="flex items-center gap-3 mt-6"><input type="checkbox" name="schedule_enabled" <?=$settings['ScheduleEnabled']?'checked':''?> class="w-5 h-5"><span class="font-bold">Scheduled backups enabled</span></label><label class="text-xs font-black uppercase text-slate-500">RPO (hours)<input type="number" step="0.25" min="0.25" max="720" name="rpo_hours" value="<?=drh($settings['RPOHours'])?>" required class="mt-2 w-full p-3 border rounded-xl"></label><label class="text-xs font-black uppercase text-slate-500">RTO (hours)<input type="number" step="0.25" min="0.25" max="168" name="rto_hours" value="<?=drh($settings['RTOHours'])?>" required class="mt-2 w-full p-3 border rounded-xl"></label><label class="text-xs font-black uppercase text-slate-500">Retention (days)<input type="number" min="1" max="3650" name="retention_days" value="<?=drh($settings['RetentionDays'])?>" required class="mt-2 w-full p-3 border rounded-xl"></label></div><label class="block text-xs font-black uppercase text-slate-500">Separate storage location<input name="secondary_path" value="<?=drh($settings['SecondaryStoragePath'])?>" placeholder="Leave blank for secure default outside htdocs" class="mt-2 w-full p-3 border rounded-xl"></label><button class="px-5 py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase">Save &amp; Validate Standards</button></form>
+<div class="bg-slate-900 text-white rounded-2xl p-6"><h2 class="text-xl font-black">Storage &amp; encryption</h2><dl class="mt-5 space-y-4 text-sm"><div><dt class="text-slate-400 text-xs uppercase font-black">Resolved secondary storage</dt><dd class="mt-1 break-all font-bold"><?=drh($storage)?></dd></div><div><dt class="text-slate-400 text-xs uppercase font-black">Encryption key source</dt><dd class="mt-1 break-all font-bold"><?=drh($keyInfo['source'])?></dd></div><div><dt class="text-slate-400 text-xs uppercase font-black">Retention authority</dt><dd class="mt-1 font-bold"><?=drh($settings['RetentionDays'])?> days, synchronized with Privacy Lifecycle policy</dd></div><div class="p-3 bg-white/10 rounded-xl text-xs text-slate-300">For production, set <code>BACKUP_ENCRYPTION_KEY</code> and <code>BACKUP_SECONDARY_PATH</code> outside the web server. Back up the encryption key separately; encrypted backups cannot be recovered without it.</div></dl></div></div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
-        
-        <div class="bg-white p-8 rounded-[1.5rem] lg:rounded-[2rem] border border-slate-200 shadow-sm text-center flex flex-col justify-between">
-            <div>
-                <div class="text-4xl lg:text-5xl mb-6">💾</div>
-                <h3 class="text-xl font-black text-slate-900 mb-2">Backup Database</h3>
-                <p class="text-slate-500 mb-8 font-medium text-sm">Download a full SQL backup of the current system data.</p>
-            </div>
-            <a href="../actions/process_database.php?action=export" class="block w-full bg-slate-900 text-white py-4 rounded-xl font-black hover:bg-green-600 transition-all shadow-xl shadow-slate-200 text-xs uppercase tracking-widest text-center">
-                Download .SQL
-            </a>
-        </div>
+<h2 class="text-xl font-black mt-10 mb-4">Encrypted backup catalog</h2><div class="space-y-4"><?php foreach($backups as $b):?><article class="bg-white border rounded-2xl p-5"><div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4"><div><div class="flex gap-2 flex-wrap items-center"><b>#<?=drh($b['BackupID'])?> · <?=drh($b['FileName'])?></b><span class="px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-[10px] font-black uppercase"><?=drh($b['BackupType'])?></span><span class="px-2 py-1 bg-slate-100 rounded-lg text-[10px] font-black uppercase"><?=drh($b['Status'])?></span></div><p class="text-xs text-slate-500 mt-2"><?=date('M j, Y g:i A',strtotime($b['CreatedAt']))?> · <?=number_format($b['FileSize']/1024,1)?> KB · <?=drh($b['EncryptionMethod'])?></p><p class="text-[11px] font-mono text-slate-400 mt-1 break-all">SHA-256 <?=drh($b['EncryptedChecksum'])?></p><p class="text-xs mt-1 <?=$b['VerifiedAt']?'text-green-700':'text-amber-600'?> font-bold"><?=$b['VerifiedAt']?'Restore-tested '.$b['VerifiedAt']:'Not restoration-tested'?></p></div><?php if($b['Status']==='Available'):?><div class="flex flex-wrap gap-2"><a href="../actions/process_database.php?action=download&id=<?=(int)$b['BackupID']?>" class="px-4 py-2 border rounded-xl text-xs font-black">Download Encrypted</a><form action="../actions/process_database.php" method="post"><input type="hidden" name="action" value="drill"><input type="hidden" name="backup_id" value="<?=(int)$b['BackupID']?>"><button class="px-4 py-2 bg-green-600 text-white rounded-xl text-xs font-black">Run Restore Drill</button></form><details class="relative"><summary class="px-4 py-2 bg-red-50 text-red-700 rounded-xl text-xs font-black cursor-pointer">Live Restore</summary><form action="../actions/process_database.php" method="post" onsubmit="return confirm('Restore the LIVE database? A safety backup will be created first.');" class="absolute right-0 z-20 mt-2 w-72 p-4 bg-white border shadow-xl rounded-xl"><input type="hidden" name="action" value="restore"><input type="hidden" name="backup_id" value="<?=(int)$b['BackupID']?>"><p class="text-xs text-slate-600 mb-2">Type <b>RESTORE</b> to replace live data.</p><input name="confirmation" pattern="RESTORE" required class="w-full p-2 border rounded-lg"><button class="w-full mt-2 p-2 bg-red-700 text-white rounded-lg text-xs font-black">Confirm Live Restore</button></form></details></div><?php endif;?></div></article><?php endforeach;?><?php if(!$backups):?><div class="p-10 bg-white border rounded-2xl text-center text-slate-500">No encrypted backups yet.</div><?php endif;?></div>
 
-        <div class="bg-white p-8 rounded-[1.5rem] lg:rounded-[2rem] border border-slate-200 shadow-sm text-center flex flex-col justify-between border-t-4 border-t-blue-500">
-            <div>
-                <div class="text-4xl lg:text-5xl mb-6">🔄</div>
-                <h3 class="text-xl font-black text-slate-900 mb-2">Restore Database</h3>
-                <p class="text-slate-500 mb-6 font-medium text-sm">Upload a previous .SQL backup to restore the system.</p>
-            </div>
-            <form action="../actions/process_database.php" method="POST" enctype="multipart/form-data" class="flex flex-col gap-3">
-                <input type="hidden" name="action" value="restore">
-                <input type="file" name="backup_file" accept=".sql" required class="w-full text-xs font-bold text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:font-black file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer border border-slate-200 rounded-xl p-2 outline-none">
-                <button type="submit" class="block w-full bg-blue-600 text-white py-4 rounded-xl font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 text-xs uppercase tracking-widest text-center" onclick="return confirm('WARNING: This will overwrite current data with the uploaded file. Proceed?');">
-                    Restore Data
-                </button>
-            </form>
-        </div>
-
-        <div class="bg-white p-8 rounded-[1.5rem] lg:rounded-[2rem] border border-slate-200 shadow-sm text-center flex flex-col justify-between border-t-4 border-t-red-500">
-            <div>
-                <div class="text-4xl lg:text-5xl mb-6">⚠️</div>
-                <h3 class="text-xl font-black text-slate-900 mb-2">Wipe & Reset</h3>
-                <p class="text-slate-500 mb-8 font-medium text-sm">Clear applications and logs. This action is irreversible.</p>
-            </div>
-            <!-- A form, not a link: a link could be triggered by any website the Super Admin visits -->
-            <form action="../actions/process_database.php" method="POST" class="m-0"
-                  onsubmit="return confirm('WARNING: This will delete ALL applications and audit logs. Are you absolutely sure?');">
-                <input type="hidden" name="action" value="reset">
-                <button type="submit" class="block w-full bg-red-50 text-red-600 py-4 rounded-xl font-black hover:bg-red-600 hover:text-white transition-all border border-red-200 text-xs uppercase tracking-widest text-center">
-                    Reset System
-                </button>
-            </form>
-        </div>
-
-    </div>
-</main>
-
-<?php include '../includes/footer.php'; ?>
+<h2 class="text-xl font-black mt-10 mb-4">Documented restoration drills</h2><div class="overflow-x-auto bg-white border rounded-2xl"><table class="w-full text-sm"><thead class="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th class="p-4">Drill</th><th class="p-4">Backup</th><th class="p-4">Status</th><th class="p-4">Restore time</th><th class="p-4">Validated</th><th class="p-4">RPO / RTO</th><th class="p-4">Date</th></tr></thead><tbody><?php foreach($drills as $d):?><tr class="border-t"><td class="p-4 font-black">#<?=drh($d['DrillID'])?></td><td class="p-4 max-w-xs truncate"><?=drh($d['FileName'])?></td><td class="p-4 font-black <?=$d['Status']==='Passed'?'text-green-700':'text-red-600'?>"><?=drh($d['Status'])?></td><td class="p-4"><?=drh($d['RestoreDurationSeconds']??'—')?> sec</td><td class="p-4"><?=$d['TableCount']!==null?(int)$d['TableCount'].' tables / '.number_format((int)$d['RowCount']).' rows':'—'?></td><td class="p-4"><?=$d['RPOCompliant']===null?'—':($d['RPOCompliant']?'✅':'❌')?> / <?=$d['RTOCompliant']===null?'—':($d['RTOCompliant']?'✅':'❌')?></td><td class="p-4"><?=date('M j, Y g:i A',strtotime($d['StartedAt']))?></td></tr><?php endforeach;?><?php if(!$drills):?><tr><td colspan="7" class="p-10 text-center text-slate-500">No restoration drill has been documented yet.</td></tr><?php endif;?></tbody></table></div>
+</div></main><?php include '../includes/footer.php';?>

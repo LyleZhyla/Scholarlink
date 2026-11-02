@@ -1,76 +1,11 @@
 <?php
-// actions/auto_backup.php
-
-// Force the script to run in the background even if the user closes the browser
-ignore_user_abort(true);
-set_time_limit(0);
-
-require '../includes/db_connect.php';
-require_once '../includes/privacy_lifecycle.php';
-
-$backup_dir = '../backups/';
-
-// Gumawa ng folder kung sakaling nakalimutan sa Step 1
-if (!is_dir($backup_dir)) {
-    mkdir($backup_dir, 0777, true);
-}
-
-// Set the filename based on the CURRENT DATE
-$current_date = date('Y-m-d');
-$backup_file_name = $backup_dir . 'AutoBackup_' . $current_date . '.sql';
-
-// ✨ SMART CHECK: Kung may backup na ngayong araw, STOP agad.
-// Pinipigilan nito ang system na mag-backup nang paulit-ulit sa iisang araw.
-if (file_exists($backup_file_name)) {
-    exit; 
-}
-
-try {
-    $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
-    
-    $sqlScript = "-- ScholarLink Automated Daily Backup\n";
-    $sqlScript .= "-- Date Generated: " . date('Y-m-d H:i:s') . "\n\n";
-    $sqlScript .= "SET FOREIGN_KEY_CHECKS = 0;\n\n";
-
-    foreach ($tables as $table) {
-        $createStmt = $pdo->query("SHOW CREATE TABLE `$table`")->fetch(PDO::FETCH_NUM);
-        $sqlScript .= "DROP TABLE IF EXISTS `$table`;\n";
-        $sqlScript .= $createStmt[1] . ";\n\n";
-
-        $rows = $pdo->query("SELECT * FROM `$table`")->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows as $row) {
-            $columns = array_keys($row);
-            $escaped_values = array_map(function($val) use ($pdo) {
-                return $val === null ? 'NULL' : $pdo->quote($val);
-            }, array_values($row));
-            
-            $sqlScript .= "INSERT INTO `$table` (`" . implode("`, `", $columns) . "`) VALUES (" . implode(", ", $escaped_values) . ");\n";
-        }
-        $sqlScript .= "\n";
-    }
-    $sqlScript .= "SET FOREIGN_KEY_CHECKS = 1;\n";
-
-    // I-save ang file sa loob ng backups folder
-    file_put_contents($backup_file_name, $sqlScript);
-
-    // STORAGE MANAGEMENT: use the active, authorized retention policy.
-    $backup_retention_days = privacyRetentionDays($pdo, 'backups', 30);
-    $files = glob($backup_dir . '*.sql');
-    $now = time();
-    foreach ($files as $file) {
-        if (is_file($file)) {
-            if ($now - filemtime($file) >= 60 * 60 * 24 * $backup_retention_days) {
-                secureDisposeFile($file);
-            }
-        }
-    }
-
-    // I-log sa Audit Trail (Using UserID 1 or System Default)
-    $log = $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (1, 'System Auto-Backup', NOW(), ?, 'System')");
-    $log->execute(["Automated daily database backup completed; retention policy is {$backup_retention_days} day(s)."]);
-
-} catch (Exception $e) {
-    // Kung mag-error, isusulat sa error log ng server pero hindi makikita ng user
-    error_log("Auto Backup Error: " . $e->getMessage());
-}
-?>
+ignore_user_abort(true);set_time_limit(0);ini_set('memory_limit','512M');
+require __DIR__.'/../includes/db_connect.php';require_once __DIR__.'/../includes/disaster_recovery.php';
+try{
+    if((int)$pdo->query("SELECT GET_LOCK('scholarlink_scheduled_backup',0)")->fetchColumn()!==1)exit;
+    if(!drScheduleDue($pdo))exit;
+    $actor=(int)$pdo->query("SELECT UserID FROM users WHERE Role='Super_Admin' AND AccountStatus='Active' ORDER BY UserID LIMIT 1")->fetchColumn();
+    $backup=drCreateBackup($pdo,'Scheduled',$actor?:null);$expired=drEnforceRetention($pdo);
+    logAudit($pdo,$actor?:null,'Scheduled Encrypted Backup',"Encrypted backup #{$backup['id']} stored outside the web root; $expired expired backup(s) securely disposed.");
+}catch(Throwable $e){error_log('Scheduled Backup Error: '.$e->getMessage());try{logAudit($pdo,null,'Scheduled Backup Failed',mb_substr($e->getMessage(),0,900));}catch(Throwable $ignored){} }
+finally{try{$pdo->query("SELECT RELEASE_LOCK('scholarlink_scheduled_backup')");}catch(Throwable $ignored){}}

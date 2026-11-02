@@ -1,147 +1,38 @@
 <?php
 session_start();
-include '../includes/db_connect.php';
+require '../includes/db_connect.php';
+require_once '../includes/disaster_recovery.php';
 
-// 🔒 SECURITY GATEKEEPER
-if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Super_Admin') {
-    $_SESSION['error'] = "Unauthorized Access.";
-    header("Location: ../admin_login.php");
-    exit();
-}
+if(empty($_SESSION['logged_in'])||($_SESSION['role']??'')!=='Super_Admin'){$_SESSION['error']='Unauthorized access.';header('Location: ../admin_login.php');exit;}
+$action=$_POST['action']??$_GET['action']??'';$actor=(int)$_SESSION['user_id'];set_time_limit(0);ini_set('memory_limit','512M');
+$back=function(string $type,string $message):never{$_SESSION[$type]=$message;header('Location: ../super_admin/database.php');exit;};
 
-// Only the (read-only) export may come from a link; restore and reset change data, so they must be a POST
-// with the session's security token (checked by enforceCsrf in db_connect.php)
-$action = $_POST['action'] ?? (($_GET['action'] ?? '') === 'export' ? 'export' : '');
-$admin_id = $_SESSION['user_id'] ?? 1;
-
-// ✨ UPGRADE: Prevent timeout & memory crashes for large Database operations
-set_time_limit(0);
-ini_set('memory_limit', '256M');
-
-// ========================================================
-// 1. EXPORT: PURE PHP SQL DUMPER
-// ========================================================
-if ($action === 'export') {
-    try {
-        $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
-        
-        $sqlScript = "-- ScholarLink Database Backup\n";
-        $sqlScript .= "-- Generated: " . date('Y-m-d H:i:s') . "\n";
-        $sqlScript .= "-- Server: " . $_SERVER['SERVER_NAME'] . "\n\n";
-        $sqlScript .= "SET FOREIGN_KEY_CHECKS = 0;\n\n";
-
-        foreach ($tables as $table) {
-            // Get Table Creation Schema
-            $createStmt = $pdo->query("SHOW CREATE TABLE `$table`")->fetch(PDO::FETCH_NUM);
-            $sqlScript .= "DROP TABLE IF EXISTS `$table`;\n";
-            $sqlScript .= $createStmt[1] . ";\n\n";
-
-            // Get Table Data
-            $rows = $pdo->query("SELECT * FROM `$table`")->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($rows as $row) {
-                $columns = array_keys($row);
-                $values = array_values($row);
-                
-                // Escape values securely
-                $escaped_values = array_map(function($val) use ($pdo) {
-                    return $val === null ? 'NULL' : $pdo->quote($val);
-                }, $values);
-
-                $sqlScript .= "INSERT INTO `$table` (`" . implode("`, `", $columns) . "`) VALUES (" . implode(", ", $escaped_values) . ");\n";
-            }
-            $sqlScript .= "\n";
-        }
-        $sqlScript .= "SET FOREIGN_KEY_CHECKS = 1;\n";
-
-        // Log the export action
-        $log = $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (?, 'System Backup', NOW(), 'Super Admin exported a full database backup.', ?)");
-        $log->execute([$admin_id, $_SERVER['REMOTE_ADDR']]);
-
-        // Force download the file
-        $backup_file_name = 'ScholarLink_Backup_' . date('Y-m-d_H-i') . '.sql';
-        header('Content-Type: application/sql');
-        header('Content-Disposition: attachment; filename="' . $backup_file_name . '"');
-        echo $sqlScript;
-        exit;
-
-    } catch (\Throwable $e) {
-        $_SESSION['error'] = "Export Failed: " . $e->getMessage();
-        header("Location: ../super_admin/database.php");
-        exit;
+try{
+    if($action==='manual_backup'){
+        $backup=drCreateBackup($pdo,'Manual',$actor);$expired=drEnforceRetention($pdo);logAudit($pdo,$actor,'Encrypted Backup Created',"Manual encrypted backup #{$backup['id']} stored in approved secondary storage; checksum {$backup['encrypted_checksum']}.");
+        $back('success',"Encrypted backup #{$backup['id']} created and verified (".number_format($backup['size']/1024,1)." KB). $expired expired backup(s) securely disposed.");
     }
-}
-
-// ========================================================
-// 2. RESTORE: SQL IMPORTER (FIXED CRASH ISSUE)
-// ========================================================
-elseif ($action === 'restore') {
-    if (isset($_FILES['backup_file']) && $_FILES['backup_file']['error'] == UPLOAD_ERR_OK) {
-        $file_path = $_FILES['backup_file']['tmp_name'];
-        $sqlScript = file_get_contents($file_path);
-
-        try {
-            // Turn off foreign key constraints
-            $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
-            
-            // ✨ FIX: Use prepare & execute for the massive dump
-            $stmt = $pdo->prepare($sqlScript);
-            $stmt->execute();
-            
-            // ✨ CRITICAL FIX: Clears all pending result sets to prevent "Commands out of sync" Crash!
-            while ($stmt->nextRowset()) { 
-                // Do nothing, just clear the memory buffer 
-            }
-
-            // Turn constraints back on
-            $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
-
-            // Log the restore action (Will now work without crashing!)
-            $log = $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (?, 'System Restore', NOW(), 'Super Admin restored the database from a backup file.', ?)");
-            $log->execute([$admin_id, $_SERVER['REMOTE_ADDR']]);
-
-            $_SESSION['success'] = "System Successfully Restored from Backup!";
-        } catch (\Throwable $e) {
-            // Changed to \Throwable to catch FATAL errors and show them gracefully instead of white screens
-            $_SESSION['error'] = "Restore Failed. Details: " . $e->getMessage();
-        }
-    } else {
-        $_SESSION['error'] = "File upload failed. Ensure the file is not empty and respects server size limits.";
+    if($action==='download'){
+        $id=(int)($_GET['id']??0);[$backup,,$path]=drLoadBackup($pdo,$id);logAudit($pdo,$actor,'Encrypted Backup Downloaded',"Encrypted backup #$id downloaded by Super Admin.");
+        header('Content-Type: application/octet-stream');header('Content-Length: '.filesize($path));header('Content-Disposition: attachment; filename="'.basename($backup['FileName']).'"');header('X-Content-Type-Options: nosniff');readfile($path);exit;
     }
-    
-    // ✨ Ensure the script safely returns to the dashboard
-    header("Location: ../super_admin/database.php");
-    exit();
-}
-
-// ========================================================
-// 3. WIPE & RESET: TRUNCATE TRANSACTIONS
-// ========================================================
-elseif ($action === 'reset') {
-    try {
-        $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
-        
-        // Wipe transaction/moving data but KEEP Users, Scholarships, and Programs
-        $pdo->exec("TRUNCATE TABLE application");
-        $pdo->exec("TRUNCATE TABLE submitted_document");
-        $pdo->exec("TRUNCATE TABLE user_vault");
-        $pdo->exec("TRUNCATE TABLE audit_log");
-        
-        $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
-
-        // Create a new log for the reset (since we just wiped the old logs)
-        $log = $pdo->prepare("INSERT INTO audit_log (UserID, ActionPerformed, ActionDate, Description, IPAddress) VALUES (?, 'System Reset', NOW(), 'Super Admin wiped all application and document data for a fresh semester.', ?)");
-        $log->execute([$admin_id, $_SERVER['REMOTE_ADDR']]);
-
-        $_SESSION['success'] = "System Reset Complete. All active applications wiped.";
-    } catch (\Throwable $e) {
-        $_SESSION['error'] = "Reset Failed: " . $e->getMessage();
+    if($action==='save_settings'){
+        $enabled=isset($_POST['schedule_enabled'])?1:0;$interval=(int)($_POST['interval_hours']??24);$rpo=(float)($_POST['rpo_hours']??24);$rto=(float)($_POST['rto_hours']??4);$retention=(int)($_POST['retention_days']??30);$path=trim((string)($_POST['secondary_path']??''));
+        if(!in_array($interval,[1,6,12,24,48,168],true)||$rpo<0.25||$rpo>720||$rto<0.25||$rto>168||$retention<1||$retention>3650)throw new RuntimeException('Schedule, RPO, RTO, or retention value is outside the allowed range.');
+        $pdo->beginTransaction();$pdo->prepare('UPDATE disaster_recovery_settings SET ScheduleEnabled=?,ScheduleIntervalHours=?,RPOHours=?,RTOHours=?,SecondaryStoragePath=?,RetentionDays=?,UpdatedBy=? WHERE SettingsID=1')->execute([$enabled,$interval,$rpo,$rto,$path?:null,$retention,$actor]);
+        $pdo->prepare("UPDATE privacy_retention_policies SET RetentionDays=?,UpdatedBy=? WHERE PolicyKey='backups'")->execute([$retention,$actor]);drStorageDirectory($pdo);drEncryptionKeyInfo();$pdo->commit();
+        logAudit($pdo,$actor,'Disaster Recovery Settings Updated',"Backup interval $interval hour(s), RPO $rpo hour(s), RTO $rto hour(s), retention $retention day(s), scheduled=".($enabled?'yes':'no').'.');$back('success','Disaster-recovery standards updated and storage/key paths validated.');
     }
-    header("Location: ../super_admin/database.php");
-    exit;
-}
-else {
-    // If someone accesses the file directly without an action
-    header("Location: ../super_admin/database.php");
-    exit;
-}
-?>
+    if($action==='drill'){
+        $id=(int)($_POST['backup_id']??0);$result=drRunRestorationDrill($pdo,$id,$actor);logAudit($pdo,$actor,'Restoration Drill Passed',"Backup #$id restored to an isolated database in ".round($result['duration'],3)." seconds; {$result['tables']} tables and {$result['rows']} rows validated. RPO=".($result['rpo']?'pass':'fail').', RTO='.($result['rto']?'pass':'fail').'.');
+        $back('success',"Restoration drill #{$result['id']} passed in ".round($result['duration'],3)." seconds. {$result['tables']} tables and {$result['rows']} rows validated; isolated drill database removed.");
+    }
+    if($action==='restore'){
+        $id=(int)($_POST['backup_id']??0);if(trim((string)($_POST['confirmation']??''))!=='RESTORE')throw new RuntimeException('Type RESTORE exactly to authorize live recovery.');
+        [$selected,$sql]=drLoadBackup($pdo,$id);$safety=drCreateBackup($pdo,'Pre-Restore',$actor);$started=microtime(true);$pdo->exec($sql);$duration=microtime(true)-$started;
+        $pdo->prepare("INSERT INTO backup_records(BackupType,FileName,StoragePath,PlainChecksum,EncryptedChecksum,FileSize,CreatedBy) VALUES('Pre-Restore',?,?,?,?,?,?) ON DUPLICATE KEY UPDATE StoragePath=VALUES(StoragePath),PlainChecksum=VALUES(PlainChecksum),EncryptedChecksum=VALUES(EncryptedChecksum),FileSize=VALUES(FileSize),Status='Available'")->execute([$safety['name'],$safety['path'],$safety['plain_checksum'],$safety['encrypted_checksum'],$safety['size'],$actor]);
+        $safetyId=(int)($pdo->lastInsertId()?:$safety['id']);logAudit($pdo,$actor,'Live System Restore',"Live database restored from encrypted backup #$id in ".round($duration,3)." seconds. Pre-restore safety backup #$safetyId was created first.");
+        $_SESSION['success']="Live restore completed in ".round($duration,3)." seconds. Pre-restore safety backup #$safetyId was created.";header('Location: ../super_admin/database.php');exit;
+    }
+    throw new RuntimeException('Invalid database recovery action.');
+}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();logAudit($pdo,$actor,'Disaster Recovery Action Failed',mb_substr($action.': '.$e->getMessage(),0,1000));$back('error',$e->getMessage());}
