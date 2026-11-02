@@ -95,6 +95,21 @@ function drEnforceRetention(PDO $pdo): int {
     foreach($s->fetchAll(PDO::FETCH_ASSOC) as $row){drSecureDelete($pdo,$row['StoragePath']);$pdo->prepare("UPDATE backup_records SET Status='Expired' WHERE BackupID=?")->execute([$row['BackupID']]);$count++;}return $count;
 }
 
+// Runs a backup one statement at a time. Sending it as one message fails on real data (over MariaDB's
+// max_allowed_packet, 1 MB on XAMPP) and can hide errors in later statements. drBuildSqlDump ends every statement
+// with ";\n", and quoted values never hold a raw line break, so this is a safe place to split.
+function drExecuteSqlDump(PDO $db,string $sql): int {
+    $count=0;$offset=0;$db->exec('SET autocommit=0');
+    try{
+        while(($end=strpos($sql,";\n",$offset))!==false){
+            $statement=trim(substr($sql,$offset,$end-$offset));$offset=$end+2;
+            if($statement!==''){$db->exec($statement);$count++;}
+        }
+        $db->exec('COMMIT');
+    }finally{$db->exec('SET autocommit=1');}
+    return $count;
+}
+
 function drServerPdo(?string $database=null): PDO {
     $c=drDatabaseConfig();$dsn="mysql:host={$c['host']};port={$c['port']}".($database?";dbname=$database":'').';charset=utf8mb4';return new PDO($dsn,$c['user'],$c['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>true]);
 }
@@ -102,7 +117,7 @@ function drServerPdo(?string $database=null): PDO {
 function drRunRestorationDrill(PDO $pdo,int $backupId,int $actor): array {
     [$backup,$sql]=drLoadBackup($pdo,$backupId);$target='scholarlink_drill_'.date('YmdHis').'_'.bin2hex(random_bytes(2));$settings=drSettings($pdo);$started=microtime(true);
     $pdo->prepare("INSERT INTO restoration_drills(BackupID,TargetDatabase,ExecutedBy) VALUES(?,?,?)")->execute([$backupId,$target,$actor]);$drillId=(int)$pdo->lastInsertId();$server=drServerPdo();
-    try{$server->exec("CREATE DATABASE `$target` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci");$test=drServerPdo($target);$test->exec($sql);$tables=$test->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);$required=['users','scholarship','application','audit_log'];$missing=array_values(array_diff($required,$tables));if($missing)throw new RuntimeException('Missing required tables: '.implode(', ',$missing));
+    try{$server->exec("CREATE DATABASE `$target` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci");$test=drServerPdo($target);drExecuteSqlDump($test,$sql);$tables=$test->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);$required=['users','scholarship','application','audit_log'];$missing=array_values(array_diff($required,$tables));if($missing)throw new RuntimeException('Missing required tables: '.implode(', ',$missing));
         $rows=0;foreach($tables as $table){$safe=str_replace('`','``',$table);$rows+=(int)$test->query("SELECT COUNT(*) FROM `$safe`")->fetchColumn();}$duration=microtime(true)-$started;$ageQuery=$pdo->prepare('SELECT GREATEST(0,TIMESTAMPDIFF(SECOND,?,NOW())/3600)');$ageQuery->execute([$backup['CreatedAt']]);$age=(float)$ageQuery->fetchColumn();$rpo=$age<=(float)$settings['RPOHours'];$rto=($duration/3600)<=(float)$settings['RTOHours'];$notes=count($tables)." tables and $rows rows restored in an isolated database; required tables verified.";
         $pdo->prepare("UPDATE restoration_drills SET Status='Passed',CompletedAt=NOW(),BackupAgeHours=?,RestoreDurationSeconds=?,TableCount=?,RowCount=?,RPOCompliant=?,RTOCompliant=?,ValidationNotes=? WHERE DrillID=?")->execute([round($age,2),round($duration,3),count($tables),$rows,$rpo?1:0,$rto?1:0,$notes,$drillId]);$pdo->prepare('UPDATE backup_records SET VerifiedAt=NOW() WHERE BackupID=?')->execute([$backupId]);return ['id'=>$drillId,'duration'=>$duration,'tables'=>count($tables),'rows'=>$rows,'rpo'=>$rpo,'rto'=>$rto];
     }catch(Throwable $e){$duration=microtime(true)-$started;$pdo->prepare("UPDATE restoration_drills SET Status='Failed',CompletedAt=NOW(),RestoreDurationSeconds=?,ValidationNotes=? WHERE DrillID=?")->execute([round($duration,3),mb_substr($e->getMessage(),0,2000),$drillId]);throw $e;

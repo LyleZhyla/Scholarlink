@@ -29,7 +29,7 @@ try{
     }
     if($action==='restore'){
         $id=(int)($_POST['backup_id']??0);if(trim((string)($_POST['confirmation']??''))!=='RESTORE')throw new RuntimeException('Type RESTORE exactly to authorize live recovery.');
-        [$selected,$sql]=drLoadBackup($pdo,$id);$safety=drCreateBackup($pdo,'Pre-Restore',$actor);$started=microtime(true);$pdo->exec($sql);$duration=microtime(true)-$started;
+        [$selected,$sql]=drLoadBackup($pdo,$id);$safety=drCreateBackup($pdo,'Pre-Restore',$actor);$started=microtime(true);drExecuteSqlDump($pdo,$sql);$duration=microtime(true)-$started;
         $pdo->prepare("INSERT INTO backup_records(BackupType,FileName,StoragePath,PlainChecksum,EncryptedChecksum,FileSize,CreatedBy) VALUES('Pre-Restore',?,?,?,?,?,?) ON DUPLICATE KEY UPDATE StoragePath=VALUES(StoragePath),PlainChecksum=VALUES(PlainChecksum),EncryptedChecksum=VALUES(EncryptedChecksum),FileSize=VALUES(FileSize),Status='Available'")->execute([$safety['name'],$safety['path'],$safety['plain_checksum'],$safety['encrypted_checksum'],$safety['size'],$actor]);
         $safetyId=(int)($pdo->lastInsertId()?:$safety['id']);logAudit($pdo,$actor,'Live System Restore',"Live database restored from encrypted backup #$id in ".round($duration,3)." seconds. Pre-restore safety backup #$safetyId was created first.");
         $_SESSION['success']="Live restore completed in ".round($duration,3)." seconds. Pre-restore safety backup #$safetyId was created.";header('Location: ../super_admin/database.php');exit;
