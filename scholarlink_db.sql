@@ -834,3 +834,75 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
+-- Configurable sponsor-specific approval workflow (2026-11-02)
+CREATE TABLE IF NOT EXISTS `scholarship_workflow_stages` (
+  `WorkflowStageID` int(11) NOT NULL AUTO_INCREMENT,
+  `ScholarshipID` int(11) NOT NULL,
+  `StageOrder` int unsigned NOT NULL,
+  `StageKey` varchar(50) NOT NULL DEFAULT 'custom',
+  `StageName` varchar(120) NOT NULL,
+  `AssignedRole` enum('Internal_Admin','External_Admin','Super_Admin') NOT NULL,
+  `CompletionAction` enum('none','under_review','shortlisted','approve','award_confirm') NOT NULL DEFAULT 'none',
+  `Instructions` text DEFAULT NULL,
+  `IsActive` tinyint(1) NOT NULL DEFAULT 1,
+  `CreatedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  `UpdatedAt` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`WorkflowStageID`),
+  UNIQUE KEY `uq_workflow_stage_order` (`ScholarshipID`,`StageOrder`),
+  KEY `idx_workflow_stage_role` (`AssignedRole`,`IsActive`),
+  CONSTRAINT `fk_workflow_stage_scholarship` FOREIGN KEY (`ScholarshipID`) REFERENCES `scholarship` (`ScholarshipID`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `application_workflow_progress` (
+  `ProgressID` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `ApplicationID` int(11) NOT NULL,
+  `WorkflowStageID` int(11) DEFAULT NULL,
+  `StageOrder` int unsigned NOT NULL,
+  `StageKey` varchar(50) NOT NULL,
+  `StageName` varchar(120) NOT NULL,
+  `AssignedRole` enum('Internal_Admin','External_Admin','Super_Admin') NOT NULL,
+  `CompletionAction` enum('none','under_review','shortlisted','approve','award_confirm') NOT NULL DEFAULT 'none',
+  `Instructions` text DEFAULT NULL,
+  `Status` enum('Pending','In Progress','Completed','Returned','Skipped') NOT NULL DEFAULT 'Pending',
+  `ReviewerComments` text DEFAULT NULL,
+  `StartedAt` datetime DEFAULT NULL,
+  `CompletedAt` datetime DEFAULT NULL,
+  `CompletedBy` int(11) DEFAULT NULL,
+  `CreatedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  `UpdatedAt` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`ProgressID`),
+  UNIQUE KEY `uq_application_workflow_order` (`ApplicationID`,`StageOrder`),
+  KEY `idx_workflow_queue` (`AssignedRole`,`Status`,`StageOrder`),
+  CONSTRAINT `fk_workflow_progress_application` FOREIGN KEY (`ApplicationID`) REFERENCES `application` (`ApplicationID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_workflow_progress_stage` FOREIGN KEY (`WorkflowStageID`) REFERENCES `scholarship_workflow_stages` (`WorkflowStageID`) ON DELETE SET NULL,
+  CONSTRAINT `fk_workflow_progress_reviewer` FOREIGN KEY (`CompletedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Immutable scholarship requirements, rubric and application-form versions (2026-11-02)
+ALTER TABLE `document_requirement`
+  ADD COLUMN `IsActive` tinyint(1) NOT NULL DEFAULT 1 AFTER `DocumentName`;
+
+ALTER TABLE `scholarship_criteria`
+  ADD COLUMN `IsActive` tinyint(1) NOT NULL DEFAULT 1 AFTER `CriteriaName`;
+
+CREATE TABLE IF NOT EXISTS `scholarship_configuration_versions` (
+  `ConfigurationVersionID` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `ScholarshipID` int(11) NOT NULL,
+  `VersionNumber` int unsigned NOT NULL,
+  `SnapshotHash` char(64) NOT NULL,
+  `SnapshotJson` longtext NOT NULL,
+  `ChangeSummary` varchar(255) DEFAULT NULL,
+  `CreatedBy` int(11) DEFAULT NULL,
+  `CreatedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`ConfigurationVersionID`),
+  UNIQUE KEY `uq_scholarship_config_version` (`ScholarshipID`,`VersionNumber`),
+  KEY `idx_scholarship_config_hash` (`ScholarshipID`,`SnapshotHash`),
+  CONSTRAINT `fk_config_version_scholarship` FOREIGN KEY (`ScholarshipID`) REFERENCES `scholarship` (`ScholarshipID`) ON DELETE CASCADE,
+  CONSTRAINT `fk_config_version_creator` FOREIGN KEY (`CreatedBy`) REFERENCES `users` (`UserID`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+ALTER TABLE `application`
+  ADD COLUMN `ConfigurationVersionID` bigint unsigned DEFAULT NULL AFTER `TermID`,
+  ADD KEY `idx_application_configuration_version` (`ConfigurationVersionID`),
+  ADD CONSTRAINT `fk_application_configuration_version` FOREIGN KEY (`ConfigurationVersionID`) REFERENCES `scholarship_configuration_versions` (`ConfigurationVersionID`) ON DELETE RESTRICT;
+

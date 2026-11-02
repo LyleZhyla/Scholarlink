@@ -64,8 +64,8 @@ try {
             FROM scholarship s
             LEFT JOIN scholarship_programs sp ON sp.ScholarshipID = s.ScholarshipID
             LEFT JOIN program p ON p.ProgramID = sp.ProgramID
-            LEFT JOIN document_requirement dr ON dr.ScholarshipID = s.ScholarshipID
-            LEFT JOIN scholarship_criteria sc ON sc.ScholarshipID = s.ScholarshipID
+            LEFT JOIN document_requirement dr ON dr.ScholarshipID = s.ScholarshipID AND dr.IsActive = 1
+            LEFT JOIN scholarship_criteria sc ON sc.ScholarshipID = s.ScholarshipID AND sc.IsActive = 1
             LEFT JOIN scholarship_custom_fields scf ON scf.ScholarshipID = s.ScholarshipID
             WHERE 1=1";
 
@@ -288,6 +288,8 @@ try {
                     <a href="form_builder.php?id=<?= (int) $s['ScholarshipID'] ?>" class="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-600 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="Design the application form students fill in">
                         Design Form 📝
                     </a>
+                    <a href="workflow_builder.php?id=<?= (int) $s['ScholarshipID'] ?>" class="bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-600 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="Configure sponsor-specific approval stages">Workflow</a>
+                    <a href="configuration_versions.php?id=<?= (int) $s['ScholarshipID'] ?>" class="bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-800 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="View immutable requirements and form versions">Versions</a>
                     <a href="award_notice.php?id=<?= (int) $s['ScholarshipID'] ?>" class="bg-green-50 text-green-700 border border-green-200 hover:bg-green-600 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="What approved scholars must still submit (sent with their Approval Notice)">
                         Approval Notice 🏆
                     </a>

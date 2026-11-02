@@ -40,26 +40,26 @@ include '../includes/student_sidebar.php';
 
 // 2. Fetch the scholarship's current application form and this application's answers
 require_once '../includes/form_fields.php';
-$customFields = getFormFields($pdo, $app['ScholarshipID']);
+require_once '../includes/scholarship_config_versions.php';
+$configurationSnapshot = applicationConfigurationSnapshot($pdo, (int) $app_id) ?: captureScholarshipConfiguration($pdo, (int) $app['ScholarshipID']);
+$customFields = $configurationSnapshot['form_fields'] ?? [];
 $ans_stmt = $pdo->prepare("SELECT FieldID, AnswerText FROM application_custom_answers WHERE ApplicationID = ?");
 $ans_stmt->execute([$app_id]);
 $existingAnswers = $ans_stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 $student_stmt = $pdo->prepare("SELECT * FROM users WHERE UserID = ?");
 $student_stmt->execute([$user_id]);
 $student = $student_stmt->fetch(PDO::FETCH_ASSOC);
-$sch_stmt = $pdo->prepare("SELECT FormInstructions FROM scholarship WHERE ScholarshipID = ?");
-$sch_stmt->execute([$app['ScholarshipID']]);
-$formInstructions = $sch_stmt->fetchColumn();
+$formInstructions = $configurationSnapshot['scholarship']['FormInstructions'] ?? null;
 
 // ✨ 3. RESTORED: Fetch Attached Documents
-$req_stmt = $pdo->prepare("
-    SELECT dr.*, sd.FilePath, sd.VerificationStatus 
-    FROM document_requirement dr 
-    LEFT JOIN submitted_document sd ON dr.RequirementID = sd.RequirementID AND sd.ApplicationID = ?
-    WHERE dr.ScholarshipID = ?
-");
-$req_stmt->execute([$app_id, $app['ScholarshipID']]);
-$requirements = $req_stmt->fetchAll();
+$req_stmt = $pdo->prepare('SELECT RequirementID, FilePath, VerificationStatus FROM submitted_document WHERE ApplicationID = ?');
+$req_stmt->execute([$app_id]);
+$submittedRequirements = [];
+foreach ($req_stmt->fetchAll(PDO::FETCH_ASSOC) as $submittedRequirement) $submittedRequirements[(int) $submittedRequirement['RequirementID']] = $submittedRequirement;
+$requirements = [];
+foreach ($configurationSnapshot['requirements'] ?? [] as $requirement) {
+    $requirements[] = $requirement + ($submittedRequirements[(int) $requirement['RequirementID']] ?? ['FilePath' => null, 'VerificationStatus' => 'Pending']);
+}
 ?>
 
 <main class="flex-1 p-5 lg:p-10 lg:ml-72 bg-slate-50/50 min-h-screen transition-all duration-300">

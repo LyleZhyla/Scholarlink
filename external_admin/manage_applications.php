@@ -14,6 +14,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'External_Admin') {
 
 include '../includes/db_connect.php';
 require_once '../includes/reports.php';
+require_once '../includes/scholarship_config_versions.php';
 include '../includes/header.php'; 
 include '../includes/external_sidebar.php'; 
 
@@ -82,6 +83,10 @@ $query .= " ORDER BY a.DateSubmitted ASC";
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($applications as &$versionedApplication) {
+    $versionedApplication['CriteriaList'] = implode('||', applicationCriteriaList($pdo, (int) $versionedApplication['ApplicationID']));
+}
+unset($versionedApplication);
 ?>
 
 <style>

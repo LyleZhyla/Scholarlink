@@ -27,7 +27,7 @@ if (($scholarship['ProgramID'] && $scholarship['ProgramID'] != $student['Program
     exit();
 }
 
-$req_stmt = $pdo->prepare("SELECT * FROM document_requirement WHERE ScholarshipID = ?");
+$req_stmt = $pdo->prepare("SELECT * FROM document_requirement WHERE ScholarshipID = ? AND IsActive = 1");
 $req_stmt->execute([$scholarship_id]);
 $requirements = $req_stmt->fetchAll();
 

@@ -3,6 +3,7 @@ session_start();
 require '../includes/db_connect.php';
 require_once '../includes/waitlist.php';
 require_once '../includes/application_authority.php';
+require_once '../includes/approval_workflow.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' || empty($_SESSION['logged_in']) || !in_array($_SESSION['role'] ?? '', ['Internal_Admin', 'External_Admin', 'Super_Admin'], true)) {
     header('Location: ../admin_login.php');
@@ -60,6 +61,11 @@ try {
         if ($issue) throw new RuntimeException($issue['message']);
         $pdo->prepare("UPDATE application SET Status = 'Approved', LastSavedAt = NOW() WHERE ApplicationID = ?")->execute([$entry['ApplicationID']]);
         $pdo->prepare("UPDATE application_waitlist SET Status = 'Promoted', PromotedBy = ?, PromotedAt = NOW() WHERE WaitlistID = ?")->execute([$admin_id, $waitlist_id]);
+        if (workflowTablesReady($pdo)) {
+            $nextStage = $pdo->prepare("SELECT ProgressID FROM application_workflow_progress WHERE ApplicationID = ? AND Status = 'Pending' ORDER BY StageOrder LIMIT 1");
+            $nextStage->execute([$entry['ApplicationID']]);
+            if ($nextProgressId = $nextStage->fetchColumn()) $pdo->prepare("UPDATE application_workflow_progress SET Status = 'In Progress', StartedAt = NOW() WHERE ProgressID = ?")->execute([$nextProgressId]);
+        }
         refreshWaitlistRanks($pdo, (int) $entry['ScholarshipID']);
         snapshotApplicationVersion($pdo, (int) $entry['ApplicationID'], 'Waitlist Promotion Approved', $admin_id, 'Administrator approved promotion into a vacant slot');
         logAudit($pdo, $admin_id, 'Waitlist Promotion Approved', "Promoted Application #{$entry['ApplicationID']} into a vacant slot for {$entry['Name']}");

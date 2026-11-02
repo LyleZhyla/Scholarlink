@@ -294,6 +294,8 @@ try {
                             <a href="form_builder.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block bg-blue-50 text-blue-700 border border-blue-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all whitespace-nowrap" title="Design the application form students fill in">
                                 Design Form 📝
                             </a>
+                            <a href="workflow_builder.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block bg-violet-50 text-violet-700 border border-violet-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-violet-600 hover:text-white transition-all whitespace-nowrap" title="Configure sponsor-specific approval stages">Workflow</a>
+                            <a href="configuration_versions.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block bg-slate-50 text-slate-700 border border-slate-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 hover:text-white transition-all whitespace-nowrap" title="View immutable requirements and form versions">Versions</a>
                             <a href="award_notice.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block mt-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-600 hover:text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="What approved scholars must still submit (sent with their Approval Notice)">
                                 Approval Notice 🏆
                             </a>

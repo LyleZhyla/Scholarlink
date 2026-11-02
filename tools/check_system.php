@@ -143,6 +143,12 @@ $need = [
     ['application_waitlist', null, '2026-11-02_ranked_waitlist.sql'],
     ['scholar_benefit_accounts', null, '2026-11-02_benefit_releases.sql'],
     ['benefit_releases', null, '2026-11-02_benefit_releases.sql'],
+    ['scholarship_workflow_stages', null, '2026-11-02_configurable_approval_workflows.sql'],
+    ['application_workflow_progress', null, '2026-11-02_configurable_approval_workflows.sql'],
+    ['document_requirement', 'IsActive', '2026-11-02_scholarship_configuration_versions.sql'],
+    ['scholarship_criteria', 'IsActive', '2026-11-02_scholarship_configuration_versions.sql'],
+    ['scholarship_configuration_versions', null, '2026-11-02_scholarship_configuration_versions.sql'],
+    ['application', 'ConfigurationVersionID', '2026-11-02_scholarship_configuration_versions.sql'],
 ];
 $missing = [];
 foreach ($need as [$table, $column, $migration]) {

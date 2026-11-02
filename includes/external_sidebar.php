@@ -23,6 +23,7 @@
             ['dashboard.php',           '📊', 'Overview'],
             ['scholarships.php',        '🎓', 'Scholarships'],
             ['manage_applications.php', '🗂️', 'Masterlist'],
+            ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
             ['appeals.php',             '⚖️', 'Appeals'],
             ['waitlist.php',            '📋', 'Waitlist'],
             ['benefits.php',            '💳', 'Benefits'],

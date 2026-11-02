@@ -23,7 +23,7 @@ $builder_fields = array_map(function ($f) {
     ];
 }, getFormFields($pdo, $scholarship['ScholarshipID']));
 
-$doc_stmt = $pdo->prepare("SELECT DocumentName FROM document_requirement WHERE ScholarshipID = ? ORDER BY RequirementID ASC");
+$doc_stmt = $pdo->prepare("SELECT DocumentName FROM document_requirement WHERE ScholarshipID = ? AND IsActive = 1 ORDER BY RequirementID ASC");
 $doc_stmt->execute([$scholarship['ScholarshipID']]);
 $builder_documents = $doc_stmt->fetchAll(PDO::FETCH_COLUMN);
 

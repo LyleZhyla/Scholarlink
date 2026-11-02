@@ -15,6 +15,9 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Student') {
     exit(); 
 }
 include '../includes/db_connect.php'; 
+require_once '../includes/application_authority.php';
+require_once '../includes/approval_workflow.php';
+require_once '../includes/scholarship_config_versions.php';
 include '../includes/header.php'; 
 include '../includes/student_sidebar.php'; 
 
@@ -47,25 +50,27 @@ try {
         $aid = $app['application_id'];
         $sid = $app['ScholarshipID'];
         
-        // Fetch Custom Fields & Answers
-        $fields_stmt = $pdo->prepare("
-            SELECT f.FieldID, f.FieldName, f.FieldType, a.AnswerText 
-            FROM scholarship_custom_fields f
-            LEFT JOIN application_custom_answers a ON f.FieldID = a.FieldID AND a.ApplicationID = ?
-            WHERE f.ScholarshipID = ?
-        ");
-        $fields_stmt->execute([$aid, $sid]);
-        $app['custom'] = $fields_stmt->fetchAll(PDO::FETCH_ASSOC);
+        $config_snapshot = applicationConfigurationSnapshot($pdo, (int) $aid) ?: captureScholarshipConfiguration($pdo, (int) $sid);
+        $answer_stmt = $pdo->prepare('SELECT FieldID, AnswerText FROM application_custom_answers WHERE ApplicationID = ?');
+        $answer_stmt->execute([$aid]);
+        $answers = [];
+        foreach ($answer_stmt->fetchAll(PDO::FETCH_ASSOC) as $answer) $answers[(int) $answer['FieldID']] = $answer['AnswerText'];
+        $app['custom'] = [];
+        foreach ($config_snapshot['form_fields'] ?? [] as $field) {
+            $field['AnswerText'] = $answers[(int) $field['FieldID']] ?? null;
+            $app['custom'][] = $field;
+        }
+        $app['configuration_version'] = $config_snapshot['_version'] ?? null;
         
         // Fetch Documents
-        $docs_stmt = $pdo->prepare("
-            SELECT dr.RequirementID, dr.DocumentName, d.SubmittedDocID, d.FilePath, d.VerificationStatus 
-            FROM document_requirement dr 
-            LEFT JOIN submitted_document d ON dr.RequirementID = d.RequirementID AND d.ApplicationID = ?
-            WHERE dr.ScholarshipID = ?
-        ");
-        $docs_stmt->execute([$aid, $sid]);
-        $docs = $docs_stmt->fetchAll(PDO::FETCH_ASSOC);
+        $docs_stmt = $pdo->prepare('SELECT RequirementID, SubmittedDocID, FilePath, VerificationStatus FROM submitted_document WHERE ApplicationID = ?');
+        $docs_stmt->execute([$aid]);
+        $submitted = [];
+        foreach ($docs_stmt->fetchAll(PDO::FETCH_ASSOC) as $doc) $submitted[(int) $doc['RequirementID']] = $doc;
+        $docs = [];
+        foreach ($config_snapshot['requirements'] ?? [] as $requirement) {
+            $docs[] = $requirement + ($submitted[(int) $requirement['RequirementID']] ?? ['SubmittedDocID' => null, 'FilePath' => null, 'VerificationStatus' => 'Pending']);
+        }
 
         // ✨ THE VAULT FIX: Retain exact paths (so Vault files look in /vault/ and normal in /documents/)
         foreach ($docs as &$doc) {
@@ -81,6 +86,8 @@ try {
         $versions_stmt = $pdo->prepare("SELECT VersionNumber, EventType, Status, Notes, CreatedAt FROM application_versions WHERE ApplicationID = ? ORDER BY VersionNumber DESC");
         $versions_stmt->execute([$aid]);
         $app['versions'] = $versions_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $app['workflow'] = workflowProgress($pdo, (int) $aid);
         
         $app['ReleaseFrequency'] = $app['ReleaseFrequency'] ?? 'Per Semester';
         $jsAppData[$aid] = $app;
@@ -251,7 +258,7 @@ function getProgressColor($status) {
         </div>
         
         <div class="p-6 lg:p-10 overflow-y-auto custom-scrollbar">
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 lg:gap-8 mb-8">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-6 lg:gap-8 mb-8">
                 <div>
                     <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Status</p>
                     <span id="trackModalStatus" class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border bg-slate-900 text-white">Submitted</span>
@@ -268,6 +275,10 @@ function getProgressColor($status) {
                     <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Submitted On</p>
                     <p id="trackModalDate" class="font-bold text-slate-900 text-sm lg:text-base"></p>
                 </div>
+                <div>
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Form Version</p>
+                    <p id="trackModalConfigVersion" class="font-black text-violet-700 text-sm lg:text-base"></p>
+                </div>
             </div>
 
             <div class="border-t border-slate-100 pt-8 mb-8">
@@ -278,6 +289,11 @@ function getProgressColor($status) {
             <div class="border-t border-slate-100 pt-8">
                 <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Attached Documents</h3>
                 <div id="trackModalDocs" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+            </div>
+
+            <div class="border-t border-slate-100 pt-8 mt-8">
+                <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Sponsor Approval Workflow</h3>
+                <div id="trackModalWorkflow" class="space-y-3"></div>
             </div>
 
             <div class="border-t border-slate-100 pt-8 mt-8">
@@ -367,6 +383,7 @@ function getProgressColor($status) {
         document.getElementById('trackModalStatus').innerText = data.status;
         document.getElementById('trackModalGwa').innerText = data.gpa !== null && data.gpa !== '' ? parseFloat(data.gpa).toFixed(2) : 'Not set';
         document.getElementById('trackModalRelease').innerText = data.ReleaseFrequency || 'Per Semester';
+        document.getElementById('trackModalConfigVersion').innerText = data.configuration_version ? `Version ${data.configuration_version}` : 'Current draft';
         
         const dateObj = new Date(data.application_date);
         document.getElementById('trackModalDate').innerText = dateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' });
@@ -424,6 +441,20 @@ function getProgressColor($status) {
         } else {
             versionsContainer.innerHTML = '<p class="text-sm text-slate-400 italic">No recorded versions yet.</p>';
         }
+
+        const workflowContainer = document.getElementById('trackModalWorkflow');
+        workflowContainer.innerHTML = '';
+        if (data.workflow && data.workflow.length) {
+            data.workflow.forEach(step => {
+                const done = step.Status === 'Completed';
+                const active = step.Status === 'In Progress';
+                const color = done ? 'bg-green-50 border-green-200 text-green-700' : (active ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-500');
+                const icon = done ? '✓' : (active ? '●' : '○');
+                const reviewer = step.AssignedRole.replace('_', ' ');
+                const comment = step.ReviewerComments ? `<p class="text-xs text-slate-600 mt-2">${String(step.ReviewerComments).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>` : '';
+                workflowContainer.innerHTML += `<div class="p-4 rounded-xl border ${color}"><div class="flex items-center justify-between gap-3"><p class="text-sm font-black">${icon} ${String(step.StageName).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p><span class="text-[9px] font-black uppercase tracking-widest">${step.Status}</span></div><p class="text-[10px] font-bold uppercase tracking-wider opacity-70 mt-1">Reviewer: ${reviewer}</p>${comment}</div>`;
+            });
+        } else workflowContainer.innerHTML = '<p class="text-sm text-slate-400 italic">Workflow begins after submission.</p>';
 
         trackModal.classList.remove('hidden');
         trackModal.classList.add('flex');

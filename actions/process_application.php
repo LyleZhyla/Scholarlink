@@ -6,6 +6,7 @@ error_reporting(E_ALL);
 
 require '../includes/session_manager.php';
 require '../includes/db_connect.php';
+require_once '../includes/scholarship_config_versions.php';
 
 // 1. SECURITY CHECK
 if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Student') {
@@ -33,9 +34,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['scholarship_id'])) {
         ");
         $app_stmt->execute([$scholarship_id, $user_id, $student_gwa]);
         $application_id = $pdo->lastInsertId();
+        assignApplicationConfigurationVersion($pdo, (int) $application_id, (int) $user_id);
 
         // 4. FETCH SCHOLARSHIP REQUIREMENTS
-        $req_stmt = $pdo->prepare("SELECT RequirementID, DocumentName FROM document_requirement WHERE ScholarshipID = ?");
+        $req_stmt = $pdo->prepare("SELECT RequirementID, DocumentName FROM document_requirement WHERE ScholarshipID = ? AND IsActive = 1");
         $req_stmt->execute([$scholarship_id]);
         $requirements = $req_stmt->fetchAll(PDO::FETCH_ASSOC);
 

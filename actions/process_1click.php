@@ -6,6 +6,7 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 require '../includes/db_connect.php';
+require_once '../includes/scholarship_config_versions.php';
 
 if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Student') {
     die("ERROR: Hindi ka naka-login bilang estudyante o nag-expire ang session.");
@@ -31,10 +32,11 @@ try {
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$user_id, $scholarship_id]);
     $new_app_id = $pdo->lastInsertId();
+    assignApplicationConfigurationVersion($pdo, (int) $new_app_id, (int) $user_id);
     echo "<p>✅ Natagumpayan ang paggawa ng Application ID: $new_app_id</p>";
 
     // 3. Kunin ang requirements
-    $req_stmt = $pdo->prepare("SELECT RequirementID, DocumentName FROM document_requirement WHERE ScholarshipID = ?");
+    $req_stmt = $pdo->prepare("SELECT RequirementID, DocumentName FROM document_requirement WHERE ScholarshipID = ? AND IsActive = 1");
     $req_stmt->execute([$scholarship_id]);
     $requirements = $req_stmt->fetchAll(PDO::FETCH_ASSOC);
     echo "<p>📋 Bilang ng requirements para sa scholarship na ito: " . count($requirements) . "</p>";

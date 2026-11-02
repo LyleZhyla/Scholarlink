@@ -3,6 +3,9 @@ session_start();
 require '../includes/db_connect.php';
 require_once '../includes/application_lifecycle.php';
 require_once '../includes/appeals.php';
+require_once '../includes/application_authority.php';
+require_once '../includes/approval_workflow.php';
+require_once '../includes/scholarship_config_versions.php';
 
 // Using require_once to ensure the function is defined and paths are correct
 if (file_exists('../includes/email_config.php')) {
@@ -138,6 +141,8 @@ if ($module === 'student_apply') {
             $pdo->prepare("UPDATE application SET GPA = ?, Status = 'Submitted', DateSubmitted = NOW(), LastSavedAt = NOW(), WithdrawnAt = NULL, ResubmissionAllowed = 0 WHERE ApplicationID = ?")
                 ->execute([($_POST['gpa'] ?? '') !== '' ? $_POST['gpa'] : null, $app_id]);
             snapshotApplicationVersion($pdo, $app_id, $event, $user_id);
+            assignApplicationConfigurationVersion($pdo, $app_id, $user_id);
+            initializeApplicationWorkflow($pdo, $app_id);
             logAudit($pdo, $user_id, "Application $event", "$event application #$app_id");
             $pdo->commit();
             $_SESSION['success'] = $event === 'Submitted' ? 'Application submitted successfully!' : 'Corrected application resubmitted successfully!';
@@ -206,9 +211,11 @@ if ($module === 'student_apply') {
             $stmt = $pdo->prepare($sql);
             $stmt->execute(['uid' => $user_id, 'sid' => $scholarship_id, 'gpa' => $student_gwa]);
             $new_app_id = $pdo->lastInsertId();
+            assignApplicationConfigurationVersion($pdo, (int) $new_app_id, $user_id);
+            initializeApplicationWorkflow($pdo, (int) $new_app_id);
 
             // 4. Fetch Requirements & Vault Docs
-            $req_stmt = $pdo->prepare("SELECT RequirementID, DocumentName FROM document_requirement WHERE ScholarshipID = ?");
+            $req_stmt = $pdo->prepare("SELECT RequirementID, DocumentName FROM document_requirement WHERE ScholarshipID = ? AND IsActive = 1");
             $req_stmt->execute([$scholarship_id]);
             $requirements = $req_stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -319,6 +326,8 @@ if ($module === 'student_apply') {
                 $stmt->execute(['uid' => $user_id, 'sid' => $scholarship_id, 'gpa' => $gpa]);
                 
                 $new_app_id = $pdo->lastInsertId();
+                assignApplicationConfigurationVersion($pdo, (int) $new_app_id, $user_id);
+                initializeApplicationWorkflow($pdo, (int) $new_app_id);
 
                 // ✨ 2. SAVE DYNAMIC CUSTOM ANSWERS (already validated above)
                 $ans_stmt = $pdo->prepare("INSERT INTO application_custom_answers (ApplicationID, FieldID, AnswerText) VALUES (?, ?, ?)");
@@ -485,7 +494,9 @@ if ($module === 'student_apply') {
             $resubmitted = in_array($owned_app['Status'], ['For Resubmission', 'Withdrawn'], true);
             if ($resubmitted) {
                 $pdo->prepare("UPDATE application SET Status = 'Submitted', DateSubmitted = NOW(), WithdrawnAt = NULL, ResubmissionAllowed = 0 WHERE ApplicationID = ?")->execute([$app_id]);
+                initializeApplicationWorkflow($pdo, (int) $app_id);
             }
+            assignApplicationConfigurationVersion($pdo, (int) $app_id, $user_id);
             snapshotApplicationVersion($pdo, (int) $app_id, $resubmitted ? 'Resubmitted' : 'Updated', $user_id);
             logAudit($pdo, $user_id, $resubmitted ? 'Application Resubmitted' : 'Application Updated', "Updated application #$app_id");
             $_SESSION['success'] = $resubmitted ? "Corrected application resubmitted successfully!" : "Application updated successfully!";
@@ -669,12 +680,13 @@ if ($module === 'applications' && $action === 'score') {
         exit();
     }
     $total_score = round((float) $total_score, 2);
+    $workflow_managed = applicationUsesConfiguredWorkflow($pdo, $application_id);
 
     try {
         $stmt = $pdo->prepare("
             UPDATE application 
-            SET TotalScore = :score, 
-                Status = 'Shortlisted' 
+            SET TotalScore = :score
+                " . ($workflow_managed ? '' : ", Status = 'Shortlisted'") . "
             WHERE ApplicationID = :id
         ");
         $stmt->execute(['score' => $total_score, 'id' => $application_id]);
@@ -688,12 +700,16 @@ if ($module === 'applications' && $action === 'score') {
             $notif_stmt->execute([
                 $info['UserID'],
                 "Application Evaluated! ✍️",
-                "Your application for the " . $info['Name'] . " has been officially scored and Shortlisted by an evaluator.",
+                $workflow_managed
+                    ? "Your application for the " . $info['Name'] . " has been officially scored. It will advance according to the sponsor's configured review stages."
+                    : "Your application for the " . $info['Name'] . " has been officially scored and Shortlisted by an evaluator.",
                 "info"
             ]);
         }
 
-        $_SESSION['success'] = "Application successfully scored ($total_score/100) and Shortlisted!";
+        $_SESSION['success'] = $workflow_managed
+            ? "Score saved ($total_score/100). Complete the assigned workflow stage to advance the application."
+            : "Application successfully scored ($total_score/100) and Shortlisted!";
     } catch (PDOException $e) {
         $_SESSION['error'] = "Database Error: " . $e->getMessage();
     }
@@ -712,6 +728,11 @@ if ($module === 'applications' && $action === 'update_status') {
         $_SESSION['error'] = 'Invalid application status.';
         header("Location: " . ($_SERVER['HTTP_REFERER'] ?? '../admin_login.php'));
         exit();
+    }
+    if ($status === 'Approved' && applicationUsesConfiguredWorkflow($pdo, (int) $app_id)) {
+        $_SESSION['error'] = 'This scholarship uses a configured approval workflow. Complete its Final Approval task instead of bypassing the sponsor stages.';
+        $workflow_pages = ['Internal_Admin' => '../internal_admin/workflow_tasks.php', 'External_Admin' => '../external_admin/workflow_tasks.php', 'Super_Admin' => '../super_admin/workflow_tasks.php'];
+        header('Location: ' . $workflow_pages[$_SESSION['role']]); exit;
     }
     
     // Slots and single-grant rules (includes/approval_rules.php)
@@ -862,6 +883,7 @@ if ($module === 'scholarships') {
             ]);
 
             $new_scholarship_id = $pdo->lastInsertId();
+            createDefaultScholarshipWorkflow($pdo, (int) $new_scholarship_id);
 
             if (!empty($_POST['new_dynamic_names']) && is_array($_POST['new_dynamic_names'])) {
                 $req_stmt   = $pdo->prepare("INSERT INTO document_requirement (ScholarshipID, DocumentName) VALUES (?, ?)");
@@ -905,6 +927,7 @@ if ($module === 'scholarships') {
                 }
             }
 
+            currentScholarshipConfigurationVersion($pdo, (int) $new_scholarship_id, (int) $_SESSION['user_id'], 'Scholarship launched');
             $pdo->commit();
             $_SESSION['success'] = "Scholarship successfully launched with custom dynamic fields and multi-course rules!";
         } catch (PDOException $e) {
@@ -941,6 +964,7 @@ if ($module === 'scholarships') {
 
         try {
             $pdo->beginTransaction();
+            freezeUnversionedApplications($pdo, (int) $id, (int) $_SESSION['user_id']);
 
             $stmt = $pdo->prepare("UPDATE scholarship SET Name = :name, Description = :desc, AwardAmount = :amount, ReleaseFrequency = :release, NumberOfSlots = :slots, MinimumGWA = :gpa, Deadline = :deadline, YearLevel = :yl, Status = :status, ScholarshipType = :type, Category = :category, GenderRequirement = :gender, AllowsDual = :dual WHERE ScholarshipID = :id");
             $stmt->execute(['name' => $name, 'desc' => $desc, 'amount' => $amount, 'release' => $release, 'slots' => $slots, 'gpa' => $min_gpa, 'deadline' => $deadline, 'yl' => $year_level, 'status' => $status, 'type' => $scholarship_type, 'category' => $category, 'gender' => $gender, 'dual' => $allows_dual, 'id' => $id]);
@@ -969,9 +993,17 @@ if ($module === 'scholarships') {
 
                         if ($new_type === $current_js_type) {
                             if ($cat_prefix === 'Req') {
-                                $pdo->prepare("UPDATE document_requirement SET DocumentName = ? WHERE RequirementID = ?")->execute([$new_name, $field_id]);
+                                $used = $pdo->prepare('SELECT COUNT(*) FROM submitted_document WHERE RequirementID = ?');
+                                $used->execute([$field_id]);
+                                if ((int) $used->fetchColumn() > 0) {
+                                    $pdo->prepare('UPDATE document_requirement SET IsActive = 0 WHERE RequirementID = ?')->execute([$field_id]);
+                                    $pdo->prepare('INSERT INTO document_requirement (ScholarshipID, DocumentName) VALUES (?, ?)')->execute([$id, $new_name]);
+                                } else {
+                                    $pdo->prepare("UPDATE document_requirement SET DocumentName = ? WHERE RequirementID = ?")->execute([$new_name, $field_id]);
+                                }
                             } elseif ($cat_prefix === 'Crit') {
-                                $pdo->prepare("UPDATE scholarship_criteria SET CriteriaName = ? WHERE CriteriaID = ?")->execute([$new_name, $field_id]);
+                                $pdo->prepare('UPDATE scholarship_criteria SET IsActive = 0 WHERE CriteriaID = ?')->execute([$field_id]);
+                                $pdo->prepare('INSERT INTO scholarship_criteria (ScholarshipID, CriteriaName) VALUES (?, ?)')->execute([$id, $new_name]);
                             } elseif ($cat_prefix === 'Custom') {
                                 $db_type = 'Text';
                                 if ($new_type === 'Paragraph') $db_type = 'Textarea';
@@ -985,8 +1017,8 @@ if ($module === 'scholarships') {
                                 $pdo->prepare("UPDATE scholarship_custom_fields SET FieldName = ?, FieldType = ?, PDFFieldName = ? WHERE FieldID = ?")->execute([$new_name, $db_type, $new_pdf, $field_id]);
                             }
                         } else {
-                            if ($cat_prefix === 'Req') $pdo->prepare("DELETE FROM document_requirement WHERE RequirementID = ?")->execute([$field_id]);
-                            if ($cat_prefix === 'Crit') $pdo->prepare("DELETE FROM scholarship_criteria WHERE CriteriaID = ?")->execute([$field_id]);
+                            if ($cat_prefix === 'Req') $pdo->prepare("UPDATE document_requirement SET IsActive = 0 WHERE RequirementID = ?")->execute([$field_id]);
+                            if ($cat_prefix === 'Crit') $pdo->prepare("UPDATE scholarship_criteria SET IsActive = 0 WHERE CriteriaID = ?")->execute([$field_id]);
                             if ($cat_prefix === 'Custom') $pdo->prepare("DELETE FROM scholarship_custom_fields WHERE FieldID = ?")->execute([$field_id]);
 
                             if ($new_type === 'Document') {
@@ -1011,11 +1043,11 @@ if ($module === 'scholarships') {
             }
 
             if (!empty($_POST['delete_Req_ids'])) {
-                $del = $pdo->prepare("DELETE FROM document_requirement WHERE RequirementID = ? AND ScholarshipID = ?");
+                $del = $pdo->prepare("UPDATE document_requirement SET IsActive = 0 WHERE RequirementID = ? AND ScholarshipID = ?");
                 foreach ($_POST['delete_Req_ids'] as $del_id) { $del->execute([$del_id, $id]); }
             }
             if (!empty($_POST['delete_Crit_ids'])) {
-                $del = $pdo->prepare("DELETE FROM scholarship_criteria WHERE CriteriaID = ? AND ScholarshipID = ?");
+                $del = $pdo->prepare("UPDATE scholarship_criteria SET IsActive = 0 WHERE CriteriaID = ? AND ScholarshipID = ?");
                 foreach ($_POST['delete_Crit_ids'] as $del_id) { $del->execute([$del_id, $id]); }
             }
 
@@ -1059,6 +1091,7 @@ if ($module === 'scholarships') {
                 }
             }
 
+            currentScholarshipConfigurationVersion($pdo, (int) $id, (int) $_SESSION['user_id'], 'Requirements, criteria, rubric, or scholarship settings updated');
             $pdo->commit();
             $_SESSION['success'] = "Scholarship successfully updated with multi-course rules!";
         } catch (PDOException $e) {
@@ -1185,6 +1218,11 @@ if ($module === 'verification') {
 if ($module === 'applications' && $action === 'final_decision') {
     $application_id = $_POST['application_id'];
     $status = $_POST['status'];
+    if ($status === 'Approved' && applicationUsesConfiguredWorkflow($pdo, (int) $application_id)) {
+        $_SESSION['error'] = 'Direct approval is disabled for this scholarship. Complete the configured Final Approval workflow task.';
+        $workflow_pages = ['Internal_Admin' => '../internal_admin/workflow_tasks.php', 'External_Admin' => '../external_admin/workflow_tasks.php', 'Super_Admin' => '../super_admin/workflow_tasks.php'];
+        header('Location: ' . $workflow_pages[$_SESSION['role']]); exit;
+    }
 
     // Slots and single-grant rules (includes/approval_rules.php)
     if ($status === 'Approved') {

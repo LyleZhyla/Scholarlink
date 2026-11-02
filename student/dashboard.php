@@ -190,17 +190,19 @@ try {
 
     // Requirements of the student's open applications (not rejected) and where each one stands:
     // nothing uploaded = Missing, Pending = In Review, Verified, Rejected. What needs action comes first.
-    $req_stmt = $pdo->prepare("
-        SELECT dr.DocumentName, sch.Name AS scholarship_name, sd.VerificationStatus
-        FROM application a
-        JOIN scholarship sch ON sch.ScholarshipID = a.ScholarshipID
-        JOIN document_requirement dr ON dr.ScholarshipID = a.ScholarshipID
-        LEFT JOIN submitted_document sd ON sd.ApplicationID = a.ApplicationID AND sd.RequirementID = dr.RequirementID
-        WHERE a.UserID = :uid AND a.Status <> 'Rejected'
-        ORDER BY CASE WHEN sd.SubmittedDocID IS NULL THEN 0 WHEN sd.VerificationStatus = 'Rejected' THEN 1
-                      WHEN sd.VerificationStatus = 'Verified' THEN 3 ELSE 2 END, a.DateSubmitted DESC, dr.DocumentName");
-    $req_stmt->execute(['uid' => $user_id]);
-    $requirements = $req_stmt->fetchAll(PDO::FETCH_ASSOC);
+    require_once '../includes/scholarship_config_versions.php';
+    $open_stmt = $pdo->prepare("SELECT a.ApplicationID, a.ScholarshipID, sch.Name scholarship_name FROM application a JOIN scholarship sch ON sch.ScholarshipID=a.ScholarshipID WHERE a.UserID=? AND a.Status <> 'Rejected' ORDER BY a.DateSubmitted DESC");
+    $open_stmt->execute([$user_id]);
+    $requirements = [];
+    $doc_status_stmt = $pdo->prepare('SELECT RequirementID, VerificationStatus FROM submitted_document WHERE ApplicationID = ?');
+    foreach ($open_stmt->fetchAll(PDO::FETCH_ASSOC) as $openApplication) {
+        $snapshot = applicationConfigurationSnapshot($pdo, (int) $openApplication['ApplicationID']) ?: captureScholarshipConfiguration($pdo, (int) $openApplication['ScholarshipID']);
+        $doc_status_stmt->execute([$openApplication['ApplicationID']]);
+        $statuses = [];
+        foreach ($doc_status_stmt->fetchAll(PDO::FETCH_ASSOC) as $document) $statuses[(int) $document['RequirementID']] = $document['VerificationStatus'];
+        foreach ($snapshot['requirements'] ?? [] as $requirement) $requirements[] = ['DocumentName' => $requirement['DocumentName'], 'scholarship_name' => $openApplication['scholarship_name'], 'VerificationStatus' => $statuses[(int) $requirement['RequirementID']] ?? null];
+    }
+    usort($requirements, fn($a,$b) => (($a['VerificationStatus']===null?0:($a['VerificationStatus']==='Rejected'?1:($a['VerificationStatus']==='Verified'?3:2))) <=> ($b['VerificationStatus']===null?0:($b['VerificationStatus']==='Rejected'?1:($b['VerificationStatus']==='Verified'?3:2)))) ?: strcmp($a['DocumentName'],$b['DocumentName']));
     $req_outstanding = count(array_filter($requirements, fn($r) => $r['VerificationStatus'] === null || $r['VerificationStatus'] === 'Rejected'));
 
     $count_stmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE UserID = :uid AND IsRead = 0");

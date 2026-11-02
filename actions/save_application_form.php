@@ -5,6 +5,7 @@ require '../includes/db_connect.php';
 require_once '../includes/application_authority.php';
 require_once '../includes/form_fields.php';
 require_once '../includes/pdf_templates.php';
+require_once '../includes/scholarship_config_versions.php';
 
 // ✨ SAVES A SCHOLARSHIP'S APPLICATION FORM FROM THE FORM BUILDER
 // Body (JSON): { scholarship_id, instructions, fields: [{ id|null, label, type, help, placeholder, options, required, pdf }] }
@@ -138,6 +139,7 @@ foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
 // --- SAVE ---
 try {
     $pdo->beginTransaction();
+    freezeUnversionedApplications($pdo, $scholarship_id, (int) $_SESSION['user_id']);
 
     $existing_ids = $pdo->prepare("SELECT FieldID FROM scholarship_custom_fields WHERE ScholarshipID = ? AND IsActive = 1");
     $existing_ids->execute([$scholarship_id]);
@@ -152,9 +154,18 @@ try {
         $b = $f['box'] ?? ['page' => null, 'x' => null, 'y' => null, 'w' => null, 'h' => null, 'size' => null];
         $values = [$f['label'], $f['type'], $f['help'], $f['placeholder'], $f['options'], $f['required'], $f['pdf'], $b['page'], $b['x'], $b['y'], $b['w'], $b['h'], $b['size'], $f['order']];
         if ($f['id'] !== null && in_array($f['id'], $existing_ids, true)) {
-            $update->execute(array_merge($values, [$f['id'], $scholarship_id]));
-            $kept_ids[] = $f['id'];
-            $saved[] = $f['id'];
+            $answered = $pdo->prepare('SELECT COUNT(*) FROM application_custom_answers WHERE FieldID = ?');
+            $answered->execute([$f['id']]);
+            if ((int) $answered->fetchColumn() > 0) {
+                // Clone-on-write: answers keep their original field label/type forever.
+                $pdo->prepare('UPDATE scholarship_custom_fields SET IsActive = 0 WHERE FieldID = ?')->execute([$f['id']]);
+                $insert->execute(array_merge([$scholarship_id], $values));
+                $saved[] = (int) $pdo->lastInsertId();
+            } else {
+                $update->execute(array_merge($values, [$f['id'], $scholarship_id]));
+                $kept_ids[] = $f['id'];
+                $saved[] = $f['id'];
+            }
         } else {
             $insert->execute(array_merge([$scholarship_id], $values));
             $saved[] = (int) $pdo->lastInsertId();
@@ -201,12 +212,16 @@ try {
             $_SERVER['REMOTE_ADDR'] ?? 'Unknown'
         ]);
 
+    $configuration_version_id = currentScholarshipConfigurationVersion($pdo, $scholarship_id, (int) $_SESSION['user_id'], 'Application form updated');
+
     $pdo->commit();
 
     // Use the database's clock, the same one the builder page shows on load
     $saved_at = $pdo->prepare("SELECT DATE_FORMAT(FormUpdatedAt, '%b %e, %Y %l:%i %p') FROM scholarship WHERE ScholarshipID = ?");
     $saved_at->execute([$scholarship_id]);
-    echo json_encode(['success' => true, 'ids' => $saved, 'archived' => $archived, 'saved_at' => trim($saved_at->fetchColumn())]);
+    $version_stmt = $pdo->prepare('SELECT VersionNumber FROM scholarship_configuration_versions WHERE ConfigurationVersionID = ?');
+    $version_stmt->execute([$configuration_version_id]);
+    echo json_encode(['success' => true, 'ids' => $saved, 'archived' => $archived, 'configuration_version' => (int) $version_stmt->fetchColumn(), 'saved_at' => trim($saved_at->fetchColumn())]);
 } catch (PDOException $e) {
     $pdo->rollBack();
     fail('Database error: ' . $e->getMessage(), 500);

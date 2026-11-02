@@ -45,7 +45,7 @@ try {
     $stmt = $pdo->prepare("
         SELECT sch.*, 
                (SELECT GROUP_CONCAT(CriteriaName SEPARATOR '||') 
-                FROM scholarship_criteria sc WHERE sc.ScholarshipID = sch.ScholarshipID) AS CriteriaList
+                FROM scholarship_criteria sc WHERE sc.ScholarshipID = sch.ScholarshipID AND sc.IsActive = 1) AS CriteriaList
         FROM scholarship sch
         WHERE sch.Status = 'Active'
         AND (sch.YearLevel = :yl OR sch.YearLevel IS NULL OR sch.YearLevel = '')
@@ -66,7 +66,7 @@ try {
         $sch['custom_fields'] = getFormFields($pdo, $sid);
         $sch['form_html'] = renderApplicationForm($pdo, $sch['custom_fields'], $student, [], $sch['FormInstructions'] ?? null);
 
-        $r_stmt = $pdo->prepare("SELECT * FROM document_requirement WHERE ScholarshipID = ?");
+        $r_stmt = $pdo->prepare("SELECT * FROM document_requirement WHERE ScholarshipID = ? AND IsActive = 1");
         $r_stmt->execute([$sid]);
         $sch['requirements'] = $r_stmt->fetchAll(PDO::FETCH_ASSOC);
 

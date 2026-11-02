@@ -7,6 +7,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Student') {
 }
 
 include '../includes/db_connect.php';
+require_once '../includes/scholarship_config_versions.php';
 include '../includes/header.php';
 include '../includes/student_sidebar.php';
 
@@ -76,14 +77,15 @@ try {
                         </thead>
                         <tbody class="divide-y divide-slate-50">
                             <?php
-                            $req_stmt = $pdo->prepare("
-                                SELECT dr.RequirementID, dr.DocumentName, sd.FilePath, sd.VerificationStatus
-                                FROM document_requirement dr
-                                LEFT JOIN submitted_document sd ON dr.RequirementID = sd.RequirementID AND sd.ApplicationID = ?
-                                WHERE dr.ScholarshipID = ?
-                            ");
-                            $req_stmt->execute([$app['ApplicationID'], $app['ScholarshipID']]);
-                            $requirements = $req_stmt->fetchAll();
+                            $snapshot = applicationConfigurationSnapshot($pdo, (int) $app['ApplicationID']) ?: captureScholarshipConfiguration($pdo, (int) $app['ScholarshipID']);
+                            $req_stmt = $pdo->prepare('SELECT RequirementID, FilePath, VerificationStatus FROM submitted_document WHERE ApplicationID = ?');
+                            $req_stmt->execute([$app['ApplicationID']]);
+                            $submitted = [];
+                            foreach ($req_stmt->fetchAll(PDO::FETCH_ASSOC) as $doc) $submitted[(int) $doc['RequirementID']] = $doc;
+                            $requirements = [];
+                            foreach ($snapshot['requirements'] ?? [] as $requirement) {
+                                $requirements[] = $requirement + ($submitted[(int) $requirement['RequirementID']] ?? ['FilePath' => null, 'VerificationStatus' => 'Pending']);
+                            }
 
                             foreach ($requirements as $req):
                                 $statusColor = $req['VerificationStatus'] === 'Verified' ? 'text-green-600 bg-green-50' : ($req['VerificationStatus'] === 'Rejected' ? 'text-red-600 bg-red-50' : 'text-orange-600 bg-orange-50');

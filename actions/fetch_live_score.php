@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../includes/db_connect.php';
+require_once '../includes/scholarship_config_versions.php';
 
 // Only scorers may load applicant data
 if (!isset($_SESSION['logged_in']) || !in_array($_SESSION['role'], ['External_Admin', 'Super_Admin'], true)) {
@@ -59,6 +60,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ✨ NEW: FETCH DYNAMIC CUSTOM ANSWERS PARA SA EVALUATOR MODAL
 foreach ($applications as &$app) {
+    $app['CriteriaList'] = implode('||', applicationCriteriaList($pdo, (int) $app['ApplicationID']));
     $ans_stmt = $pdo->prepare("
         SELECT f.FieldName, f.FieldType, ans.AnswerText 
         FROM application_custom_answers ans
