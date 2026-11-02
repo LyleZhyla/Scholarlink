@@ -125,8 +125,10 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
 
                     <div class="border-t border-slate-100 pt-6">
                         <h4 class="text-[14px] font-black uppercase tracking-widest mb-4 text-slate-900">Scoring Breakdown</h4>
+                        <div id="rubricPolicy" class="mb-4 p-4 rounded-xl bg-violet-50 border border-violet-100 text-xs text-violet-800"></div>
                         <div id="dynamicCriteriaContainer" class="space-y-3"></div>
                     </div>
+                    <label class="block text-xs font-black uppercase text-slate-500">Overall evaluator comments<textarea name="evaluator_comments" id="evaluatorComments" minlength="10" rows="3" class="mt-2 w-full p-3 rounded-xl border border-slate-200" placeholder="Explain the evaluation result"></textarea></label>
                     <label class="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm font-bold text-amber-900"><input type="checkbox" name="coi_certification" value="1" required class="mt-1"><span>I certify that this applicant is not my relative, is not personally known to me, and has no financial, business, or other prohibited relationship with me. This declaration is audited.</span></label>
                 </div>
 
@@ -245,14 +247,15 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
     function calculateTotal() {
         const inputs = document.querySelectorAll('.dynamic-score-input');
         let total = 0;
-        inputs.forEach(input => { total += parseInt(input.value) || 0; });
-        if (total > 100) total = 100; 
+        inputs.forEach(input => { const max=parseFloat(input.dataset.max)||1;const weight=parseFloat(input.dataset.weight)||0;total += ((parseFloat(input.value)||0)/max)*weight; });
+        total = Math.min(100, Math.round(total * 100) / 100);
 
         document.getElementById('displayTotal').innerText = total;
         document.getElementById('finalScoreInput').value = total;
         
         const btn = document.getElementById('submitBtn');
-        if (total > 0) { 
+        const complete = inputs.length > 0 && Array.from(inputs).every(input => input.value !== '');
+        if (complete) {
             btn.disabled = false; 
             btn.className = 'bg-slate-900 text-white px-10 py-3 rounded-xl font-black text-[14px] uppercase tracking-widest hover:bg-green-600 shadow-xl transition-all active:scale-[0.98]'; 
         } else { 
@@ -267,6 +270,7 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
         
         document.getElementById('modalAppId').value = app.ApplicationID;
         document.querySelector('#scoreModal input[name="coi_certification"]').checked = false;
+        document.getElementById('evaluatorComments').value = '';
         document.getElementById('modalStudentName').innerText = app.FirstName + ' ' + app.LastName;
         document.getElementById('refGPA').innerText = app.GPA || 'N/A';
 
@@ -296,29 +300,21 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
         const container = document.getElementById('dynamicCriteriaContainer');
         container.innerHTML = '';
 
-        let criteria = [];
-        if (app.CriteriaList) {
-            criteria = app.CriteriaList.split('||').filter(c => c.trim() !== '');
-        }
+        const rubric = app.Rubric || {}; let criteria = rubric.criteria || [];
+        document.getElementById('rubricPolicy').innerHTML = `<b>Passing score:</b> ${rubric.PassingScore || 75}/100 &nbsp; <b>Tie breaker:</b> ${rubric.TieBreakingRules || 'Highest score, GWA, then submission time.'}`;
+        document.getElementById('evaluatorComments').required = !!parseInt(rubric.GeneralCommentsRequired || 0);
 
         if (criteria.length > 0) {
             criteria.forEach(crit => {
                 container.innerHTML += `
-                    <div class="bg-white p-4 border border-slate-200 rounded-xl flex items-center justify-between gap-4 hover:border-purple-300 transition-colors">
-                        <label class="text-md font-black uppercase tracking-wide text-black flex-1">${crit}</label>
-                        <div class="w-32 relative">
-                            <input type="number" oninput="calculateTotal()" required min="0" max="100" placeholder="Score" class="dynamic-score-input w-full bg-slate-50 border border-slate-200 px-8 py-2 rounded-lg font-black text-black outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-center">
-                        </div>
+                    <div class="bg-white p-4 border border-slate-200 rounded-xl grid md:grid-cols-[1fr_9rem_1fr] items-center gap-4 hover:border-purple-300 transition-colors">
+                        <label class="text-md font-black uppercase tracking-wide text-black">${crit.CriteriaName}<span class="block text-[10px] text-violet-600">${crit.WeightPercent}% weight · max ${crit.MaximumScore}</span></label>
+                        <input name="criteria_scores[${crit.CriteriaID}]" data-max="${crit.MaximumScore}" data-weight="${crit.WeightPercent}" type="number" oninput="calculateTotal()" required min="0" max="${crit.MaximumScore}" step="0.01" placeholder="Score" class="dynamic-score-input w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg font-black text-black text-center">
+                        <input name="criteria_comments[${crit.CriteriaID}]" ${parseInt(crit.CommentRequired||0)?'required minlength="5"':''} placeholder="${parseInt(crit.CommentRequired||0)?'Required comment':'Optional comment'}" class="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg text-sm">
                     </div>`;
             });
         } else {
-            container.innerHTML = `
-                <div class="bg-white p-4 border border-slate-200 rounded-xl flex items-center justify-between gap-4 hover:border-purple-300 transition-colors">
-                    <label class="text-md font-black uppercase tracking-wide text-black flex-1">Overall Merit Score</label>
-                    <div class="w-32 relative">
-                        <input type="number" oninput="calculateTotal()" required min="0" max="100" placeholder="Score" class="dynamic-score-input w-full bg-slate-50 border border-slate-200 px-8 py-2 rounded-lg font-black text-black outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-center">
-                    </div>
-                </div>`;
+            container.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded-xl font-bold">This scholarship has no active rubric criteria. Configure its scoring rubric first.</div>`;
         }
 
         document.getElementById('displayTotal').innerText = '0';

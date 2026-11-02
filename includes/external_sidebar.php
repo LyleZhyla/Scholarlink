@@ -26,6 +26,7 @@
             ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
             ['ai_reviews.php',           '🤖', 'AI Manual Review'],
             ['evaluation_conflicts.php', '⚠️', 'Evaluator Conflicts'],
+            ['scoring_rubrics.php',     '🎯', 'Scoring Rubrics'],
             ['appeals.php',             '⚖️', 'Appeals'],
             ['waitlist.php',            '📋', 'Waitlist'],
             ['benefits.php',            '💳', 'Benefits'],

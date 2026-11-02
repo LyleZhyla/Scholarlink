@@ -7,6 +7,7 @@ require_once '../includes/application_authority.php';
 require_once '../includes/approval_workflow.php';
 require_once '../includes/scholarship_config_versions.php';
 require_once '../includes/evaluation_conflicts.php';
+require_once '../includes/scoring_rubrics.php';
 
 // Using require_once to ensure the function is defined and paths are correct
 if (file_exists('../includes/email_config.php')) {
@@ -578,37 +579,40 @@ if ($module === 'student_documents') {
 // ==========================================
 if ($module === 'applications' && $action === 'score') {
     $application_id = (int) $_POST['id'];
-    $total_score = $_POST['score'] ?? '';
     if(($_POST['coi_certification']??'')!=='1'){
         $_SESSION['error']='You must certify that no prohibited relationship or conflict of interest exists before scoring.';
         header("Location: " . ($_SESSION['role'] === 'External_Admin' ? '../external_admin/score.php' : '../super_admin/manage_applications.php'));exit;
     }
 
-    // A merit score is 0-100, and only applications still waiting for one can be scored
-    // (re-scoring an approved or rejected applicant would quietly move them back to Shortlisted)
+    // The server calculates the weighted total from the frozen application rubric.
     $current = $pdo->prepare("SELECT Status FROM application WHERE ApplicationID = ?");
     $current->execute([$application_id]);
     $current_status = $current->fetchColumn();
-    $score_error = !is_numeric($total_score) || $total_score < 0 || $total_score > 100 ? "The score must be a number from 0 to 100."
-        : (!in_array($current_status, ['Pending', 'Submitted', 'Under Review', 'Shortlisted'], true) ? "This application is already $current_status, so it can no longer be scored." : null);
+    $score_error = !in_array($current_status, ['Pending', 'Submitted', 'Under Review', 'Shortlisted'], true) ? "This application is already $current_status, so it can no longer be scored." : null;
     if ($score_error) {
         $_SESSION['error'] = $score_error;
         header("Location: " . ($_SESSION['role'] === 'External_Admin' ? '../external_admin/score.php' : '../super_admin/manage_applications.php'));
         exit();
     }
-    $total_score = round((float) $total_score, 2);
     $workflow_managed = applicationUsesConfiguredWorkflow($pdo, $application_id);
 
     try {
         $pdo->beginTransaction();
         recordNoConflictDeclaration($pdo,$application_id,(int)$_SESSION['user_id']);
+        $rubric = applicationRubric($pdo, $application_id);
+        $calculation = calculateRubricScore($rubric, (array)($_POST['criteria_scores'] ?? []), (array)($_POST['criteria_comments'] ?? []), (string)($_POST['evaluator_comments'] ?? ''));
+        $total_score = $calculation['weighted_score'];
+        saveApplicationScorecard($pdo, $application_id, (int)$_SESSION['user_id'], $rubric, $calculation, (string)($_POST['evaluator_comments'] ?? ''));
+        $next_status = $calculation['result'] === 'Passed' ? 'Shortlisted' : 'Under Review';
         $stmt = $pdo->prepare("
             UPDATE application 
             SET TotalScore = :score
-                " . ($workflow_managed ? '' : ", Status = 'Shortlisted'") . "
+                " . ($workflow_managed ? '' : ", Status = :next_status") . "
             WHERE ApplicationID = :id
         ");
-        $stmt->execute(['score' => $total_score, 'id' => $application_id]);
+        $update = ['score' => $total_score, 'id' => $application_id];
+        if (!$workflow_managed) $update['next_status'] = $next_status;
+        $stmt->execute($update);
         $pdo->prepare("UPDATE evaluation_assignments SET AssignmentStatus='Completed',EndedAt=NOW() WHERE ApplicationID=? AND EvaluatorID=? AND AssignmentStatus='Active'")->execute([$application_id,$_SESSION['user_id']]);
         
         // ✨ NEW: NOTIFY THE STUDENT!
@@ -629,14 +633,14 @@ if ($module === 'applications' && $action === 'score') {
 
         $_SESSION['success'] = $workflow_managed
             ? "Score saved ($total_score/100). Complete the assigned workflow stage to advance the application."
-            : "Application successfully scored ($total_score/100) and Shortlisted!";
-        logAudit($pdo,(int)$_SESSION['user_id'],'Conflict-Free Evaluation Completed',"Application #$application_id scored $total_score/100 after no-conflict certification.");
+            : "Application scored $total_score/100 ({$calculation['result']}).";
+        logAudit($pdo,(int)$_SESSION['user_id'],'Conflict-Free Evaluation Completed',"Application #$application_id rubric score $total_score/100; result {$calculation['result']}; passing score {$calculation['passing_score']}.");
         $pdo->commit();
     } catch (Throwable $e) {
         if($pdo->inTransaction())$pdo->rollBack();
         $_SESSION['error'] = "Evaluation Error: " . $e->getMessage();
     }
-    header("Location: ../external_admin/score.php");
+    header("Location: " . ($_SESSION['role'] === 'External_Admin' ? '../external_admin/score.php' : '../super_admin/manage_applications.php'));
     exit();
 }
 

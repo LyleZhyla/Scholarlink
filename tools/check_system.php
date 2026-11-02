@@ -155,6 +155,11 @@ $need = [
     ['user_vault', 'FileChecksum', '2026-11-02_secure_document_uploads.sql'],
     ['evaluation_assignments', null, '2026-11-02_evaluator_conflicts.sql'],
     ['evaluation_conflict_declarations', null, '2026-11-02_evaluator_conflicts.sql'],
+    ['scholarship_criteria', 'WeightPercent', '2026-11-02_scoring_rubrics.sql'],
+    ['scholarship_scoring_rubrics', null, '2026-11-02_scoring_rubrics.sql'],
+    ['application_scorecards', null, '2026-11-02_scoring_rubrics.sql'],
+    ['application_score_items', null, '2026-11-02_scoring_rubrics.sql'],
+    ['score_overrides', null, '2026-11-02_scoring_rubrics.sql'],
 ];
 $missing = [];
 foreach ($need as [$table, $column, $migration]) {

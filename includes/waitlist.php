@@ -4,17 +4,20 @@ require_once __DIR__ . '/application_lifecycle.php';
 
 function refreshWaitlistRanks(PDO $pdo, int $scholarship_id): void {
     $stmt = $pdo->prepare("
-        SELECT w.WaitlistID, COALESCE(a.TotalScore, 0) AS RankingScore
+        SELECT w.WaitlistID, a.ApplicationID, COALESCE(a.TotalScore, 0) AS RankingScore, a.GPA, a.DateSubmitted
         FROM application_waitlist w
         JOIN application a ON a.ApplicationID = w.ApplicationID
         WHERE w.ScholarshipID = ? AND w.Status IN ('Waiting', 'Offered')
-        ORDER BY COALESCE(a.TotalScore, 0) DESC, COALESCE(a.GPA, 99.99) ASC, a.DateSubmitted ASC, a.ApplicationID ASC
         FOR UPDATE
     ");
     $stmt->execute([$scholarship_id]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $tie = $pdo->prepare("SELECT si.RawScore/NULLIF(si.MaximumScore,0) NormalizedScore FROM application_scorecards sc JOIN application_score_items si ON si.ScorecardID=sc.ScorecardID LEFT JOIN scholarship_criteria c ON c.CriteriaID=si.CriteriaID WHERE sc.ApplicationID=? AND sc.IsCurrent=1 AND c.TieBreakPriority IS NOT NULL ORDER BY c.TieBreakPriority,si.ScoreItemID");
+    foreach($rows as &$row){$tie->execute([$row['ApplicationID']]);$row['TieVector']=array_map('floatval',$tie->fetchAll(PDO::FETCH_COLUMN));}unset($row);
+    usort($rows,function($a,$b){$cmp=(float)$b['RankingScore']<=>(float)$a['RankingScore'];if($cmp)return $cmp;$n=max(count($a['TieVector']),count($b['TieVector']));for($i=0;$i<$n;$i++){$cmp=($b['TieVector'][$i]??-1)<=>($a['TieVector'][$i]??-1);if($cmp)return $cmp;}$cmp=(float)($a['GPA']??99.99)<=>(float)($b['GPA']??99.99);if($cmp)return $cmp;$cmp=strcmp($a['DateSubmitted'],$b['DateSubmitted']);return $cmp?:((int)$a['ApplicationID']<=>(int)$b['ApplicationID']);});
     $update = $pdo->prepare("UPDATE application_waitlist SET RankPosition = ?, RankingScore = ? WHERE WaitlistID = ?");
     $rank = 1;
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    foreach ($rows as $row) {
         $update->execute([$rank++, $row['RankingScore'], $row['WaitlistID']]);
     }
 }

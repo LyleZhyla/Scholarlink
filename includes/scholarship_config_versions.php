@@ -14,17 +14,26 @@ function captureScholarshipConfiguration(PDO $pdo, int $scholarshipId): array {
 
     $docs = $pdo->prepare('SELECT RequirementID, DocumentName FROM document_requirement WHERE ScholarshipID = ? AND IsActive = 1 ORDER BY RequirementID');
     $docs->execute([$scholarshipId]);
-    $criteria = $pdo->prepare('SELECT CriteriaID, CriteriaName FROM scholarship_criteria WHERE ScholarshipID = ? AND IsActive = 1 ORDER BY CriteriaID');
+    $criteria = $pdo->prepare('SELECT CriteriaID, CriteriaName, WeightPercent, MaximumScore, PassingScore, CommentRequired, TieBreakPriority, SortOrder FROM scholarship_criteria WHERE ScholarshipID = ? AND IsActive = 1 ORDER BY SortOrder, CriteriaID');
     $criteria->execute([$scholarshipId]);
     $fields = $pdo->prepare('SELECT FieldID, FieldName, FieldType, HelpText, Placeholder, Options, IsRequired, SortOrder, PDFFieldName, PdfPage, PdfX, PdfY, PdfW, PdfH, PdfFontSize FROM scholarship_custom_fields WHERE ScholarshipID = ? AND IsActive = 1 ORDER BY SortOrder, FieldID');
     $fields->execute([$scholarshipId]);
 
     $criteriaRows = $criteria->fetchAll(PDO::FETCH_ASSOC);
+    $rubricSettings = $pdo->prepare('SELECT PassingScore, TotalMaximumScore, TieBreakingRules, GeneralCommentsRequired, OverrideProcedure FROM scholarship_scoring_rubrics WHERE ScholarshipID = ?');
+    $rubricSettings->execute([$scholarshipId]);
+    $rubricSettingsRow = $rubricSettings->fetch(PDO::FETCH_ASSOC) ?: [
+        'PassingScore' => 75, 'TotalMaximumScore' => 100,
+        'TieBreakingRules' => 'Highest weighted score, then lowest GWA, then earliest submission.',
+        'GeneralCommentsRequired' => 1,
+        'OverrideProcedure' => 'Only a Super Administrator may override a completed score after documenting the reason.'
+    ];
     return [
         'scholarship' => $scholarship,
         'requirements' => $docs->fetchAll(PDO::FETCH_ASSOC),
         'criteria' => $criteriaRows,
         'scoring_rubric' => $criteriaRows,
+        'scoring_rubric_settings' => $rubricSettingsRow,
         'form_fields' => $fields->fetchAll(PDO::FETCH_ASSOC),
     ];
 }

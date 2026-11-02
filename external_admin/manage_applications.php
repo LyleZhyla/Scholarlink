@@ -15,6 +15,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'External_Admin') {
 include '../includes/db_connect.php';
 require_once '../includes/reports.php';
 require_once '../includes/scholarship_config_versions.php';
+require_once '../includes/scoring_rubrics.php';
 include '../includes/header.php'; 
 include '../includes/external_sidebar.php'; 
 
@@ -85,6 +86,7 @@ $stmt->execute($params);
 $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($applications as &$versionedApplication) {
     $versionedApplication['CriteriaList'] = implode('||', applicationCriteriaList($pdo, (int) $versionedApplication['ApplicationID']));
+    $versionedApplication['Rubric'] = applicationRubric($pdo, (int) $versionedApplication['ApplicationID']);
 }
 unset($versionedApplication);
 ?>
@@ -371,7 +373,7 @@ unset($versionedApplication);
 <!-- ✨ TRUE SCORING MODAL (Submit Fix & Close Button Added) -->
 <div id="scoreModal" onclick="if(event.target === this) closeScoreModal()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[10000] hidden items-center justify-center p-4">
     <div class="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        <form onsubmit="submitScoreAJAX(event)" class="flex flex-col h-full">
+        <form action="../actions/process_crud.php" method="post" class="flex flex-col h-full">
             <input type="hidden" name="module" value="applications">
             <input type="hidden" name="action" value="score">
             <input type="hidden" id="modalAppId" name="id">
@@ -409,8 +411,10 @@ unset($versionedApplication);
 
                 <div class="border-t border-slate-100 pt-6">
                     <h4 class="text-[14px] font-black uppercase tracking-widest mb-4 text-slate-900">Scoring Breakdown</h4>
+                    <div id="rubricPolicy" class="mb-4 p-4 rounded-xl bg-violet-50 border border-violet-100 text-xs text-violet-800"></div>
                     <div id="dynamicCriteriaContainer" class="space-y-3"></div>
                 </div>
+                <label class="block text-xs font-black uppercase text-slate-500">Overall evaluator comments<textarea name="evaluator_comments" id="evaluatorComments" minlength="10" rows="3" class="mt-2 w-full p-3 rounded-xl border border-slate-200"></textarea></label>
                 <label class="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm font-bold text-amber-900"><input type="checkbox" name="coi_certification" value="1" required class="mt-1"><span>I certify that no relative, personally known applicant, financial interest, or other prohibited relationship is involved.</span></label>
             </div>
 
@@ -554,6 +558,7 @@ unset($versionedApplication);
 
         document.getElementById('modalAppId').value = app.ApplicationID;
         document.querySelector('#scoreModal input[name="coi_certification"]').checked = false;
+        document.getElementById('evaluatorComments').value = '';
         document.getElementById('modalStudentName').innerText = app.FirstName + ' ' + app.LastName;
         document.getElementById('refGPA').innerText = app.GPA || 'N/A';
 
@@ -587,29 +592,21 @@ unset($versionedApplication);
 
         const criteriaContainer = document.getElementById('dynamicCriteriaContainer');
         criteriaContainer.innerHTML = '';
-        let criteria = [];
-        if (app.CriteriaList) { 
-            criteria = app.CriteriaList.split('||').filter(c => c.trim() !== ''); 
-        }
+        const rubric=app.Rubric||{};let criteria=rubric.criteria||[];
+        document.getElementById('rubricPolicy').innerHTML=`<b>Passing score:</b> ${rubric.PassingScore||75}/100 &nbsp; <b>Tie breaker:</b> ${rubric.TieBreakingRules||'Highest score, GWA, then submission time.'}`;
+        document.getElementById('evaluatorComments').required=!!parseInt(rubric.GeneralCommentsRequired||0);
 
         if (criteria.length > 0) {
             criteria.forEach(crit => {
                 criteriaContainer.innerHTML += `
-                    <div class="bg-white p-4 border border-slate-200 rounded-xl flex items-center justify-between gap-4 hover:border-purple-300 transition-colors">
-                        <label class="text-md font-black uppercase tracking-wide text-black flex-1">${crit}</label>
-                        <div class="w-32 relative">
-                            <input type="number" oninput="calculateTotal()" required min="0" max="100" placeholder="Score" class="dynamic-score-input w-full bg-slate-50 border border-slate-200 px-8 py-2 rounded-lg font-black text-black outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-center">
-                        </div>
+                    <div class="bg-white p-4 border border-slate-200 rounded-xl grid md:grid-cols-[1fr_9rem_1fr] items-center gap-4">
+                        <label class="font-black uppercase text-black">${crit.CriteriaName}<span class="block text-[10px] text-violet-600">${crit.WeightPercent}% · max ${crit.MaximumScore}</span></label>
+                        <input name="criteria_scores[${crit.CriteriaID}]" data-max="${crit.MaximumScore}" data-weight="${crit.WeightPercent}" type="number" oninput="calculateTotal()" required min="0" max="${crit.MaximumScore}" step="0.01" placeholder="Score" class="dynamic-score-input w-full bg-slate-50 border p-2 rounded-lg font-black text-center">
+                        <input name="criteria_comments[${crit.CriteriaID}]" ${parseInt(crit.CommentRequired||0)?'required minlength="5"':''} placeholder="${parseInt(crit.CommentRequired||0)?'Required comment':'Optional comment'}" class="w-full bg-slate-50 border p-2 rounded-lg text-sm">
                     </div>`;
             });
         } else {
-            criteriaContainer.innerHTML = `
-                <div class="bg-white p-4 border border-slate-200 rounded-xl flex items-center justify-between gap-4 hover:border-purple-300 transition-colors">
-                    <label class="text-md font-black uppercase tracking-wide text-black flex-1">Overall Merit Score</label>
-                    <div class="w-32 relative">
-                        <input type="number" oninput="calculateTotal()" required min="0" max="100" placeholder="Score" class="dynamic-score-input w-full bg-slate-50 border border-slate-200 px-8 py-2 rounded-lg font-black text-black outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-center">
-                    </div>
-                </div>`;
+            criteriaContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded-xl font-bold">Configure an active scoring rubric before evaluating.</div>`;
         }
 
         calculateTotal();
@@ -625,10 +622,10 @@ unset($versionedApplication);
         let isFilled = false;
 
         inputs.forEach(input => { 
-            total += parseInt(input.value) || 0; 
+            total += ((parseFloat(input.value)||0)/(parseFloat(input.dataset.max)||1))*(parseFloat(input.dataset.weight)||0);
             if(input.value !== '') isFilled = true; // Basta may nai-type, isFilled na
         });
-        if (total > 100) total = 100; 
+        total = Math.min(100, Math.round(total * 100) / 100);
 
         document.getElementById('displayTotal').innerText = total;
         document.getElementById('finalScoreInput').value = total;
@@ -653,8 +650,9 @@ unset($versionedApplication);
         const formData = new FormData(event.target);
         
         try {
-            await fetch('../actions/process_crud.php', { method: 'POST', body: formData });
-            alert('Applicant has been successfully evaluated!');
+            const response=await fetch('../actions/process_crud.php', { method: 'POST', body: formData });
+            if(!response.ok) throw new Error('The scoring request was rejected.');
+            alert('Applicant has been successfully evaluated.');
             closeScoreModal();
             location.reload(); 
         } catch(e) {
