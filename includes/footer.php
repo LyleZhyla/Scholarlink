@@ -7,6 +7,7 @@
             const label = link.querySelector('.sidebar-text');
             if (label) link.title = open ? '' : label.textContent.trim();
         });
+        document.querySelectorAll('#main-sidebar .nav-group').forEach(btn => { btn.tabIndex = (open || window.innerWidth <= 768) ? 0 : -1; });
         document.querySelectorAll('[onclick^="toggleSidebar"]').forEach(btn => {
             btn.setAttribute('aria-expanded', open ? 'true' : 'false');
             btn.setAttribute('aria-label', open ? 'Collapse menu' : 'Expand menu');

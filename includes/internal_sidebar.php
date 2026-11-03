@@ -42,7 +42,7 @@
                 <span class="w-10 flex justify-center text-xl shrink-0"><?= $item[1] ?></span>
                 <span class="sidebar-text"><?= $item[2] ?></span>
             </a>
-        <?php endforeach; endforeach; ?>
+        <?php endforeach; if ($group !== '') sidebarGroupEnd(); endforeach; ?>
 
         <!-- ✨ ITO ANG BAGONG RENEWALS BUTTON 
         <a href="manage_renewals.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('manage_renewals.php') ?> whitespace-nowrap">
@@ -59,4 +59,5 @@
         </a>
     </div>
 </aside>
+<?php sidebarMenuScript(); ?>
 <?php themeToggle('top'); // light/dark switch, top-right of every page ?>

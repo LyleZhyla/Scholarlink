@@ -99,11 +99,27 @@
         #main-sidebar .logo-container button svg { transition: transform var(--transition-speed) var(--transition-curve); }
         body.sidebar-expanded #main-sidebar .logo-container button svg { transform: rotate(90deg); }
 
-        /* Menu group titles: a thin line while collapsed to icons, the words once the sidebar is open */
-        aside#main-sidebar .nav-group { margin: 12px 18px 6px; height: 1px; background: rgba(255, 255, 255, 0.12); overflow: hidden; white-space: nowrap; }
-        .nav-group span { display: block; font-size: 10px; line-height: 1.2; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8; opacity: 0; }
-        body.sidebar-expanded aside#main-sidebar .nav-group { height: auto; background: none; margin: 16px 18px 4px; }
+        /* Menu groups: dropdowns when the sidebar is open; a thin line and all icons while it is collapsed */
+        aside#main-sidebar .nav-group { display: block; width: calc(100% - 36px); padding: 0; margin: 12px 18px 6px; height: 1px; border: 0; background: rgba(255, 255, 255, 0.12); overflow: hidden; pointer-events: none; }
+        .nav-group span { font-size: 10px; line-height: 1.2; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8; opacity: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+        .nav-group svg { display: none; width: 14px; height: 14px; flex-shrink: 0; color: #94a3b8; transition: transform 0.25s var(--transition-curve); }
+        .nav-group[aria-expanded="false"] svg { transform: rotate(-90deg); }
+        body.sidebar-expanded aside#main-sidebar .nav-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: calc(100% - 16px); height: auto; padding: 8px 10px; margin: 8px 8px 2px; background: none; border-radius: 10px; cursor: pointer; pointer-events: auto; }
+        body.sidebar-expanded aside#main-sidebar .nav-group:hover { background: rgba(255, 255, 255, 0.07); }
+        body.sidebar-expanded aside#main-sidebar .nav-group:focus-visible { outline: 2px solid #60a5fa; outline-offset: -2px; }
         body.sidebar-expanded .nav-group span { opacity: 1; transition: opacity 0.3s ease 0.08s; }
+        body.sidebar-expanded .nav-group svg { display: block; }
+        .nav-group-items { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.28s var(--transition-curve); }
+        .nav-group-inner { min-height: 0; overflow: hidden; transition: visibility 0.28s; }
+        .nav-group-items.is-closed { grid-template-rows: 0fr; }
+        .nav-group-items.is-closed .nav-group-inner { visibility: hidden; }
+        /* Collapsed to icons there are no titles to click, so every icon stays; the tour also needs every item */
+        body.nav-show-all .nav-group-items.is-closed { grid-template-rows: 1fr; }
+        body.nav-show-all .nav-group-items.is-closed .nav-group-inner { visibility: visible; }
+        @media (min-width: 769px) {
+            body:not(.sidebar-expanded) .nav-group-items.is-closed { grid-template-rows: 1fr; }
+            body:not(.sidebar-expanded) .nav-group-items.is-closed .nav-group-inner { visibility: visible; }
+        }
 
         .logo-container {
             width: 100%;
@@ -160,8 +176,9 @@
                 transform: none !important;
             }
             .brand-text { opacity: 1 !important; }
-            aside#main-sidebar .nav-group { height: auto; background: none; margin: 16px 18px 4px; }
+            aside#main-sidebar .nav-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: calc(100% - 16px); height: auto; padding: 8px 10px; margin: 8px 8px 2px; background: none; border-radius: 10px; cursor: pointer; pointer-events: auto; }
             .nav-group span { opacity: 1; }
+            .nav-group svg { display: block; }
             .nav-link { width: 100%; justify-content: flex-start; }
             .nav-link > .icon-box { width: 4.5rem; }
         }

@@ -47,7 +47,7 @@
             <span class="icon-box">🎓</span>
             <span class="sidebar-text">Programs</span>
         </a>
-        <?php sidebarGroup('My Applications'); ?>
+        <?php sidebarGroupEnd(); sidebarGroup('My Applications'); ?>
         <a href="applications.php" data-tour="nav-apps" class="nav-link <?= getSidebarClass('applications.php') ?>">
             <span class="icon-box">📂</span>
             <span class="sidebar-text">Apps</span>
@@ -63,7 +63,7 @@
         <a href="benefits.php" class="nav-link <?= getSidebarClass('benefits.php') ?>">
             <span class="icon-box">💳</span><span class="sidebar-text">Benefits</span>
         </a>
-        <?php sidebarGroup('My Account'); ?>
+        <?php sidebarGroupEnd(); sidebarGroup('My Account'); ?>
         <a href="profile.php" data-tour="nav-profile" class="nav-link <?= getSidebarClass('profile.php') ?>">
             <span class="icon-box">👤</span>
             <span class="sidebar-text">Profile</span>
@@ -72,6 +72,7 @@
             <span class="icon-box">🔐</span>
             <span class="sidebar-text">Privacy Rights</span>
         </a>
+        <?php sidebarGroupEnd(); ?>
     </nav>
 
     <div class="pt-6 border-t border-slate-800">
@@ -81,4 +82,5 @@
         </a>
     </div>
 </aside>
+<?php sidebarMenuScript(); ?>
 <?php themeToggle('top', 'theme-top-desktop'); // light/dark switch, top-right of every page ?>

@@ -130,12 +130,14 @@ $tour_auto = $tour_st->fetchColumn() === null;
         index = 0;
         sidebarWas = null;
         layer.classList.add('on');
+        document.body.classList.add('nav-show-all');   // the menu items it points at may be in a closed group
         document.body.style.overflow = 'hidden';
         show();
     };
 
     window.endStudentTour = function (finished) {
         layer.classList.remove('on');
+        document.body.classList.remove('nav-show-all');
         document.body.style.overflow = '';
         if (sidebarWas !== null) document.body.classList.toggle('sidebar-expanded', sidebarWas);
         const body = new URLSearchParams({ how: finished ? 'finished' : 'skipped', step: index + 1 });

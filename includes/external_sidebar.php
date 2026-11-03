@@ -47,7 +47,7 @@
                 <div class="icon-box"><?= $item[1] ?></div>
                 <span class="sidebar-text"><?= $item[2] ?></span>
             </a>
-        <?php endforeach; endforeach; ?>
+        <?php endforeach; if ($group !== '') sidebarGroupEnd(); endforeach; ?>
     </nav>
 
    <div class="pt-6 border-t border-slate-800">
@@ -57,4 +57,5 @@
         </a>
     </div>
 </aside>
+<?php sidebarMenuScript(); ?>
 <?php themeToggle('top'); // light/dark switch, top-right of every page ?>

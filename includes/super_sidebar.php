@@ -59,7 +59,7 @@
                     <span class="absolute left-9 top-2 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-black flex items-center justify-center" title="<?= $profile_requests_waiting ?> waiting"><?= $profile_requests_waiting ?></span>
                 <?php endif; ?>
             </a>
-        <?php endforeach; endforeach; ?>
+        <?php endforeach; if ($group !== '') sidebarGroupEnd(); endforeach; ?>
     </nav>
 
     <div class="pt-6 border-t border-slate-800">
@@ -69,4 +69,5 @@
         </a>
     </div>
 </aside>
+<?php sidebarMenuScript(); ?>
 <?php themeToggle('top'); // light/dark switch, top-right of every page ?>
