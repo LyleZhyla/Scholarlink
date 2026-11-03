@@ -68,15 +68,32 @@ function emitAiSuggestion(PDO $pdo,array $document,int $applicationId,int $userI
     if($applicable){$fields[]=['label'=>'Extracted GWA','value'=>is_numeric($extracted)?(float)$extracted:$extracted,'confidence'=>$confidence,'source_document'=>$document['DocumentName'],'source_field'=>'General Weighted Average / computed subject grades'];}
     if(!$authentic)$failed[]=['criterion'=>'Document authenticity and consistency','explanation'=>$reason];
     $qualified=null;
-    if($applicable&&is_numeric($extracted)&&$requiredGwa>0){$qualified=(float)$extracted<=$requiredGwa;if(!$qualified)$failed[]=['criterion'=>'Required GWA','explanation'=>'Extracted GWA '.number_format((float)$extracted,2).' is above the required maximum '.number_format($requiredGwa,2).'.'];}
+    // A GWA read from a flagged document counts neither way until a person has checked the file
+    if($authentic&&$applicable&&is_numeric($extracted)&&$requiredGwa>0){$qualified=(float)$extracted<=$requiredGwa;if(!$qualified)$failed[]=['criterion'=>'Required GWA','explanation'=>'Extracted GWA '.number_format((float)$extracted,2).' is above the required maximum '.number_format($requiredGwa,2).'.'];}
     if($confidence<80)$failed[]=['criterion'=>'Minimum AI confidence for automated assistance','explanation'=>'Confidence is '.number_format($confidence,1).'%, below the 80% manual-verification threshold.'];
     $authSuggestion=$authentic?'Likely Authentic':'Potential Issue';
     $qualSuggestion=!$applicable?'Not Applicable':($qualified===null?'Needs Review':($qualified?'Meets Criterion':'Fails Criterion'));
     $manual=$confidence<80||!$authentic||count($failed)>0;
     $explanation=$reason.($manual?' Human verification is required before any adverse action.':' This remains an AI suggestion until an authorized reviewer confirms it.');
-    $insert=$pdo->prepare('INSERT INTO ai_document_analyses (ApplicationID,SubmittedDocID,SourceDocument,SourceFileHash,ModelName,OverallConfidence,AuthenticitySuggestion,QualificationSuggestion,ExtractedFieldsJson,FailedCriteriaJson,Explanation,RequiresManualReview,CreatedBy) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
-    $insert->execute([$applicationId,$document['SubmittedDocID'],$document['DocumentName'],$sourceHash,$model,$confidence,$authSuggestion,$qualSuggestion,json_encode($fields,JSON_UNESCAPED_UNICODE),json_encode($failed,JSON_UNESCAPED_UNICODE),$explanation,$manual?1:0,$userId]);
-    echo json_encode(['success'=>true,'analysis_id'=>(int)$pdo->lastInsertId(),'policy'=>'AI suggestion only — no applicant is automatically rejected based on this output.','manual_verification_required'=>$manual,'authenticity'=>['is_authentic'=>$authentic,'suggestion'=>$authSuggestion,'confidence'=>$confidence,'flag_reason'=>$reason,'source_document'=>$document['DocumentName'],'source_field'=>'Document layout, metadata, text consistency and mathematical checks'],'qualification'=>['is_applicable'=>$applicable,'is_qualified'=>$qualified,'suggestion'=>$qualSuggestion,'extracted_gwa'=>$extracted??'N/A','confidence'=>$confidence,'source_document'=>$document['DocumentName'],'source_field'=>'General Weighted Average / computed subject grades','required_gwa'=>$requiredGwa],'extracted_fields'=>$fields,'failed_criteria'=>$failed]);exit;
+    $values=[$document['DocumentName'],$sourceHash,$model,$confidence,$authSuggestion,$qualSuggestion,json_encode($fields,JSON_UNESCAPED_UNICODE),json_encode($failed,JSON_UNESCAPED_UNICODE),$explanation,$manual?1:0,$userId];
+    // One card per document: a repeat scan refreshes the undecided card, and a person's decision on this same file is never replaced
+    $pdo->beginTransaction();
+    $lock=$pdo->prepare('SELECT SubmittedDocID FROM submitted_document WHERE SubmittedDocID=? FOR UPDATE');$lock->execute([$document['SubmittedDocID']]);
+    $latest=$pdo->prepare('SELECT AnalysisID,ReviewStatus,SourceFileHash FROM ai_document_analyses WHERE SubmittedDocID=? ORDER BY AnalysisID DESC LIMIT 1');$latest->execute([$document['SubmittedDocID']]);$latest=$latest->fetch(PDO::FETCH_ASSOC);
+    $undecided=$latest&&in_array($latest['ReviewStatus'],['Pending','Inconclusive'],true);
+    if($undecided){
+        $pdo->prepare('UPDATE ai_document_analyses SET SourceDocument=?,SourceFileHash=?,ModelName=?,OverallConfidence=?,AuthenticitySuggestion=?,QualificationSuggestion=?,ExtractedFieldsJson=?,FailedCriteriaJson=?,Explanation=?,RequiresManualReview=?,CreatedBy=?,CreatedAt=NOW() WHERE AnalysisID=?')->execute([...$values,$latest['AnalysisID']]);
+        $analysisId=(int)$latest['AnalysisID'];
+    }elseif($latest&&$latest['SourceFileHash']===$sourceHash){
+        $analysisId=(int)$latest['AnalysisID'];
+        $reason.=' A decision is already recorded for this file, so this scan did not change it.';
+    }else{
+        $insert=$pdo->prepare('INSERT INTO ai_document_analyses (SourceDocument,SourceFileHash,ModelName,OverallConfidence,AuthenticitySuggestion,QualificationSuggestion,ExtractedFieldsJson,FailedCriteriaJson,Explanation,RequiresManualReview,CreatedBy,ApplicationID,SubmittedDocID) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $insert->execute([...$values,$applicationId,$document['SubmittedDocID']]);
+        $analysisId=(int)$pdo->lastInsertId();
+    }
+    $pdo->commit();
+    echo json_encode(['success'=>true,'analysis_id'=>$analysisId,'policy'=>'AI suggestion only — no applicant is automatically rejected based on this output.','manual_verification_required'=>$manual,'authenticity'=>['is_authentic'=>$authentic,'suggestion'=>$authSuggestion,'confidence'=>$confidence,'flag_reason'=>$reason,'source_document'=>$document['DocumentName'],'source_field'=>'Document layout, metadata, text consistency and mathematical checks'],'qualification'=>['is_applicable'=>$applicable,'is_qualified'=>$qualified,'suggestion'=>$qualSuggestion,'extracted_gwa'=>$extracted??'N/A','confidence'=>$confidence,'source_document'=>$document['DocumentName'],'source_field'=>'General Weighted Average / computed subject grades','required_gwa'=>$requiredGwa],'extracted_fields'=>$fields,'failed_criteria'=>$failed]);exit;
 }
 
 $raw_binary = file_get_contents($full_path);
@@ -167,12 +184,6 @@ $ai_json = json_decode($ai_TextClean, true);
 
 $is_authentic = $ai_json['is_authentic'] ?? false;
 $extracted = $ai_json['extracted_gwa'] ?? null;
-
-// Only qualify the GWA if the document is ALSO verified as 100% authentic!
-$is_qualified = false;
-if ($is_authentic && $extracted !== null && is_numeric($extracted) && $required_gwa > 0) {
-    $is_qualified = ($extracted <= $required_gwa);
-}
 
 emitAiSuggestion($pdo,$document,$application_id,(int)$_SESSION['user_id'],$source_hash,(float)$required_gwa,(bool)$is_authentic,(float)($ai_json['confidence']??0),(string)($ai_json['flag_reason']??'Could not verify document structure.'),(bool)($ai_json['is_applicable']??false),$extracted);
 ?>

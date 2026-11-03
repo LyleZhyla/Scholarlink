@@ -845,7 +845,10 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 const qualDet = document.getElementById('aiQualDetails');
                 
                 if(data.qualification.is_applicable) {
-                    if(data.qualification.is_qualified) {
+                    if(data.qualification.is_qualified === null) {
+                        qualEl.innerHTML = `<span class="text-amber-500 text-lg">🔎</span> <span class="text-amber-700">Needs manual review</span>`;
+                        qualDet.textContent = `Extracted GWA: ${data.qualification.extracted_gwa} (Required: ${Number(currentReqGWA)}). Check the document by hand before relying on this GWA.`;
+                    } else if(data.qualification.is_qualified) {
                         qualEl.innerHTML = `<span class="text-blue-500 text-lg">🎯</span> <span class="text-blue-700">Qualified (GWA Met)</span>`;
                         qualDet.innerHTML = `Extracted GWA: <b>${data.qualification.extracted_gwa}</b> (Required: ${currentReqGWA})`;
                     } else {
