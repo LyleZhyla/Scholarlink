@@ -292,6 +292,10 @@ if ($is_logged_in) {
         .brand small { display: block; color: var(--gold); font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 
         .nav-links { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+        /* Light/dark switch: the right edge of the header, as on the student pages. It stays below the announcement bar, and the menu makes room on narrower screens */
+        .site-header .theme-top { position: absolute; top: 14px; box-shadow: none; }
+        @media (max-width: 1340px) { .nav-shell { padding-right: 56px; } }
+        html.dark .site-header .theme-top { background: #101c16; border-color: var(--line); }
         .nav-links a:not(.login-link) { color: var(--ink-soft); font-weight: 700; padding: 8px 14px; border-radius: 999px; transition: background 0.2s, color 0.2s; }
         .nav-links a:not(.login-link):hover { color: var(--green); background: var(--green-soft); }
         .hamburger { display: none; background: transparent; border: none; font-size: 1.3rem; color: var(--ink); cursor: pointer; padding: 8px; }
@@ -660,11 +664,6 @@ if ($is_logged_in) {
         html.dark .match-btn { background: #101c16; }
         @media (max-width: 600px) { .match-banner { flex-wrap: wrap; } .match-btn { width: 100%; } }
 
-        /* ---------- LIGHT / DARK SWITCH (includes/theme.php) ---------- */
-        .theme-pill { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent;
-            color: var(--ink-soft); font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: background 0.2s, color 0.2s; }
-        .theme-pill:hover { background: var(--green-soft); color: var(--green); }
-
         /* ---------- DARK MODE: the page's own colours ---------- */
         html.dark {
             --ink: #e8f1ec; --ink-soft: #b9cbc1; --muted: #8ba398; --line: #22332b; --wash: #08110d;
@@ -796,6 +795,7 @@ if ($is_logged_in) {
     </div>
 
     <header class="site-header">
+        <?php themeToggle('top'); ?>
         <nav class="nav-shell page-inner">
             <a class="brand" href="index.php">
                 <img src="assets/img/tau_logo.png" alt="TAU Logo">
@@ -809,7 +809,6 @@ if ($is_logged_in) {
                 <a href="#grants" onclick="document.getElementById('navLinks').classList.remove('mobile-open')">Grants</a>
                 <a href="#how-it-works" onclick="document.getElementById('navLinks').classList.remove('mobile-open')">How It Works</a>
                 <a href="#faq" onclick="document.getElementById('navLinks').classList.remove('mobile-open')">FAQ</a>
-                <?php themeToggle('pill'); ?>
                 <?php if ($is_logged_in): ?>
                     <a class="login-link" href="<?= $role_redirect ?>">Dashboard <i class="fas fa-arrow-right"></i></a>
                 <?php else: ?>

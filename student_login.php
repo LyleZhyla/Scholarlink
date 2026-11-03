@@ -141,9 +141,12 @@ try {
     <!-- REGISTRATION MODAL -->
     <div id="registerModal" class="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
         <div class="bg-white w-full max-w-[95%] md:max-w-3xl rounded-[1.5rem] md:rounded-[2rem] shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button onclick="closeRegisterModal()" class="absolute top-4 right-4 md:top-6 md:right-6 w-8 h-8 md:w-10 md:h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center hover:bg-slate-200 hover:text-slate-900 transition-colors z-10">
-                <svg class="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
+            <!-- Stays at the top of the modal while the form scrolls; takes no height, so the form doesn't move -->
+            <div class="sticky top-0 z-20 h-0 flex justify-end">
+                <button type="button" onclick="closeRegisterModal()" aria-label="Close" class="mt-4 mr-4 md:mt-6 md:mr-6 w-8 h-8 md:w-10 md:h-10 shrink-0 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center shadow-md hover:bg-slate-200 hover:text-slate-900 transition-colors">
+                    <svg class="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
 
             <div class="p-6 md:p-10">
                 

@@ -3,7 +3,7 @@
 // themeHead()   in <head>: applies the saved choice before the page is drawn (no white flash) and adds the
 //               dark styles. Pages are built with Tailwind colour classes, so dark mode remaps those classes
 //               (white cards, slate text/borders, the pale -50/-100 badges...) instead of editing every page.
-// themeToggle() the switch: 'top' (portal pages, fixed top-right), 'corner' (login pages), 'pill' (landing page),
+// themeToggle() the switch: 'top' (portal pages, fixed top-right; in the header on the landing page), 'corner' (login pages),
 //               'sidebar' / 'floating' (older placements, still supported).
 // The choice is kept per browser in localStorage ("scholarlink_theme"); light is the default.
 
@@ -125,7 +125,7 @@ function themeHead(): void {
     <?php
 }
 
-// The switch. $style: 'sidebar' (matches the sidebar links), 'floating' (round button, bottom left), 'pill' (landing page menu)
+// The switch. $style: 'sidebar' (matches the sidebar links), 'floating' (round button, bottom left)
 // $icon_class: how that sidebar styles its icons, so the switch lines up with its other links
 function themeToggle(string $style = 'floating', string $extra_class = '', string $icon_class = 'icon-box'): void {
     $icons = '<span class="theme-moon" aria-hidden="true">🌙</span><span class="theme-sun" aria-hidden="true">☀️</span>';
@@ -137,9 +137,6 @@ function themeToggle(string $style = 'floating', string $extra_class = '', strin
             . $icons . '<span data-theme-label>Dark mode</span></button>';
     } elseif ($style === 'top') {
         echo '<button type="button" onclick="toggleTheme()" data-theme-toggle aria-pressed="false" title="Switch between light and dark mode" aria-label="Switch between light and dark mode" class="theme-top ' . htmlspecialchars($extra_class) . '">' . $icons . '</button>';
-    } elseif ($style === 'pill') {
-        echo '<button type="button" onclick="toggleTheme()" data-theme-toggle aria-pressed="false" title="Switch between light and dark mode" class="theme-pill ' . htmlspecialchars($extra_class) . '">'
-            . $icons . '<span data-theme-label>Dark mode</span></button>';
     } else {
         echo '<button type="button" onclick="toggleTheme()" data-theme-toggle aria-pressed="false" title="Switch between light and dark mode" aria-label="Switch between light and dark mode" class="theme-floating ' . htmlspecialchars($extra_class) . '">' . $icons . '</button>';
     }
