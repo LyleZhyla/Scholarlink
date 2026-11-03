@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ScholarLink | TAU</title>
+    <script>if (window.self !== window.top) document.documentElement.classList.add('in-frame');</script>
     <?php require_once __DIR__ . '/theme.php'; themeHead(); ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -182,6 +183,13 @@
             .nav-link { width: 100%; justify-content: flex-start; }
             .nav-link > .icon-box { width: 4.5rem; }
         }
+
+        /* Shown inside the Evaluation Center modal (includes/review_center.php): only the page's content */
+        html.in-frame body { --sidebar-width: 0px !important; }
+        html.in-frame #main-sidebar, html.in-frame #mobile-overlay, html.in-frame .theme-top, html.in-frame #chatbotToggle, html.in-frame #chatWindow, html.in-frame #sessionWarn { display: none !important; }
+        html.in-frame body > div.md\:hidden.fixed { display: none !important; }
+        html.in-frame main[class] { width: 100% !important; margin-left: 0 !important; padding: 16px !important; min-height: 0 !important; background: transparent !important; }
+        html.in-frame main > div > header, html.in-frame main > div > .mb-8:first-child, html.in-frame main > div > h1, html.in-frame main > div > p { display: none; }
 
         /* People who asked their system for less motion get none */
         @media (prefers-reduced-motion: reduce) {

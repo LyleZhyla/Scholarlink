@@ -6,6 +6,8 @@ $sql = "SELECT p.*, a.Status AS ApplicationStatus, a.TotalScore, a.ScholarshipID
 $params = [];
 if ($_SESSION['role'] !== 'Super_Admin') { $sql .= ' AND p.AssignedRole=?'; $params[] = $_SESSION['role']; }
 if ($_SESSION['role'] === 'External_Admin') { $sql .= ' AND s.CreatedBy=?'; $params[] = $_SESSION['user_id']; }
+$scopeId = (int) ($_GET['scholarship_id'] ?? 0);   // from the Evaluation Center: one scholarship only
+if ($scopeId) { $sql .= ' AND a.ScholarshipID=?'; $params[] = $scopeId; }
 $sql .= ' ORDER BY p.StartedAt, a.DateSubmitted';
 $stmt=$pdo->prepare($sql);$stmt->execute($params);$workflowTasks=$stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -16,4 +18,4 @@ $stmt=$pdo->prepare($sql);$stmt->execute($params);$workflowTasks=$stmt->fetchAll
 <?php if(!$workflowTasks):?><div class="bg-white border border-slate-200 rounded-2xl p-12 text-center"><div class="text-4xl mb-3">✅</div><h2 class="font-black text-slate-900">No active tasks assigned</h2><p class="text-sm text-slate-500 mt-2">New tasks will appear when the preceding stage is completed.</p></div><?php endif;?>
 <div class="space-y-4"><?php foreach($workflowTasks as $task):?><article class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm"><div class="flex flex-col lg:flex-row lg:items-start justify-between gap-5"><div><span class="inline-flex px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-[10px] font-black uppercase tracking-widest"><?=htmlspecialchars($task['StageName'])?></span><h2 class="text-xl font-black text-slate-900 mt-3"><?=htmlspecialchars($task['FirstName'].' '.$task['LastName'])?></h2><p class="text-sm text-slate-500"><?=htmlspecialchars($task['StudentID_Num'].' • '.$task['ScholarshipName'])?></p><?php if($task['Instructions']):?><p class="mt-4 text-sm text-slate-700 bg-slate-50 rounded-xl p-3"><strong>Instructions:</strong> <?=htmlspecialchars($task['Instructions'])?></p><?php endif;?></div><form method="post" action="../actions/process_workflow.php" class="lg:w-96"><input type="hidden" name="action" value="complete"><input type="hidden" name="progress_id" value="<?=(int)$task['ProgressID']?>"><label class="text-xs font-black uppercase tracking-wider text-slate-500">Reviewer comments<textarea name="comments" rows="3" maxlength="2000" class="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm" placeholder="Record findings or decision notes"></textarea></label><button class="mt-3 w-full px-5 py-3 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest hover:bg-blue-700" onclick="return confirm('Complete this stage and move to the next configured step?')">Complete stage</button></form></div></article><?php endforeach;?></div>
 </div></main>
-
+<?php include __DIR__ . '/article_pager.php'; ?>

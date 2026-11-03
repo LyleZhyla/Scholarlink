@@ -8,4 +8,4 @@ try{
  $new=round((float)$score,2);$pdo->prepare('INSERT INTO score_overrides(ApplicationID,ScorecardID,PreviousScore,OverrideScore,Reason,AuthorizedBy) VALUES(?,?,?,?,?,?)')->execute([$applicationId,$scorecardId,$row['TotalScore'],$new,$reason,$_SESSION['user_id']]);$pdo->prepare('UPDATE application SET TotalScore=? WHERE ApplicationID=?')->execute([$new,$applicationId]);
  require_once '../includes/waitlist.php';refreshWaitlistRanks($pdo,(int)$row['ScholarshipID']);logAudit($pdo,(int)$_SESSION['user_id'],'Score Override Authorized',"Application #$applicationId score overridden from {$row['TotalScore']} to $new. Reason: $reason");$pdo->commit();$_SESSION['success']='Score override recorded. The original scorecard was preserved.';
 }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();$_SESSION['error']=$e->getMessage();}
-header('Location: ../super_admin/score_overrides.php');exit;
+header('Location: ../super_admin/score_overrides.php'.keepScholarshipScope());exit;

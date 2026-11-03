@@ -75,7 +75,7 @@ try {
             try { require_once '../includes/award_notice.php'; notifyAwardee($pdo, (int) $task['ApplicationID']); } catch (Throwable $noticeError) { error_log($noticeError->getMessage()); }
         }
         $_SESSION['success'] = $waitlisted ? 'Final approval completed, but all slots are filled. The qualified applicant was placed on the ranked waitlist.' : $task['StageName'] . ' completed. The application moved to the next configured stage.';
-        header("Location: {$base}workflow_tasks.php"); exit;
+        header("Location: {$base}workflow_tasks.php" . keepScholarshipScope()); exit;
     }
     throw new RuntimeException('Invalid workflow action.');
 } catch (Throwable $e) {

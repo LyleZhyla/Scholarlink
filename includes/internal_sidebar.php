@@ -25,10 +25,6 @@
                 ['appeals.php',             '⚖️', 'Appeals'],
                 ['benefits.php',            '💳', 'Benefits'],
             ],
-            'Evaluation' => [
-                ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
-                ['ai_reviews.php',          '🤖', 'AI Manual Review'],
-            ],
             'Communication' => [
                 ['messages.php',            '💬', 'Messages'],
             ],

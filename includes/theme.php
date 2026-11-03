@@ -31,6 +31,10 @@ function themeHead(): void {
     if (function_exists('csrfHead')) csrfHead();
     ?>
 <script>
+    // Signed out while inside a modal's frame: the login page takes the whole window
+    if (window.self !== window.top && /(student|admin)_login\.php/.test(location.pathname)) window.top.location.replace(location.href);
+</script>
+<script>
     // Before anything is drawn: the visitor's saved choice (light by default)
     (function () {
         try { if (localStorage.getItem('scholarlink_theme') === 'dark') document.documentElement.classList.add('dark'); } catch (e) { }

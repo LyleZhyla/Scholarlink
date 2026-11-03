@@ -7,6 +7,11 @@
     php_value session.cookie_samesite Lax
 </IfModule>
 
+# Only ScholarLink itself may show its pages in a frame (the Evaluation Center does); stops other sites embedding them
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
 # No folder listings (uploads/ used to list every student's documents)
 Options -Indexes
 

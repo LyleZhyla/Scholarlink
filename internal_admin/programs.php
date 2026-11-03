@@ -125,7 +125,8 @@ try {
             <h2 class="text-3xl lg:text-4xl font-black text-slate-900 tracking-tight">Available Scholarships</h2>
             <p class="text-slate-500 text-sm lg:text-base font-medium mt-1">View active scholarship programs and their target courses.</p>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
+            <?php require_once __DIR__ . '/../includes/review_center.php'; reviewCenterButton($pdo); ?>
             <span class="bg-blue-50 text-blue-600 border border-blue-200 px-4 py-2 rounded-xl text-sm font-black uppercase tracking-widest inline-block shadow-sm">
                 <?= count($programs) ?> Results
             </span>
@@ -294,7 +295,8 @@ try {
                             <a href="form_builder.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block bg-blue-50 text-blue-700 border border-blue-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all whitespace-nowrap" title="Design the application form students fill in">
                                 Design Form 📝
                             </a>
-                            <a href="workflow_builder.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block bg-violet-50 text-violet-700 border border-violet-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-violet-600 hover:text-white transition-all whitespace-nowrap" title="Configure sponsor-specific approval stages">Workflow</a>
+                            <?php reviewCardButton((int) $p['ScholarshipID'], 'inline-block'); ?>
+                    <a href="workflow_builder.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block bg-violet-50 text-violet-700 border border-violet-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-violet-600 hover:text-white transition-all whitespace-nowrap" title="Configure sponsor-specific approval stages">Workflow</a>
                             <a href="configuration_versions.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block bg-slate-50 text-slate-700 border border-slate-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 hover:text-white transition-all whitespace-nowrap" title="View immutable requirements and form versions">Versions</a>
                             <a href="award_notice.php?id=<?= (int) $p['ScholarshipID'] ?>" class="inline-block mt-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-600 hover:text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="What approved scholars must still submit (sent with their Approval Notice)">
                                 Approval Notice 🏆
@@ -389,5 +391,7 @@ try {
 
     document.addEventListener('DOMContentLoaded', renderPagination);
 </script>
+
+<?php reviewCenterModal($pdo); ?>
 
 <?php include '../includes/footer.php'; ?>

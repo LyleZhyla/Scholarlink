@@ -47,5 +47,5 @@ try {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $_SESSION['error'] = $e->getMessage();
 }
-header('Location: '.$base.'ai_reviews.php');
+header('Location: '.$base.'ai_reviews.php'.keepScholarshipScope());
 

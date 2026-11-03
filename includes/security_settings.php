@@ -384,6 +384,11 @@ function enforceCsrf(PDO $pdo): void {
     exit();
 }
 
+// "?scholarship_id=N" when the page that sent a form was limited to one scholarship (Evaluation Center tabs)
+function keepScholarshipScope(): string {
+    return preg_match('/[?&]scholarship_id=(\d+)/', $_SERVER['HTTP_REFERER'] ?? '', $m) ? '?scholarship_id=' . $m[1] : '';
+}
+
 // Full address for links in emails (e.g. http://192.168.1.36/scholarlink), so they open on the recipient's device.
 // A "localhost" address only works on this PC, so it is swapped for LAN_URL in .env, or else this PC's
 // network (LAN) address. Any other address (the live domain, or an IP someone browsed with) is kept as is.

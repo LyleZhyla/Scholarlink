@@ -28,13 +28,6 @@
                 ['appeals.php',             '⚖️', 'Appeals'],
                 ['benefits.php',            '💳', 'Benefits'],
             ],
-            'Evaluation' => [
-                ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
-                ['ai_reviews.php',           '🤖', 'AI Manual Review'],
-                ['evaluation_conflicts.php', '⚠️', 'Evaluator Conflicts'],
-                ['scoring_rubrics.php',     '🎯', 'Scoring Rubrics'],
-                ['score_overrides.php',     '✏️', 'Score Overrides'],
-            ],
             'People' => [
                 ['users.php',               '👥', 'Users'],
                 ['profile_requests.php',    '📝', 'Profile Requests'],

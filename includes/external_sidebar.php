@@ -30,12 +30,6 @@
                 ['appeals.php',             '⚖️', 'Appeals'],
                 ['benefits.php',            '💳', 'Benefits'],
             ],
-            'Evaluation' => [
-                ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
-                ['ai_reviews.php',           '🤖', 'AI Manual Review'],
-                ['evaluation_conflicts.php', '⚠️', 'Evaluator Conflicts'],
-                ['scoring_rubrics.php',     '🎯', 'Scoring Rubrics'],
-            ],
         ];
 
         foreach ($nav_groups as $group => $nav_items):
