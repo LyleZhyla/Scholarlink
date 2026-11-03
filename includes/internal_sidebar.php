@@ -13,38 +13,36 @@
     </div>
 
     <nav class="space-y-2 flex-1 px-3">
-        <a href="dashboard.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('dashboard.php') ?> whitespace-nowrap">
-            <span class="w-10 flex justify-center text-xl shrink-0">🏠</span>
-            <span class="sidebar-text">Dashboard</span>
-        </a>
-        
-        <a href="programs.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('programs.php') ?> whitespace-nowrap">
-            <span class="w-10 flex justify-center text-xl shrink-0">🎓</span>
-            <span class="sidebar-text">Programs</span>
-        </a>
-        
-        <a href="manage_applications.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('manage_applications.php') ?> whitespace-nowrap">
-            <span class="w-10 flex justify-center text-xl shrink-0">📋</span>
-            <span class="sidebar-text">Masterlist</span>
-        </a>
+        <?php
+        $nav_groups = [
+            '' => [
+                ['dashboard.php',           '🏠', 'Dashboard'],
+            ],
+            'Scholarships & Applications' => [
+                ['programs.php',            '🎓', 'Programs'],
+                ['manage_applications.php', '📋', 'Masterlist'],
+                ['waitlist.php',            '📝', 'Waitlist'],
+                ['appeals.php',             '⚖️', 'Appeals'],
+                ['benefits.php',            '💳', 'Benefits'],
+            ],
+            'Evaluation' => [
+                ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
+                ['ai_reviews.php',          '🤖', 'AI Manual Review'],
+            ],
+            'Communication' => [
+                ['messages.php',            '💬', 'Messages'],
+            ],
+        ];
 
-        <a href="workflow_tasks.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('workflow_tasks.php') ?> whitespace-nowrap">
-            <span class="w-10 flex justify-center text-xl shrink-0">🔀</span><span class="sidebar-text">Workflow Tasks</span>
-        </a>
-        <a href="ai_reviews.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('ai_reviews.php') ?> whitespace-nowrap"><span class="w-10 flex justify-center text-xl shrink-0">🤖</span><span class="sidebar-text">AI Manual Review</span></a>
-
-        <a href="appeals.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('appeals.php') ?> whitespace-nowrap">
-            <span class="w-10 flex justify-center text-xl shrink-0">⚖️</span>
-            <span class="sidebar-text">Appeals</span>
-        </a>
-
-        <a href="waitlist.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('waitlist.php') ?> whitespace-nowrap">
-            <span class="w-10 flex justify-center text-xl shrink-0">📋</span><span class="sidebar-text">Waitlist</span>
-        </a>
-
-        <a href="benefits.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('benefits.php') ?> whitespace-nowrap">
-            <span class="w-10 flex justify-center text-xl shrink-0">💳</span><span class="sidebar-text">Benefits</span>
-        </a>
+        foreach ($nav_groups as $group => $nav_items):
+            if ($group !== '') sidebarGroup($group);
+            foreach ($nav_items as $item):
+        ?>
+            <a href="<?= $item[0] ?>" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass($item[0]) ?> whitespace-nowrap">
+                <span class="w-10 flex justify-center text-xl shrink-0"><?= $item[1] ?></span>
+                <span class="sidebar-text"><?= $item[2] ?></span>
+            </a>
+        <?php endforeach; endforeach; ?>
 
         <!-- ✨ ITO ANG BAGONG RENEWALS BUTTON 
         <a href="manage_renewals.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('manage_renewals.php') ?> whitespace-nowrap">
@@ -52,11 +50,6 @@
             <span class="sidebar-text">Renewals</span>
         </a>
             -->
-        
-        <a href="messages.php" class="nav-link flex items-center gap-3 px-2 py-3 rounded-xl font-bold text-sm <?= getSidebarClass('messages.php') ?> whitespace-nowrap">
-            <span class="w-10 flex justify-center text-xl shrink-0">💬</span>
-            <span class="sidebar-text">Messages</span>
-        </a>
     </nav>
 
     <div class="pt-6 border-t border-slate-800 px-3">

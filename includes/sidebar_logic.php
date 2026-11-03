@@ -14,6 +14,11 @@ if (!function_exists('getSidebarClass')) {
         // Otherwise, return the inactive classes
         return 'text-slate-400 hover:bg-slate-800 hover:text-white';
     }
-    
+
+    // A group title in the sidebar menu: words when the sidebar is open, a thin line when it is collapsed to icons
+    function sidebarGroup($label) {
+        echo '<p class="nav-group"><span>' . htmlspecialchars($label) . '</span></p>';
+    }
+
 }
 ?>

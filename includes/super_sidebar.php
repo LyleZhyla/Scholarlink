@@ -17,26 +17,38 @@
         // Profile change requests waiting for approval (badge on the menu item)
         try { $profile_requests_waiting = (int) $pdo->query("SELECT COUNT(*) FROM profile_change_requests WHERE Status = 'Pending'")->fetchColumn(); }
         catch (Throwable $e) { $profile_requests_waiting = 0; }
-        $nav_items = [
-            ['dashboard.php',           '📊', 'Dashboard'],
-            ['scholarships.php',        '🎓', 'Manage Scholarships'],
-            ['manage_applications.php', '📂', 'Manage Applications'],
-            ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
-            ['ai_reviews.php',           '🤖', 'AI Manual Review'],
-            ['evaluation_conflicts.php', '⚠️', 'Evaluator Conflicts'],
-            ['scoring_rubrics.php',     '🎯', 'Scoring Rubrics'],
-            ['score_overrides.php',     '✏️', 'Score Overrides'],
-            ['appeals.php',             '⚖️', 'Appeals'],
-            ['waitlist.php',            '📋', 'Waitlist'],
-            ['benefits.php',            '💳', 'Benefits'],
-            ['users.php',               '👥', 'Users'],
-            ['profile_requests.php',    '📝', 'Profile Requests'],
-            ['logs.php',                '📋', 'Logs'],
-            ['security.php',            '🛡️', 'Security'],
-            ['privacy_lifecycle.php',   '🔐', 'Privacy Lifecycle'],
-            ['database.php',            '🗄️', 'Database']
+        $nav_groups = [
+            '' => [
+                ['dashboard.php',           '📊', 'Dashboard'],
+            ],
+            'Scholarships & Applications' => [
+                ['scholarships.php',        '🎓', 'Manage Scholarships'],
+                ['manage_applications.php', '📂', 'Manage Applications'],
+                ['waitlist.php',            '📋', 'Waitlist'],
+                ['appeals.php',             '⚖️', 'Appeals'],
+                ['benefits.php',            '💳', 'Benefits'],
+            ],
+            'Evaluation' => [
+                ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
+                ['ai_reviews.php',           '🤖', 'AI Manual Review'],
+                ['evaluation_conflicts.php', '⚠️', 'Evaluator Conflicts'],
+                ['scoring_rubrics.php',     '🎯', 'Scoring Rubrics'],
+                ['score_overrides.php',     '✏️', 'Score Overrides'],
+            ],
+            'People' => [
+                ['users.php',               '👥', 'Users'],
+                ['profile_requests.php',    '📝', 'Profile Requests'],
+            ],
+            'System' => [
+                ['logs.php',                '🧾', 'Logs'],
+                ['security.php',            '🛡️', 'Security'],
+                ['privacy_lifecycle.php',   '🔐', 'Privacy Lifecycle'],
+                ['database.php',            '🗄️', 'Database'],
+            ],
         ];
 
+        foreach ($nav_groups as $group => $nav_items):
+            if ($group !== '') sidebarGroup($group);
         foreach ($nav_items as $item):
             $active = getSidebarClass($item[0]);
         ?>
@@ -47,7 +59,7 @@
                     <span class="absolute left-9 top-2 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-black flex items-center justify-center" title="<?= $profile_requests_waiting ?> waiting"><?= $profile_requests_waiting ?></span>
                 <?php endif; ?>
             </a>
-        <?php endforeach; ?>
+        <?php endforeach; endforeach; ?>
     </nav>
 
     <div class="pt-6 border-t border-slate-800">

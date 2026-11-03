@@ -38,34 +38,32 @@
             <span class="icon-box">📊</span>
             <span class="sidebar-text">Dashboard</span>
         </a>
-
-        <!-- ✨ DITO NATIN IDINAGDAG ANG BROWSE GRANTS (LANDING PAGE LINK) -->
+        <?php sidebarGroup('Scholarships'); ?>
         <a href="../index.php" class="nav-link">
             <span class="icon-box">🌐</span>
             <span class="sidebar-text">Browse Grants</span>
         </a>
-
         <a href="programs.php" data-tour="nav-programs" class="nav-link <?= getSidebarClass('programs.php') ?>">
             <span class="icon-box">🎓</span>
             <span class="sidebar-text">Programs</span>
         </a>
+        <?php sidebarGroup('My Applications'); ?>
         <a href="applications.php" data-tour="nav-apps" class="nav-link <?= getSidebarClass('applications.php') ?>">
             <span class="icon-box">📂</span>
             <span class="sidebar-text">Apps</span>
-        </a>
-        <a href="benefits.php" class="nav-link <?= getSidebarClass('benefits.php') ?>">
-            <span class="icon-box">💳</span><span class="sidebar-text">Benefits</span>
         </a>
         <a href="requirements.php" data-tour="nav-requirements" class="nav-link <?= getSidebarClass('requirements.php') ?>">
             <span class="icon-box">📜</span>
             <span class="sidebar-text">Requirements</span>
         </a>
-        
         <a href="vault.php" data-tour="nav-vault" class="nav-link <?= getSidebarClass('vault.php') ?>">
             <span class="icon-box">🔒</span>
             <span class="sidebar-text">Vault</span>
         </a>
-
+        <a href="benefits.php" class="nav-link <?= getSidebarClass('benefits.php') ?>">
+            <span class="icon-box">💳</span><span class="sidebar-text">Benefits</span>
+        </a>
+        <?php sidebarGroup('My Account'); ?>
         <a href="profile.php" data-tour="nav-profile" class="nav-link <?= getSidebarClass('profile.php') ?>">
             <span class="icon-box">👤</span>
             <span class="sidebar-text">Profile</span>

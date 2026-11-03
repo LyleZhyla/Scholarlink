@@ -99,6 +99,12 @@
         #main-sidebar .logo-container button svg { transition: transform var(--transition-speed) var(--transition-curve); }
         body.sidebar-expanded #main-sidebar .logo-container button svg { transform: rotate(90deg); }
 
+        /* Menu group titles: a thin line while collapsed to icons, the words once the sidebar is open */
+        aside#main-sidebar .nav-group { margin: 12px 18px 6px; height: 1px; background: rgba(255, 255, 255, 0.12); overflow: hidden; white-space: nowrap; }
+        .nav-group span { display: block; font-size: 10px; line-height: 1.2; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8; opacity: 0; }
+        body.sidebar-expanded aside#main-sidebar .nav-group { height: auto; background: none; margin: 16px 18px 4px; }
+        body.sidebar-expanded .nav-group span { opacity: 1; transition: opacity 0.3s ease 0.08s; }
+
         .logo-container {
             width: 100%;
             height: 4rem;
@@ -154,6 +160,8 @@
                 transform: none !important;
             }
             .brand-text { opacity: 1 !important; }
+            aside#main-sidebar .nav-group { height: auto; background: none; margin: 16px 18px 4px; }
+            .nav-group span { opacity: 1; }
             .nav-link { width: 100%; justify-content: flex-start; }
             .nav-link > .icon-box { width: 4.5rem; }
         }

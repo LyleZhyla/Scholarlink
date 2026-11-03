@@ -19,19 +19,27 @@
 
     <nav class="flex-1 mt-4">
         <?php
-        $nav_items = [
-            ['dashboard.php',           '📊', 'Overview'],
-            ['scholarships.php',        '🎓', 'Scholarships'],
-            ['manage_applications.php', '🗂️', 'Masterlist'],
-            ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
-            ['ai_reviews.php',           '🤖', 'AI Manual Review'],
-            ['evaluation_conflicts.php', '⚠️', 'Evaluator Conflicts'],
-            ['scoring_rubrics.php',     '🎯', 'Scoring Rubrics'],
-            ['appeals.php',             '⚖️', 'Appeals'],
-            ['waitlist.php',            '📋', 'Waitlist'],
-            ['benefits.php',            '💳', 'Benefits'],
+        $nav_groups = [
+            '' => [
+                ['dashboard.php',           '📊', 'Overview'],
+            ],
+            'Scholarships & Applications' => [
+                ['scholarships.php',        '🎓', 'Scholarships'],
+                ['manage_applications.php', '🗂️', 'Masterlist'],
+                ['waitlist.php',            '📋', 'Waitlist'],
+                ['appeals.php',             '⚖️', 'Appeals'],
+                ['benefits.php',            '💳', 'Benefits'],
+            ],
+            'Evaluation' => [
+                ['workflow_tasks.php',      '🔀', 'Workflow Tasks'],
+                ['ai_reviews.php',           '🤖', 'AI Manual Review'],
+                ['evaluation_conflicts.php', '⚠️', 'Evaluator Conflicts'],
+                ['scoring_rubrics.php',     '🎯', 'Scoring Rubrics'],
+            ],
         ];
 
+        foreach ($nav_groups as $group => $nav_items):
+            if ($group !== '') sidebarGroup($group);
         foreach ($nav_items as $item):
             $active = getSidebarClass($item[0]);
         ?>
@@ -39,7 +47,7 @@
                 <div class="icon-box"><?= $item[1] ?></div>
                 <span class="sidebar-text"><?= $item[2] ?></span>
             </a>
-        <?php endforeach; ?>
+        <?php endforeach; endforeach; ?>
     </nav>
 
    <div class="pt-6 border-t border-slate-800">
