@@ -11,6 +11,10 @@ $role = $_SESSION['role']; $admin_id = (int) $_SESSION['user_id'];
 $application_id = (int) ($_POST['application_id'] ?? 0);
 $action = $_POST['action'] ?? '';
 $back = match ($role) { 'Internal_Admin' => '../internal_admin/benefits.php', 'External_Admin' => '../external_admin/benefits.php', default => '../super_admin/benefits.php' };
+// Back to the same filters and page, with this scholar's row open
+parse_str((string) ($_POST['return'] ?? ''), $return_to);
+$return_to = array_intersect_key($return_to, array_flip(['q', 'scholarship', 'program', 'payment', 'sort', 'per', 'page']));
+$back .= '?' . http_build_query($return_to + ['open' => $application_id]);
 $saved_file = null;
 
 try {
