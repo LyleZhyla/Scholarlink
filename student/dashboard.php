@@ -571,8 +571,10 @@ function time_elapsed_string($datetime, $full = false) {
     }
 
     document.addEventListener("DOMContentLoaded", function() {
-        const unreadNotifications = <?php echo json_encode($unread_notifications); ?>;
+        // Each popup shows how long ago its notification really happened
+        const unreadNotifications = <?php echo json_encode(array_map(fn($n) => $n + ['TimeAgo' => time_elapsed_string($n['CreatedAt'])], $unread_notifications), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
         const container = document.getElementById('phone-notification-center');
+        const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
         function getToastDetails(type) {
             switch(type) {
@@ -583,7 +585,7 @@ function time_elapsed_string($datetime, $full = false) {
             }
         }
 
-        function createPushToast(title, message, type, id, index) {
+        function createPushToast(title, message, type, id, index, timeAgo) {
             const details = getToastDetails(type);
             const toast = document.createElement('div');
             toast.className = "pointer-events-auto w-full bg-white/95 backdrop-blur-md border border-slate-200 border-l-4 " + details.color + " p-4 rounded-2xl shadow-xl transition-all duration-500 transform translate-x-full opacity-0 flex gap-3 max-w-sm cursor-pointer";
@@ -592,10 +594,10 @@ function time_elapsed_string($datetime, $full = false) {
                 <div class="text-lg shrink-0 mt-0.5">${details.icon}</div>
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center justify-between mb-0.5">
-                        <h4 class="text-xs font-black text-slate-900 truncate pr-2">${title}</h4>
-                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Just Now</span>
+                        <h4 class="text-xs font-black text-slate-900 truncate pr-2">${esc(title)}</h4>
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0">${esc(timeAgo)}</span>
                     </div>
-                    <p class="text-[11px] text-slate-600 font-medium leading-normal line-clamp-2">${message}</p>
+                    <p class="text-[11px] text-slate-600 font-medium leading-normal line-clamp-2">${esc(message)}</p>
                 </div>
                 <button class="text-slate-400 hover:text-slate-600 font-bold text-xs shrink-0 px-1 self-start" onclick="event.stopPropagation(); this.parentElement.remove()">✕</button>
             `;
@@ -613,7 +615,7 @@ function time_elapsed_string($datetime, $full = false) {
 
         if (unreadNotifications && unreadNotifications.length > 0) {
             unreadNotifications.forEach((notif, index) => {
-                createPushToast(notif.Title, notif.Message, notif.Type, notif.NotificationID, index);
+                createPushToast(notif.Title, notif.Message, notif.Type, notif.NotificationID, index, notif.TimeAgo);
             });
         }
     });

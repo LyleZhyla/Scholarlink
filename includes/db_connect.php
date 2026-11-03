@@ -18,6 +18,11 @@ try {
     die("Database Connection Failed: " . $e->getMessage());
 }
 
+// One clock everywhere: Philippine time for PHP and the database, whatever the server is set to.
+// (XAMPP's PHP defaults to Europe/Berlin, 7 hours behind, which made "x ago" and date checks wrong.)
+date_default_timezone_set('Asia/Manila');
+$pdo->exec("SET time_zone = '+08:00'");
+
 // Every activity goes to the audit trail
 require_once __DIR__ . '/audit.php';
 auditTrackRequest($pdo);
