@@ -51,11 +51,10 @@ try {
         if (!$task || $task['Status'] !== 'In Progress') throw new RuntimeException('This workflow task is no longer active.');
         if (!canReviewWorkflowTask($task, $role, $userId)) throw new RuntimeException('This task is assigned to a different reviewer.');
         $comments = trim((string) ($_POST['comments'] ?? ''));
-        $nextStatus = null;
+        if (in_array($task['ApplicationStatus'], WORKFLOW_CLOSED_STATUSES, true)) throw new RuntimeException('This application is already closed, so its stages can no longer be completed.');
+        $nextStatus = workflowForwardStatus($task['ApplicationStatus'], $task['CompletionAction']);
         $waitlisted = null;
-        if ($task['CompletionAction'] === 'under_review') $nextStatus = 'Under Review';
-        if ($task['CompletionAction'] === 'shortlisted') $nextStatus = 'Shortlisted';
-        if ($task['CompletionAction'] === 'approve') {
+        if ($task['CompletionAction'] === 'approve' && $task['ApplicationStatus'] !== 'Approved') {
             require_once '../includes/waitlist.php';
             if (!in_array($task['ApplicationStatus'], ['Shortlisted','Scored','Waitlisted'], true)) {
                 $pdo->prepare("UPDATE application SET Status = 'Shortlisted', LastSavedAt = NOW() WHERE ApplicationID = ?")->execute([$task['ApplicationID']]);

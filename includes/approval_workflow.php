@@ -18,6 +18,19 @@ const WORKFLOW_COMPLETION_ACTIONS = [
     'award_confirm' => 'Confirm award',
 ];
 
+// Stages can't be completed on these: the application's outcome is already settled elsewhere
+const WORKFLOW_CLOSED_STATUSES = ['Draft', 'Withdrawn', 'Rejected', 'Disqualified', 'Waitlist Offered', 'Slot Vacated'];
+
+// The status a completed stage gives the application, or null to leave it as it is. A stage only ever moves an
+// application forward, so finishing an early stage can't undo a later status (e.g. Approved back to Under Review).
+function workflowForwardStatus(string $current, string $completionAction): ?string {
+    $ranks = ['Pending' => 0, 'Submitted' => 0, 'For Resubmission' => 0, 'Under Review' => 1, 'Shortlisted' => 2, 'Scored' => 2, 'Waitlisted' => 2, 'Approved' => 3];
+    $targets = ['under_review' => 'Under Review', 'shortlisted' => 'Shortlisted'];
+    $target = $targets[$completionAction] ?? null;
+    if (!$target || !isset($ranks[$current])) return null;
+    return $ranks[$current] < $ranks[$target] ? $target : null;
+}
+
 function workflowTablesReady(PDO $pdo): bool {
     static $ready;
     if ($ready !== null) return $ready;
