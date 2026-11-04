@@ -380,7 +380,7 @@ unset($versionedApplication);
 <!-- ✨ TRUE SCORING MODAL (Submit Fix & Close Button Added) -->
 <div id="scoreModal" onclick="if(event.target === this) closeScoreModal()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[10000] hidden items-center justify-center p-4">
     <div class="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        <form action="../actions/process_crud.php" method="post" class="flex flex-col h-full">
+        <form action="../actions/process_crud.php" method="post" class="flex flex-col flex-1 min-h-0">
             <input type="hidden" name="module" value="applications">
             <input type="hidden" name="action" value="score">
             <input type="hidden" id="modalAppId" name="id">
@@ -405,7 +405,7 @@ unset($versionedApplication);
 
             <div class="p-8 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
                 <div class="grid grid-cols-2 gap-4">
-                    <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 col-span-2 sm:col-span-1">
+                    <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 col-span-2">
                         <p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Declared GWA</p>
                         <p class="font-black text-blue-700 text-lg" id="refGPA"></p>
                     </div>
