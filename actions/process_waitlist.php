@@ -101,5 +101,5 @@ try {
     $_SESSION['error'] = $e->getMessage();
 }
 
-header("Location: $back");
+header("Location: $back" . keepScholarshipScope());
 exit();

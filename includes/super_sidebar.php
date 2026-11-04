@@ -24,7 +24,6 @@
             'Scholarships & Applications' => [
                 ['scholarships.php',        '🎓', 'Manage Scholarships'],
                 ['manage_applications.php', '📂', 'Manage Applications'],
-                ['waitlist.php',            '📋', 'Waitlist'],
                 ['appeals.php',             '⚖️', 'Appeals'],
                 ['benefits.php',            '💳', 'Benefits'],
             ],

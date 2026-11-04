@@ -658,8 +658,7 @@ if ($module === 'applications' && $action === 'update_status') {
     }
     if ($status === 'Approved' && applicationUsesConfiguredWorkflow($pdo, (int) $app_id)) {
         $_SESSION['error'] = 'This scholarship uses a configured approval workflow. Complete its Final Approval task instead of bypassing the sponsor stages.';
-        $workflow_pages = ['Internal_Admin' => '../internal_admin/workflow_tasks.php', 'External_Admin' => '../external_admin/workflow_tasks.php', 'Super_Admin' => '../super_admin/workflow_tasks.php'];
-        header('Location: ' . $workflow_pages[$_SESSION['role']]); exit;
+        header('Location: ' . evaluationCenterUrl('workflow_tasks.php')); exit;
     }
     
     // Slots and single-grant rules (includes/approval_rules.php)
@@ -669,8 +668,7 @@ if ($module === 'applications' && $action === 'update_status') {
             $waitlisted = waitlistIfScholarshipFull($pdo, (int) $app_id, (int) $_SESSION['user_id']);
             if ($waitlisted) {
                 $_SESSION['success'] = "All slots are filled. The qualified applicant was placed at rank #{$waitlisted['rank']} on the waitlist.";
-                $waitlist_pages = ['Internal_Admin' => '../internal_admin/waitlist.php', 'External_Admin' => '../external_admin/waitlist.php', 'Super_Admin' => '../super_admin/waitlist.php'];
-                header('Location: ' . $waitlist_pages[$_SESSION['role']]);
+                header('Location: ' . evaluationCenterUrl('waitlist.php'));
                 exit();
             }
         } catch (Throwable $e) {
@@ -1147,8 +1145,7 @@ if ($module === 'applications' && $action === 'final_decision') {
     $status = $_POST['status'];
     if ($status === 'Approved' && applicationUsesConfiguredWorkflow($pdo, (int) $application_id)) {
         $_SESSION['error'] = 'Direct approval is disabled for this scholarship. Complete the configured Final Approval workflow task.';
-        $workflow_pages = ['Internal_Admin' => '../internal_admin/workflow_tasks.php', 'External_Admin' => '../external_admin/workflow_tasks.php', 'Super_Admin' => '../super_admin/workflow_tasks.php'];
-        header('Location: ' . $workflow_pages[$_SESSION['role']]); exit;
+        header('Location: ' . evaluationCenterUrl('workflow_tasks.php')); exit;
     }
 
     // Slots and single-grant rules (includes/approval_rules.php)
@@ -1158,8 +1155,7 @@ if ($module === 'applications' && $action === 'final_decision') {
             $waitlisted = waitlistIfScholarshipFull($pdo, (int) $application_id, (int) $_SESSION['user_id']);
             if ($waitlisted) {
                 $_SESSION['success'] = "All slots are filled. The qualified applicant was placed at rank #{$waitlisted['rank']} on the waitlist.";
-                $waitlist_pages = ['Internal_Admin' => '../internal_admin/waitlist.php', 'External_Admin' => '../external_admin/waitlist.php', 'Super_Admin' => '../super_admin/waitlist.php'];
-                header('Location: ' . $waitlist_pages[$_SESSION['role']]);
+                header('Location: ' . evaluationCenterUrl('waitlist.php'));
                 exit();
             }
         } catch (Throwable $e) {

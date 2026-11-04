@@ -1,15 +1,21 @@
 <?php
-// ✨ EVALUATION CENTER: Workflow Tasks, AI Review, Conflicts, Rubrics and Overrides in one modal on the
-// Manage Scholarships page (super_admin/scholarships.php, external_admin/scholarships.php, internal_admin/programs.php).
+// ✨ EVALUATION CENTER and SCORING RULES: pages shown as tabs in a modal.
+// 'applications' (Manage Applications): Workflow Tasks, AI Review, Conflicts, Waitlist.
+// 'scoring' (Manage Scholarships): Rubrics, Overrides.
 // Each tab shows the real page in a frame (header.php hides its menus there), so its forms and rules stay in one place.
-// Add ?scholarship_id=N to limit a tab to one scholarship.
+// Add ?scholarship_id=N to limit a tab to one scholarship. Manage Applications opens on a tab with ?review=waitlist.php.
 
-function reviewCenterTabs(): array {
-    $tabs = ['workflow_tasks.php' => '🔀 Workflow Tasks', 'ai_reviews.php' => '🤖 AI Review'];
-    if (($_SESSION['role'] ?? '') !== 'Internal_Admin') {
-        $tabs += ['evaluation_conflicts.php' => '⚠️ Conflicts', 'scoring_rubrics.php' => '🎯 Rubrics'];
+function reviewCenterTabs(string $set = 'applications'): array {
+    $role = $_SESSION['role'] ?? '';
+    if ($set === 'scoring') {
+        $tabs = [];
+        if ($role !== 'Internal_Admin') $tabs['scoring_rubrics.php'] = '🎯 Rubrics';
+        if ($role === 'Super_Admin') $tabs['score_overrides.php'] = '✏️ Overrides';
+        return $tabs;
     }
-    if (($_SESSION['role'] ?? '') === 'Super_Admin') $tabs['score_overrides.php'] = '✏️ Overrides';
+    $tabs = ['workflow_tasks.php' => '🔀 Workflow Tasks', 'ai_reviews.php' => '🤖 AI Review'];
+    if ($role !== 'Internal_Admin') $tabs['evaluation_conflicts.php'] = '⚠️ Conflicts';
+    $tabs['waitlist.php'] = '📋 Waitlist';
     return $tabs;
 }
 
@@ -40,6 +46,14 @@ function reviewCenterCounts(PDO $pdo): array {
         if ($role === 'External_Admin') { $sql .= ' AND s.CreatedBy = ?'; $params[] = $me; }
         $st = $pdo->prepare($sql); $st->execute($params);
         $counts['evaluation_conflicts.php'] = (int) $st->fetchColumn();
+
+        $sql = "SELECT COUNT(*) FROM application_waitlist w JOIN scholarship s ON s.ScholarshipID = w.ScholarshipID
+                LEFT JOIN users cu ON cu.UserID = s.CreatedBy WHERE w.Status IN ('Waiting', 'Offered')";
+        $params = [];
+        if ($role === 'Internal_Admin') $sql .= " AND (cu.Role IS NULL OR cu.Role IN ('Internal_Admin','Super_Admin'))";
+        elseif ($role === 'External_Admin') { $sql .= ' AND s.CreatedBy = ?'; $params[] = $me; }
+        $st = $pdo->prepare($sql); $st->execute($params);
+        $counts['waitlist.php'] = (int) $st->fetchColumn();
     } catch (PDOException $e) {
         error_log('Evaluation Center counts: ' . $e->getMessage());
     }
@@ -47,20 +61,20 @@ function reviewCenterCounts(PDO $pdo): array {
 }
 
 // The page-level button: every scholarship
-function reviewCenterButton(PDO $pdo): void {
-    $waiting = array_sum(reviewCenterCounts($pdo)); ?>
+function reviewCenterButton(PDO $pdo, string $set = 'applications'): void {
+    $waiting = $set === 'applications' ? array_sum(reviewCenterCounts($pdo)) : 0; ?>
     <button type="button" onclick="openReviewCenter()" class="relative bg-white border border-violet-200 text-violet-700 px-5 py-2.5 rounded-xl font-black text-[12px] uppercase tracking-widest hover:bg-violet-600 hover:text-white transition-all shadow-sm whitespace-nowrap">
-        ⚖️ Evaluation Center
+        <?= $set === 'scoring' ? '🎯 Scoring Rules' : '⚖️ Evaluation Center' ?>
         <?php if ($waiting > 0): ?><span class="ml-1 inline-block min-w-[20px] px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] text-center" title="<?= $waiting ?> waiting"><?= $waiting > 999 ? '999+' : $waiting ?></span><?php endif; ?>
     </button>
 <?php }
 
 // A scholarship card's button: just that scholarship
-function reviewCardButton(int $scholarship_id, string $extra_class = ''): void { ?>
-    <button type="button" onclick="openReviewCenter(<?= $scholarship_id ?>)" title="Workflow tasks, AI review and scoring for this scholarship" class="<?= htmlspecialchars($extra_class) ?> bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-600 hover:text-white px-5 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all shadow-sm">Evaluate ⚖️</button>
+function reviewCardButton(int $scholarship_id): void { ?>
+    <button type="button" onclick="openReviewCenter(<?= $scholarship_id ?>)" title="Scoring rules for this scholarship" class="bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-600 hover:text-white px-5 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all shadow-sm">Scoring 🎯</button>
 <?php }
 
-function reviewCenterModal(PDO $pdo): void {
+function reviewCenterModal(PDO $pdo, string $set = 'applications'): void {
     $role = $_SESSION['role'] ?? '';
     $sql = "SELECT s.ScholarshipID, s.Name FROM scholarship s LEFT JOIN users cu ON cu.UserID = s.CreatedBy";
     $params = [];
@@ -68,15 +82,17 @@ function reviewCenterModal(PDO $pdo): void {
     elseif ($role === 'External_Admin') { $sql .= ' WHERE s.CreatedBy = ?'; $params[] = (int) $_SESSION['user_id']; }
     $st = $pdo->prepare($sql . ' ORDER BY s.Name'); $st->execute($params);
     $scholarships = $st->fetchAll(PDO::FETCH_ASSOC);
-    $tabs = reviewCenterTabs();
-    $counts = reviewCenterCounts($pdo);
+    $tabs = reviewCenterTabs($set);
+    $counts = $set === 'applications' ? reviewCenterCounts($pdo) : [];
+    $title = $set === 'scoring' ? 'Scoring Rules' : 'Evaluation Center';
+    $intro = $set === 'scoring' ? 'How each scholarship is scored, without leaving this page.' : 'Review tasks, AI suggestions, conflicts and the waitlist without leaving this page.';
     ?>
     <div id="reviewCenter" class="fixed inset-0 z-[100010] hidden items-center justify-center bg-slate-900/60 backdrop-blur-sm p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="reviewCenterTitle">
         <div class="bg-white w-full max-w-6xl h-full max-h-[94vh] rounded-[1.5rem] shadow-2xl flex flex-col overflow-hidden">
             <div class="p-4 lg:px-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center gap-3 shrink-0">
                 <div class="flex-1 min-w-0">
-                    <h3 id="reviewCenterTitle" class="text-lg lg:text-xl font-black text-slate-900 tracking-tight">Evaluation Center</h3>
-                    <p class="text-xs font-medium text-slate-500">Review tasks, AI suggestions and scoring without leaving this page.</p>
+                    <h3 id="reviewCenterTitle" class="text-lg lg:text-xl font-black text-slate-900 tracking-tight"><?= $title ?></h3>
+                    <p class="text-xs font-medium text-slate-500"><?= $intro ?></p>
                 </div>
                 <select id="reviewCenterScope" onchange="reviewCenterSet(null, parseInt(this.value, 10) || 0)" aria-label="Scholarship" class="min-w-0 md:w-72 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none cursor-pointer">
                     <option value="0">All scholarships</option>
@@ -93,7 +109,7 @@ function reviewCenterModal(PDO $pdo): void {
             </div>
             <div class="relative flex-1 min-h-0 bg-slate-50">
                 <div id="reviewCenterLoading" class="absolute inset-0 flex items-center justify-center text-sm font-bold text-slate-400">Loading…</div>
-                <iframe id="reviewCenterFrame" title="Evaluation Center" class="relative w-full h-full border-0 bg-transparent"></iframe>
+                <iframe id="reviewCenterFrame" title="<?= $title ?>" class="relative w-full h-full border-0 bg-transparent"></iframe>
             </div>
         </div>
     </div>
@@ -103,6 +119,7 @@ function reviewCenterModal(PDO $pdo): void {
         const loading = document.getElementById('reviewCenterLoading'), scope = document.getElementById('reviewCenterScope');
         const firstTab = <?= json_encode(array_key_first($tabs)) ?>;
         let tab = firstTab, scholarship = 0;
+        let opening = false, changed = false;   // changed: something was saved inside, so the page behind is out of date
 
         function show() {
             document.querySelectorAll('[data-review-tab]').forEach(b => {
@@ -114,18 +131,24 @@ function reviewCenterModal(PDO $pdo): void {
             scope.value = String(scholarship);
             loading.classList.remove('hidden');
             frame.style.visibility = 'hidden';
+            opening = true;
             frame.src = tab + (scholarship ? '?scholarship_id=' + scholarship : '');
         }
-        frame.addEventListener('load', () => { if (frame.getAttribute('src')) { loading.classList.add('hidden'); frame.style.visibility = 'visible'; } });
+        frame.addEventListener('load', () => {
+            if (!frame.getAttribute('src')) return;
+            if (!opening) changed = true;
+            opening = false;
+            loading.classList.add('hidden'); frame.style.visibility = 'visible';
+        });
 
         window.reviewCenterSet = function (newTab, newScholarship) {
             if (newTab) tab = newTab;
             if (newScholarship !== undefined) scholarship = newScholarship;
             show();
         };
-        window.openReviewCenter = function (scholarshipId) {
+        window.openReviewCenter = function (scholarshipId, newTab) {
             scholarship = scholarshipId || 0;
-            tab = scholarshipId && tab === firstTab ? firstTab : tab;
+            if (newTab) tab = newTab;
             modal.classList.remove('hidden'); modal.classList.add('flex');
             document.body.style.overflow = 'hidden';
             show();
@@ -134,9 +157,18 @@ function reviewCenterModal(PDO $pdo): void {
             modal.classList.add('hidden'); modal.classList.remove('flex');
             document.body.style.overflow = '';
             frame.removeAttribute('src');
+            if (changed) location.reload();
         };
         modal.addEventListener('click', e => { if (e.target === modal) closeReviewCenter(); });
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeReviewCenter(); });
+
+        // Sent here with a tab to open (evaluationCenterUrl() in security_settings.php)
+        const url = new URL(location.href), wanted = url.searchParams.get('review');
+        if (wanted) {
+            url.searchParams.delete('review');
+            history.replaceState(null, '', url);
+            if (document.querySelector(`[data-review-tab="${CSS.escape(wanted)}"]`)) openReviewCenter(0, wanted);
+        }
     })();
     </script>
 <?php }

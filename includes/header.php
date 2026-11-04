@@ -189,7 +189,7 @@
         html.in-frame #main-sidebar, html.in-frame #mobile-overlay, html.in-frame .theme-top, html.in-frame #chatbotToggle, html.in-frame #chatWindow, html.in-frame #sessionWarn { display: none !important; }
         html.in-frame body > div.md\:hidden.fixed { display: none !important; }
         html.in-frame main[class] { width: 100% !important; margin-left: 0 !important; padding: 16px !important; min-height: 0 !important; background: transparent !important; }
-        html.in-frame main > div > header, html.in-frame main > div > .mb-8:first-child, html.in-frame main > div > h1, html.in-frame main > div > p { display: none; }
+        html.in-frame main > header, html.in-frame main > div > header, html.in-frame main > div > .mb-8:first-child, html.in-frame main > div > h1, html.in-frame main > div > p { display: none; }
 
         /* People who asked their system for less motion get none */
         @media (prefers-reduced-motion: reduce) {

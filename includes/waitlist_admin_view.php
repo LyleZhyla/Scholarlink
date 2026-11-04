@@ -5,6 +5,8 @@ $me = (int) ($_SESSION['user_id'] ?? 0);
 $where = '1=1'; $params = [];
 if ($role === 'Internal_Admin') $where = "(creator.Role IS NULL OR creator.Role IN ('Internal_Admin', 'Super_Admin'))";
 elseif ($role === 'External_Admin') { $where = 's.CreatedBy = ?'; $params[] = $me; }
+$scopeId = (int) ($_GET['scholarship_id'] ?? 0);   // from the Evaluation Center: one scholarship only
+if ($scopeId) { $where .= ' AND w.ScholarshipID = ?'; $params[] = $scopeId; }
 
 $stmt = $pdo->prepare("
     SELECT w.*, a.UserID, a.TotalScore, a.GPA, a.DateSubmitted, u.StudentID_Num, u.FirstName, u.LastName,

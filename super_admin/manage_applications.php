@@ -135,6 +135,8 @@ unset($versionedApplication);
                 <button type="button" onclick="openAnnexModal()" class="bg-green-600 text-white border border-green-700 px-4 py-2.5 rounded-xl text-[12px] font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-sm flex items-center gap-2 active:scale-95">
                     📊 CHED Annex 1 (Tulong Dunong)
                 </button>
+
+                <?php require_once __DIR__ . '/../includes/review_center.php'; reviewCenterButton($pdo); ?>
             </div>
         </div>
 
@@ -478,7 +480,7 @@ unset($versionedApplication);
                     <p id="aiQualDetails" class="text-[10px] font-bold text-slate-500 mt-2 leading-relaxed">Waiting for scan...</p>
                 </div>
                 <button type="button" onclick="document.getElementById('aiAnalysisResults').classList.add('hidden')" class="w-full bg-slate-900 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-md hover:bg-slate-800 transition-all active:scale-95">Dismiss</button>
-                <a href="ai_reviews.php" class="mt-2 block text-center text-[10px] font-black uppercase tracking-widest text-purple-700">Open manual review queue →</a>
+                <a href="ai_reviews.php" onclick="event.preventDefault(); openReviewCenter(0, 'ai_reviews.php');" class="mt-2 block text-center text-[10px] font-black uppercase tracking-widest text-purple-700">Open manual review queue →</a>
             </div>
 
             <div id="zoomControls" class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md p-2 rounded-2xl flex items-center gap-2 z-40 hidden shadow-2xl border border-white/10">
@@ -1033,4 +1035,6 @@ unset($versionedApplication);
 </script>
 
 <?php include '../includes/reports_modal.php'; ?>
+<?php reviewCenterModal($pdo); ?>
+
 <?php include '../includes/footer.php'; ?>

@@ -84,6 +84,8 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <button type="button" onclick="openAnnexModal()" class="bg-green-600 text-white border border-green-700 px-4 py-2.5 rounded-xl text-[12px] font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-sm flex items-center gap-2 active:scale-95">
                     📊 CHED Annex 1 (Tulong Dunong)
                 </button>
+
+                <?php require_once __DIR__ . '/../includes/review_center.php'; reviewCenterButton($pdo); ?>
             </div>
         </div>
 
@@ -910,4 +912,6 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 </script>
 <?php include '../includes/reports_modal.php'; ?>
+<?php reviewCenterModal($pdo); ?>
+
 <?php include '../includes/footer.php'; ?>

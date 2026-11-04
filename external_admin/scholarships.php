@@ -117,7 +117,7 @@ try {
             <p class="text-slate-500 text-sm lg:text-base font-medium mt-1">Create, edit, filter, and monitor official scholarship programs.</p>
         </div>
         <div class="flex flex-wrap items-center gap-3">
-            <?php require_once __DIR__ . '/../includes/review_center.php'; reviewCenterButton($pdo); ?>
+            <?php require_once __DIR__ . '/../includes/review_center.php'; reviewCenterButton($pdo, 'scoring'); ?>
             <button onclick="openCreateModal()" class="bg-slate-900 text-white px-6 py-2.5 rounded-xl font-black text-[12px] uppercase tracking-widest hover:bg-blue-600 transition-all shadow-xl shadow-slate-200 active:scale-[0.98]">
                 + Launch New
             </button>
@@ -251,7 +251,7 @@ try {
                     <a href="form_builder.php?id=<?= (int) $s['ScholarshipID'] ?>" class="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-600 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="Design the application form students fill in">
                         Design Form 📝
                     </a>
-                    <?php reviewCardButton((int) $s['ScholarshipID'], ''); ?>
+                    <?php reviewCardButton((int) $s['ScholarshipID']); ?>
                     <a href="workflow_builder.php?id=<?= (int) $s['ScholarshipID'] ?>" class="bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-600 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="Configure sponsor-specific approval stages">Workflow</a>
                     <a href="configuration_versions.php?id=<?= (int) $s['ScholarshipID'] ?>" class="bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-800 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="View immutable requirements and form versions">Versions</a>
                     <a href="award_notice.php?id=<?= (int) $s['ScholarshipID'] ?>" class="bg-green-50 text-green-700 border border-green-200 hover:bg-green-600 hover:text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 shrink-0 whitespace-nowrap" title="What approved scholars must still submit (sent with their Approval Notice)">
@@ -759,6 +759,6 @@ try {
         if(modal) { modal.classList.add('hidden'); modal.classList.remove('flex'); }
     }
 </script>
-<?php reviewCenterModal($pdo); ?>
+<?php reviewCenterModal($pdo, 'scoring'); ?>
 
 <?php include '../includes/footer.php'; ?>
