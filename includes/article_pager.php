@@ -5,7 +5,7 @@
 (function () {
     const items = Array.from(document.querySelectorAll('main article'));
     if (items.length <= 5) return;
-    const LABELS = { stage: 'All stages', status: 'All application statuses', course: 'All courses', review: 'All review statuses', result: 'All AI results', document: 'All documents', resolution: 'All resolutions', scholarship: 'All scholarships', waitlist: 'All waitlist states', slots: 'All slot states' };
+    const LABELS = { stage: 'All stages', status: 'All application statuses', course: 'All courses', review: 'All review statuses', result: 'All AI results', document: 'All documents', resolution: 'All resolutions', category: 'All categories', scholarship: 'All scholarships', waitlist: 'All waitlist states', slots: 'All slot states' };
     const SIZES = [5, 10, 25, 50];
     const STATE_KEY = 'scholarlink_list_' + location.pathname, SIZE_KEY = 'scholarlink_list_size';
     const read = (store, key) => { try { return store.getItem(key); } catch (e) { return null; } };

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/waitlist.php';
+require_once __DIR__ . '/scholarship_categories.php';
 
 // The Waitlist tab of Manage Applications: every scholarship this admin manages, those with people waiting first.
 // Search, filters and "Show 5/10/25/50" come from article_pager.php. Messages after an action appear as the footer's toast.
@@ -10,10 +11,10 @@ $where = '1=1'; $params = [];
 if ($role === 'Internal_Admin') $where = "(creator.Role IS NULL OR creator.Role IN ('Internal_Admin', 'Super_Admin'))";
 elseif ($role === 'External_Admin') { $where = 's.CreatedBy = ?'; $params[] = $me; }
 
-$stmt = $pdo->prepare("SELECT s.ScholarshipID, s.Name FROM scholarship s LEFT JOIN users creator ON creator.UserID = s.CreatedBy WHERE $where ORDER BY s.Name");
+$stmt = $pdo->prepare("SELECT s.ScholarshipID, s.Name, s.Category FROM scholarship s LEFT JOIN users creator ON creator.UserID = s.CreatedBy WHERE $where ORDER BY s.Name");
 $stmt->execute($params);
 $groups = [];
-foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $scholarship) $groups[(int) $scholarship['ScholarshipID']] = ['name' => $scholarship['Name'], 'waitlist' => [], 'holders' => []];
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $scholarship) $groups[(int) $scholarship['ScholarshipID']] = ['name' => $scholarship['Name'], 'category' => $scholarship['Category'] ?: DEFAULT_SCHOLARSHIP_CATEGORY, 'waitlist' => [], 'holders' => []];
 
 $stmt = $pdo->prepare("
     SELECT w.*, a.UserID, a.TotalScore, a.GPA, a.DateSubmitted, u.StudentID_Num, u.FirstName, u.LastName
@@ -48,8 +49,8 @@ uasort($groups, fn($a, $b) => ($a['state'] === 'Nobody waiting') <=> ($b['state'
         $capacity = scholarshipVacancies($pdo, $scholarship_id, true);
         $next_waiting = null; foreach ($list as $candidate) if ($candidate['Status'] === 'Waiting') { $next_waiting = (int) $candidate['WaitlistID']; break; }
     ?>
-        <article data-filter-scholarship="<?= htmlspecialchars($name) ?>" data-filter-waitlist="<?= $group['state'] ?>" data-filter-slots="<?= $capacity['vacancies'] > 0 ? 'Has vacant slots' : 'Slots full' ?>" class="bg-white border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
-            <div class="p-6 lg:p-8 bg-slate-900 text-white flex flex-col md:flex-row justify-between gap-4"><div><p class="text-[10px] font-black text-blue-300 uppercase tracking-widest">Scholarship</p><h3 class="text-xl font-black mt-1"><?= htmlspecialchars($name) ?></h3></div><div class="flex gap-6"><div><p class="text-[10px] font-black text-slate-400 uppercase">Filled</p><p class="text-xl font-black"><?= $capacity['approved'] ?> / <?= $capacity['slots'] ?></p></div><div><p class="text-[10px] font-black text-slate-400 uppercase">Unreserved Vacancies</p><p class="text-xl font-black <?= $capacity['vacancies'] > 0 ? 'text-green-400' : 'text-amber-400' ?>"><?= $capacity['vacancies'] ?></p></div></div></div>
+        <article data-filter-category="<?= htmlspecialchars($group['category']) ?>" data-filter-scholarship="<?= htmlspecialchars($name) ?>" data-filter-waitlist="<?= $group['state'] ?>" data-filter-slots="<?= $capacity['vacancies'] > 0 ? 'Has vacant slots' : 'Slots full' ?>" class="bg-white border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
+            <div class="p-6 lg:p-8 bg-slate-900 text-white flex flex-col md:flex-row justify-between gap-4"><div><p class="text-[10px] font-black text-blue-300 uppercase tracking-widest"><?= htmlspecialchars(categoryLabel($group['category'])) ?></p><h3 class="text-xl font-black mt-1"><?= htmlspecialchars($name) ?></h3></div><div class="flex gap-6"><div><p class="text-[10px] font-black text-slate-400 uppercase">Filled</p><p class="text-xl font-black"><?= $capacity['approved'] ?> / <?= $capacity['slots'] ?></p></div><div><p class="text-[10px] font-black text-slate-400 uppercase">Unreserved Vacancies</p><p class="text-xl font-black <?= $capacity['vacancies'] > 0 ? 'text-green-400' : 'text-amber-400' ?>"><?= $capacity['vacancies'] ?></p></div></div></div>
             <?php if (!$list): ?><p class="p-5 lg:p-6 text-sm font-medium text-slate-500">Nobody is on this waitlist.</p><?php endif; ?>
             <div class="divide-y divide-slate-100">
             <?php foreach ($list as $candidate): ?>
