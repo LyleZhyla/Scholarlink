@@ -1,4 +1,6 @@
 <?php
+// Empties the scholarship tables: command line only, never from a browser
+if (PHP_SAPI !== 'cli') { http_response_code(403); exit('Forbidden'); }
 require 'includes/db_connect.php';
 
 try {

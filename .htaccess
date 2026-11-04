@@ -25,3 +25,11 @@ Options -Indexes
 <FilesMatch "^Two-factor authentication">
     Require all denied
 </FilesMatch>
+
+# Scripts that empty database tables, and a leftover from another project
+<FilesMatch "^(seed_.*|db_stats)\.php$">
+    Require all denied
+</FilesMatch>
+
+# Hidden folders (.git holds the code and its full history, .vscode the editor settings)
+RedirectMatch 404 "/\.[^/]+(/|$)"
