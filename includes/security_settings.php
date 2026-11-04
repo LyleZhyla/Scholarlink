@@ -6,7 +6,7 @@
 //   session_timeout  → inactive users are signed out after this many seconds (server and browser)
 
 const SESSION_TIMEOUT_OPTIONS = [180 => '3 Minutes', 300 => '5 Minutes', 600 => '10 Minutes', 900 => '15 Minutes', 1800 => '30 Minutes'];
-const DEFAULT_SESSION_TIMEOUT = 600;
+const DEFAULT_SESSION_TIMEOUT = 1800;
 const TWO_FA_CODE_LIFETIME = 300;    // seconds
 const TWO_FA_MAX_ATTEMPTS = 5;
 const DEFAULT_ABSOLUTE_SESSION_TIMEOUT = 28800;
@@ -92,6 +92,24 @@ function recoveryRequestAllowed(PDO $pdo, string $identifier): bool {
     if($row)$pdo->prepare('UPDATE security_rate_limits SET AttemptCount=?,WindowStartedAt=IF(?>1,WindowStartedAt,NOW()),LastAttemptAt=NOW(),LockedUntil=? WHERE RateLimitID=?')->execute([$count,$count,$lock,$row['RateLimitID']]);
     else $pdo->prepare("INSERT INTO security_rate_limits(Scope,IdentifierHash,IPAddress,AttemptCount,LockedUntil) VALUES('Recovery',?,?,?,?)")->execute([$hash,$ip,$count,$lock]);
     return $count <= $max;
+}
+
+// Allows $max requests per $seconds for this scope, identifier and address; false once they are used up
+function rateLimitAllowed(PDO $pdo, string $scope, string $identifier, int $max, int $seconds): bool {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'Unknown'; $hash = securityIdentifierHash($identifier);
+    $s = $pdo->prepare('SELECT RateLimitID,AttemptCount,WindowStartedAt,LockedUntil FROM security_rate_limits WHERE Scope=? AND IdentifierHash=? AND IPAddress=?');
+    $s->execute([$scope, $hash, $ip]); $row = $s->fetch(PDO::FETCH_ASSOC);
+    if ($row && !empty($row['LockedUntil']) && strtotime($row['LockedUntil']) > time()) return false;
+    $count = (!$row || strtotime($row['WindowStartedAt']) < time() - $seconds) ? 1 : (int) $row['AttemptCount'] + 1;
+    $lock = $count > $max ? date('Y-m-d H:i:s', time() + $seconds) : null;
+    if ($row) $pdo->prepare('UPDATE security_rate_limits SET AttemptCount=?,WindowStartedAt=IF(?>1,WindowStartedAt,NOW()),LastAttemptAt=NOW(),LockedUntil=? WHERE RateLimitID=?')->execute([$count, $count, $lock, $row['RateLimitID']]);
+    else $pdo->prepare('INSERT INTO security_rate_limits(Scope,IdentifierHash,IPAddress,AttemptCount,LockedUntil) VALUES(?,?,?,?,?)')->execute([$scope, $hash, $ip, $count, $lock]);
+    return $count <= $max;
+}
+
+// Letters (any language), spaces, and . ' - only, so a name can never carry page code
+function validPersonName(string $name): bool {
+    return $name === '' || (mb_strlen($name) <= 80 && preg_match("/^[\p{L}\p{M}][\p{L}\p{M} .'’\-]*$/u", $name) === 1);
 }
 
 function providerAccessMessage(array $user): ?string {

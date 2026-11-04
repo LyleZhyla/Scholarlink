@@ -90,7 +90,7 @@ $vaultDocs = $vault_stmt->fetchAll(PDO::FETCH_ASSOC);
             <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Academic Profile</h3>
             <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Declared GWA / GPA</label>
-                <input type="number" step="0.01" name="gpa" id="modalGpa" value="<?= htmlspecialchars($draftApplication['GPA'] ?? $student['GPA'] ?? '') ?>" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-colors">
+                <input type="number" step="0.01" name="gpa" readonly title="Verified from your Report of Grades" id="modalGpa" value="<?= htmlspecialchars($draftApplication['GPA'] ?? $student['GPA'] ?? '') ?>" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-colors">
             </div>
         </div>
 

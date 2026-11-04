@@ -5,7 +5,7 @@ $stageStmt = $pdo->prepare('SELECT * FROM scholarship_workflow_stages WHERE Scho
 $stageStmt->execute([$scholarship['ScholarshipID']]);
 $workflowStages = $stageStmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="../assets/lib/fontawesome/css/all.min.css">
 <main class="flex-1 p-5 lg:p-10 lg:ml-72 bg-slate-50 min-h-screen">
   <div class="max-w-6xl mx-auto">
     <header class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">

@@ -103,8 +103,8 @@ function content_value($cms, $defaults, $key, $field) {
     <?php csrfHead(); // security token for this page's forms (includes/security_settings.php) ?>
     <link rel="icon" type="image/png" href="assets/img/tau_logo.png">
 
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="assets/lib/fonts/fonts.css" rel="stylesheet">
+    <link rel="stylesheet" href="assets/lib/fontawesome/css/all.min.css">
 
     <style>
         :root {

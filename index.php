@@ -102,14 +102,13 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true && isset($_
 }
 
 $heroSlides = [
-    'https://images.unsplash.com/photo-1523580846011-d3a5bc25702b?auto=format&fit=crop&w=1800&q=80',
-    'https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&w=1800&q=80',
-    'https://images.unsplash.com/photo-1517048676732-d65bc937f952?auto=format&fit=crop&w=1800&q=80'
+    'assets/img/photos/photo-1523580846011-d3a5bc25702b.jpg',
+    'assets/img/photos/photo-1562774053-701939374585.jpg',
+    'assets/img/photos/photo-1517048676732-d65bc937f952.jpg'
 ];
 
 function getProgramImage($programName = '', $scholarshipName = '', $yearLevel = '') {
     $text = strtolower(($programName ?? '') . ' ' . ($scholarshipName ?? '') . ' ' . ($yearLevel ?? ''));
-    $params = '?auto=format&fit=crop&w=800&q=80';
 
     // 1. HIGH-PRIORITY SPECIFIC SCHOLARSHIPS & LOCAL OVERRIDES
     if (strpos($text, 'indigenous') !== false || strpos($text, 'ip student') !== false || preg_match('/\bip\b/', $text)) {
@@ -119,47 +118,47 @@ function getProgramImage($programName = '', $scholarshipName = '', $yearLevel = 
         return 'assets/img/rotc_cadet.jpg';
     }
     if (strpos($text, 'athlete') !== false || strpos($text, 'sport') !== false) {
-        return 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211' . $params;
+        return 'assets/img/photos/photo-1461896836934-ffe607ba8211.jpg';
     }
     if (strpos($text, 'cultural') !== false || strpos($text, 'performer') !== false) {
-        return 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819' . $params;
+        return 'assets/img/photos/photo-1514525253161-7a46d19cd819.jpg';
     }
     if (strpos($text, 'golden harvest') !== false || strpos($text, 'publication') !== false) {
-        return 'https://images.unsplash.com/photo-1504711434969-e33886168f5c' . $params;
+        return 'assets/img/photos/photo-1504711434969-e33886168f5c.jpg';
     }
     if (strpos($text, 'leadership') !== false || strpos($text, 'ssc') !== false || strpos($text, 'csc') !== false) {
-        return 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac' . $params;
+        return 'assets/img/photos/photo-1529156069898-49953e39b3ac.jpg';
     }
 
     // 2. DEGREE PROGRAM MATCHING
     if (strpos($text, 'information technology') !== false || strpos($text, 'computer') !== false || strpos($text, 'bsit') !== false) {
-        return 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97' . $params;
+        return 'assets/img/photos/photo-1517694712202-14dd9538aa97.jpg';
     }
     if (strpos($text, 'agri') !== false || strpos($text, 'forest') !== false) {
-        return 'https://images.unsplash.com/photo-1625246333195-78d9c38ad449' . $params;
+        return 'assets/img/photos/photo-1625246333195-78d9c38ad449.jpg';
     }
     if (strpos($text, 'engineer') !== false || strpos($text, 'geodetic') !== false || strpos($text, 'builder') !== false) {
-        return 'https://images.unsplash.com/photo-1581092160562-40aa08e78837' . $params;
+        return 'assets/img/photos/photo-1581092160562-40aa08e78837.jpg';
     }
     if (strpos($text, 'vet') !== false || strpos($text, 'animal science') !== false || strpos($text, 'bounty') !== false || strpos($text, 'philchema') !== false) {
-        return 'https://images.unsplash.com/photo-1516467508483-a7212febe31a' . $params;
+        return 'assets/img/photos/photo-1516467508483-a7212febe31a.jpg';
     }
     if (strpos($text, 'education') !== false || strpos($text, 'teach') !== false) {
-        return 'https://images.unsplash.com/photo-1524178232363-1fb2b075b655' . $params;
+        return 'assets/img/photos/photo-1524178232363-1fb2b075b655.jpg';
     }
     if (strpos($text, 'business') !== false || strpos($text, 'economics') !== false || strpos($text, 'entrepreneur') !== false) {
-        return 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40' . $params;
+        return 'assets/img/photos/photo-1454165804606-c3d57bc86b40.jpg';
     }
 
     // 3. LOW-PRIORITY YEAR LEVEL & GENERIC FALLBACKS
     if (strpos($text, 'camileño') !== false || strpos($text, 'graduating') !== false || strpos($text, '4th year') !== false) {
-        return 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1' . $params;
+        return 'assets/img/photos/photo-1562774053-701939374585.jpg';
     }
     if (strpos($text, 'dinos') !== false || strpos($text, 'tolentino') !== false || strpos($text, '1st year') !== false) {
-        return 'https://images.unsplash.com/photo-1523240795612-9a054b0db644' . $params;
+        return 'assets/img/photos/photo-1523240795612-9a054b0db644.jpg';
     }
 
-    return 'https://images.unsplash.com/photo-1562774053-701939374585' . $params;
+    return 'assets/img/photos/photo-1562774053-701939374585.jpg';
 }
 
 function scholarship_status_meta($status, $deadline = null) {
@@ -237,9 +236,9 @@ if ($is_logged_in) {
     <meta name="theme-color" content="#198754">
     <link rel="apple-touch-icon" href="assets/img/tau_logo.png">
     
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="assets/lib/fonts/fonts.css" rel="stylesheet">
+    <link rel="stylesheet" href="assets/lib/fontawesome/css/all.min.css">
+    <script src="assets/lib/tailwind.js"></script>
     
     <style>
         :root {
@@ -1320,7 +1319,7 @@ if ($is_logged_in) {
         })();
         let heroLayer = 0, heroBgUrl = '';
         // A missing picture falls back to the campus photo instead of leaving the hero blank
-        const HERO_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&w=1800&q=80';
+        const HERO_FALLBACK_IMAGE = 'assets/img/photos/photo-1562774053-701939374585.jpg';
         const heroImageOk = new Map();   // url → Promise<url that loads>
         function heroUsableImage(url) {
             if (!heroImageOk.has(url)) {

@@ -64,8 +64,8 @@ if ($flash): ?>
 <?php include __DIR__ . '/session_timer.php'; ?>
 
 <!-- Pinned: "@latest" let a new release change every admin table without warning -->
-<link href="https://cdn.jsdelivr.net/npm/simple-datatables@10.3.0/dist/style.css" rel="stylesheet" type="text/css">
-<script src="https://cdn.jsdelivr.net/npm/simple-datatables@10.3.0" type="text/javascript"></script>
+<link href="../assets/lib/simple-datatables/style.css" rel="stylesheet" type="text/css">
+<script src="../assets/lib/simple-datatables/simple-datatables.js" type="text/javascript"></script>
 <style>
     .dataTable-wrapper { font-family: 'Inter', sans-serif; }
     .dataTable-input { border-radius: 0.75rem; border: 1px solid #e2e8f0; padding: 0.5rem 1rem; font-size: 0.875rem; outline: none; }

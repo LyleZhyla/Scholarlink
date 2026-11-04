@@ -20,6 +20,12 @@ register_shutdown_function(function() {
 
 require_once __DIR__ . '/../includes/rog_scanner.php';
 
+// Open before sign-in because registering needs it, and every scan uses the Google quota: limited per address
+if (!rateLimitAllowed($pdo, 'GradesScan', 'all', 20, 600)) {
+    echo json_encode(['success' => false, 'error' => 'Too many scans. Please wait a few minutes and try again.']);
+    exit;
+}
+
 try {
     // Validate File Upload & Catch PHP INI Size Limits
     if (!isset($_FILES['rog_pdf'])) {

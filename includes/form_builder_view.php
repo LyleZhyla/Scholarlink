@@ -67,7 +67,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 ?>
 
 <!-- The admin header doesn't load Font Awesome; the builder's icons need it -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="../assets/lib/fontawesome/css/all.min.css">
 
 <style>
     /* ---- question blocks (shown as the student sees them) ---- */
@@ -389,7 +389,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 </div>
 
 <!-- pdf.js renders the official PDF inside the designer -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="../assets/lib/pdfjs/pdf.min.js"></script>
 <script>
     const FB_SCHOLARSHIP_ID =<?= (int) $scholarship['ScholarshipID'] ?>;
     const FB_TYPES = <?= json_encode($field_types) ?>;
@@ -579,7 +579,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     //    move / resize / delete the PDF's own fields.
     //  - Edit content: delete or replace printed text, erase any area, add new text.
     // Everything applies to this scholarship only; positions are fractions of the page (top-left origin).
-    const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const PDFJS_WORKER = '../assets/lib/pdfjs/pdf.worker.min.js';
     // Single quotes inside: these go into style="..." attributes
     const PD_FONTS = { Helvetica: "Arial, Helvetica, sans-serif", Times: "'Times New Roman', Times, serif", Courier: "'Courier New', Courier, monospace" };
     let pdDocFile = null;

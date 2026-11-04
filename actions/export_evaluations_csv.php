@@ -35,10 +35,10 @@ try {
         FROM application a
         JOIN users u ON a.UserID = u.UserID
         JOIN scholarship sch ON a.ScholarshipID = sch.ScholarshipID
-        WHERE 1=1
+        WHERE sch.CreatedBy = :me
     ";
     
-    $params = [];
+    $params = ['me' => $_SESSION['user_id']];
 
     if (!empty($scholarship_id)) {
         $query .= " AND a.ScholarshipID = :sid";

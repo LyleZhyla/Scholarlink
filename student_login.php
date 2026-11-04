@@ -22,8 +22,8 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Login - ScholarLink</title>
     <?php require_once __DIR__ . '/includes/theme.php'; themeHead(); ?>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="assets/lib/tailwind.js"></script>
+    <link href="assets/lib/fonts/fonts.css" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
         .modal-active { display: flex !important; animation: fadeIn 0.2s ease-out forwards; }
@@ -35,7 +35,7 @@ try {
     <div class="bg-white w-full max-w-7xl rounded-[1.5rem] md:rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 flex overflow-hidden min-h-[85vh] md:min-h-[80vh]">
         
         <div class="w-1/2 bg-slate-900 p-16 flex flex-col justify-between relative overflow-hidden hidden md:flex">
-            <img src="https://images.unsplash.com/photo-1541339907198-e08756defefe?q=80&w=1470" class="absolute inset-0 w-full h-full object-cover opacity-20">
+            <img src="assets/img/photos/photo-1562774053-701939374585.jpg" class="absolute inset-0 w-full h-full object-cover opacity-20">
             <div class="absolute inset-0 bg-gradient-to-b from-green-600/50 to-slate-900/90 z-10"></div>
             <div class="relative z-20">
                 <a href="index.php"><img src="assets/img/tau_logo.png" alt="TAU Logo" class="h-28 w-auto mb-10"></a>

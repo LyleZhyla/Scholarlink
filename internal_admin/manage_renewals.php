@@ -296,6 +296,7 @@ $history_renewals = $pdo->query($history_query)->fetchAll(PDO::FETCH_ASSOC);
 </div>
 
 <script>
+    const renewalEsc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
     // TAB SWITCHING LOGIC
     function switchTab(tab) {
         if(tab === 'active') {
@@ -347,17 +348,17 @@ $history_renewals = $pdo->query($history_query)->fetchAll(PDO::FETCH_ASSOC);
                 <div class="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                     <div class="flex items-center gap-4 w-full md:w-1/3">
                         <div class="w-10 h-10 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center font-black text-sm shrink-0">
-                            ${r.FirstName.charAt(0)}
+                            ${renewalEsc(r.FirstName.charAt(0))}
                         </div>
                         <div class="min-w-0">
-                            <h3 class="text-sm font-black text-slate-900 leading-tight truncate">${r.LastName}, ${r.FirstName}</h3>
-                            <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 truncate">${r.TermName}</p>
+                            <h3 class="text-sm font-black text-slate-900 leading-tight truncate">${renewalEsc(r.LastName)}, ${renewalEsc(r.FirstName)}</h3>
+                            <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 truncate">${renewalEsc(r.TermName)}</p>
                         </div>
                     </div>
                     <div class="flex items-center gap-6 w-full md:w-auto">
                         <div class="text-left md:text-center">
                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Program</p>
-                            <p class="text-[11px] font-bold text-slate-700 truncate max-w-[120px]">${r.ScholarshipName}</p>
+                            <p class="text-[11px] font-bold text-slate-700 truncate max-w-[120px]">${renewalEsc(r.ScholarshipName)}</p>
                         </div>
                         <div class="w-24 text-right">
                             <span class="inline-flex items-center justify-center w-full px-2 py-1 rounded-md ${badgeClass} text-[9px] font-black uppercase tracking-widest border">

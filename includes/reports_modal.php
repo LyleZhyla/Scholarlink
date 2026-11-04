@@ -27,7 +27,7 @@ if ($rm_scope) {
     }
 }
 ?>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="../assets/lib/fontawesome/css/all.min.css">
 
 <div id="reportsModal" onclick="if (event.target === this) closeReportsModal()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[10000] hidden items-start justify-center p-4 overflow-y-auto">
     <div class="bg-white w-full max-w-6xl rounded-[2rem] shadow-2xl my-6 overflow-hidden">

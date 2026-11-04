@@ -321,7 +321,7 @@ function getProgressColor($status) {
 
             <div class="mb-8">
                 <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Update GWA / GPA</label>
-                <input type="number" step="0.01" name="gpa" id="editModalGpa" required class="w-full md:w-1/3 p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-colors">
+                <input type="number" step="0.01" name="gpa" readonly title="Verified from your Report of Grades" id="editModalGpa" required class="w-full md:w-1/3 p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-colors">
             </div>
 
             <div class="border-t border-slate-100 pt-8 mb-8">

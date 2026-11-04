@@ -11,7 +11,7 @@ header("Pragma: no-cache");
 
 // --- THE SECURITY GATEKEEPER ---
 if (!isset($_SESSION['logged_in']) || strtolower(trim($_SESSION['role'] ?? '')) !== 'student') { 
-    header("Location: /student_login.php"); 
+    header("Location: ../student_login.php"); 
     exit(); 
 }
 include '../includes/db_connect.php'; 

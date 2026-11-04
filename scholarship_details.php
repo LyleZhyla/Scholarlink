@@ -10,7 +10,6 @@ $user_id = $_SESSION['user_id'] ?? null;
 
 function getScholarshipImage($programName, $scholarshipName) {
     $combined = strtolower(($programName ?? '') . ' ' . ($scholarshipName ?? ''));
-    $params = '?auto=format&fit=crop&w=1200&q=80';
 
     // Local Image Overrides
     if (strpos($combined, 'indigenous') !== false || strpos($combined, 'ip student') !== false || preg_match('/\bip\b/', $combined)) {
@@ -33,18 +32,18 @@ function getScholarshipImage($programName, $scholarshipName) {
         'photo-1524178232363-1fb2b075b655' => ['education', 'teacher', 'teaching', 'beed', 'bsed'],
         'photo-1454165804606-c3d57bc86b40' => ['business', 'entrepreneur', 'economics', 'management'],
         'photo-1523240795612-9a054b0db644' => ['academic scholars', 'full', 'partial', 'honor', 'merit', 'dinos', 'tolentino'],
-        'photo-1523050854058-8df90110c9f1' => ['tertiary educational subsidy', 'tes', 'tulong dunong', 'dost', 'subsidy', 'camileño', 'graduating']
+        'photo-1562774053-701939374585' => ['tertiary educational subsidy', 'tes', 'tulong dunong', 'dost', 'subsidy', 'camileño', 'graduating']
     ];
 
     foreach ($categories as $photoId => $keywords) {
         foreach ($keywords as $kw) {
             if (strpos($combined, $kw) !== false) {
-                return 'https://images.unsplash.com/' . $photoId . $params;
+                return 'assets/img/photos/' . $photoId . '.jpg';
             }
         }
     }
 
-    return 'https://images.unsplash.com/photo-1562774053-701939374585' . $params;
+    return 'assets/img/photos/photo-1562774053-701939374585.jpg';
 }
 
 // 1. FETCH SCHOLARSHIP DETAILS & SPONSOR INFO
@@ -199,9 +198,9 @@ try {
     <meta name="twitter:title" content="<?= htmlspecialchars($share_title) ?>">
     <meta name="twitter:description" content="<?= htmlspecialchars($share_desc) ?>">
     <meta name="twitter:image" content="<?= htmlspecialchars($share_image) ?>">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="assets/lib/fonts/fonts.css" rel="stylesheet">
+    <link rel="stylesheet" href="assets/lib/fontawesome/css/all.min.css">
+    <script src="assets/lib/tailwind.js"></script>
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #0f172a; }
         .glass-panel { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(10px); border: 1px solid #e2e8f0; }

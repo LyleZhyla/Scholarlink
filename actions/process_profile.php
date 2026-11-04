@@ -43,6 +43,9 @@ try {
         $personal[$col] = trim((string) ($_POST[$field] ?? ''));
     }
     if ($personal['FirstName'] === '' || $personal['LastName'] === '') $back('error', 'First name and last name are required.');
+    foreach (['FirstName', 'MiddleName', 'LastName', 'ExtName'] as $name_part) {
+        if (!validPersonName($personal[$name_part])) $back('error', "Names can only contain letters, spaces, periods, apostrophes and hyphens.");
+    }
     if ($personal['Gender'] === '') $personal['Gender'] = 'Not Specified';
     if ($personal['Citizenship'] === '') $personal['Citizenship'] = 'Filipino';
     if ($personal['DateOfBirth'] !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $personal['DateOfBirth'])) $back('error', 'Please enter a valid date of birth.');

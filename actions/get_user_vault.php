@@ -13,7 +13,16 @@ if (!isset($_SESSION['logged_in'])) {
 if ($_SESSION['role'] === 'Student') {
     $user_id = $_SESSION['user_id'];
 } else {
-    $user_id = $_GET['user_id'] ?? 0;
+    $user_id = (int) ($_GET['user_id'] ?? 0);
+    if ($_SESSION['role'] === 'External_Admin') {
+        $own = $pdo->prepare('SELECT COUNT(*) FROM application a JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID WHERE a.UserID = ? AND s.CreatedBy = ?');
+        $own->execute([$user_id, $_SESSION['user_id']]);
+        if (!$own->fetchColumn()) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden']);
+            exit();
+        }
+    }
 }
 
 try {

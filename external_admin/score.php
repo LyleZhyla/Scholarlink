@@ -143,6 +143,7 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
     <div id="conflictModal" class="fixed inset-0 bg-slate-900/60 z-[10001] hidden items-center justify-center p-4"><form action="../actions/process_evaluation_conflict.php" method="post" class="bg-white rounded-3xl p-7 w-full max-w-lg shadow-2xl"><input type="hidden" name="application_id" id="conflictAppId"><h3 class="text-xl font-black">Disclose Conflict of Interest</h3><p id="conflictApplicant" class="text-sm text-slate-500 mt-1"></p><label class="block mt-5 text-xs font-black uppercase text-slate-500">Prohibited relationship<select name="relationship_type" required class="mt-2 w-full p-3 rounded-xl border border-slate-200"><option value="">Select…</option><option>Relative</option><option>Personally Known</option><option>Financial or Business Interest</option><option>Other Prohibited Relationship</option></select></label><label class="block mt-4 text-xs font-black uppercase text-slate-500">Explanation<textarea name="details" minlength="10" required rows="4" class="mt-2 w-full p-3 rounded-xl border border-slate-200"></textarea></label><div class="flex justify-end gap-3 mt-5"><button type="button" onclick="closeConflictModal()" class="px-5 py-3 font-black text-slate-500">Cancel</button><button class="px-5 py-3 rounded-xl bg-red-600 text-white font-black">Disclose and withdraw</button></div></form></div>
 
     <script>
+    const scoreEsc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
     let scoringData = [];
     let currentPage = 1;
     let itemsPerPage = parseInt(document.getElementById('itemsPerPage')?.value) || 10;
@@ -172,17 +173,17 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="flex-1 min-w-0 pr-4 lg:pr-8 pl-3 w-full lg:w-auto">
                         <div class="flex items-center gap-3 mb-1.5 flex-wrap">
                             <span class="bg-green-50 text-green-700 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border border-green-200 shrink-0">Awaiting Score</span>
-                            <h4 class="text-base font-black text-slate-900 truncate">${app.FirstName} ${app.LastName}</h4>
+                            <h4 class="text-base font-black text-slate-900 truncate">${scoreEsc(app.FirstName)} ${scoreEsc(app.LastName)}</h4>
                         </div>
                         <div class="flex items-center gap-2 text-xs font-medium text-slate-500 truncate">
-                            <span class="text-slate-700 font-bold">ID: ${app.StudentID_Num || 'N/A'}</span>
+                            <span class="text-slate-700 font-bold">ID: ${scoreEsc(app.StudentID_Num || 'N/A')}</span>
                             <span class="hidden md:inline">•</span>
-                            <span class="truncate hidden md:inline">${app.YearLevel || 'N/A'}</span>
+                            <span class="truncate hidden md:inline">${scoreEsc(app.YearLevel || 'N/A')}</span>
                         </div>
                     </div>
 
                     <div class="hidden md:flex items-center justify-center px-6 border-x border-slate-100 shrink-0 min-w-[200px]">
-                        <span class="text-[11px] font-black text-blue-600 uppercase tracking-widest truncate">${app.scholarship_name}</span>
+                        <span class="text-[11px] font-black text-blue-600 uppercase tracking-widest truncate">${scoreEsc(app.scholarship_name)}</span>
                     </div>
 
                     <div class="mt-4 lg:mt-0 flex items-center justify-end w-full lg:w-auto shrink-0 gap-3 pl-0 lg:pl-6">
@@ -231,7 +232,7 @@ $scholarships = $sch_stmt->fetchAll(PDO::FETCH_ASSOC);
         document.getElementById('scoreGrid').scrollIntoView({ behavior: 'smooth' });
     }
 
-    function openConflictModal(appId){const app=scoringData.find(a=>a.ApplicationID==appId);if(!app)return;document.getElementById('conflictAppId').value=appId;document.getElementById('conflictApplicant').innerText=`${app.FirstName} ${app.LastName} · ${app.scholarship_name}`;document.getElementById('conflictModal').classList.remove('hidden');document.getElementById('conflictModal').classList.add('flex');}
+    function openConflictModal(appId){const app=scoringData.find(a=>a.ApplicationID==appId);if(!app)return;document.getElementById('conflictAppId').value=appId;document.getElementById('conflictApplicant').innerText=`${app.FirstName} ${app.LastName} · ${scoreEsc(app.scholarship_name)}`;document.getElementById('conflictModal').classList.remove('hidden');document.getElementById('conflictModal').classList.add('flex');}
     function closeConflictModal(){document.getElementById('conflictModal').classList.add('hidden');document.getElementById('conflictModal').classList.remove('flex');}
 
     function changeItemsPerPage() {

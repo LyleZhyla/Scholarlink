@@ -48,6 +48,43 @@ function replaceApplicationAnswers(PDO $pdo, int $application_id, array $field_i
     foreach ($answers as $field_id => $answer) $insert->execute([$application_id, $field_id, $answer]);
 }
 
+// Why this student can't apply to this scholarship, or null. The same rules as the scholarship page and the apply form,
+// checked on the server so an old page or a forged form can't skip them.
+function applicationBlocker(PDO $pdo, int $scholarship_id, int $user_id): ?string {
+    $st = $pdo->prepare('SELECT * FROM scholarship WHERE ScholarshipID = ?');
+    $st->execute([$scholarship_id]);
+    $s = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$s || ($s['Status'] ?? '') !== 'Active' || strtotime((string) $s['Deadline']) < strtotime(date('Y-m-d'))) return 'This scholarship is no longer accepting applications.';
+
+    $st = $pdo->prepare('SELECT GPA, YearLevel, Major, ProgramID, Gender, UnitsEnrolled FROM users WHERE UserID = ?');
+    $st->execute([$user_id]);
+    $u = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$u) return 'Account not found.';
+
+    $gwa = (float) ($u['GPA'] ?? 0);
+    if ((float) $s['MinimumGWA'] > 0 && ($gwa == 0.0 || $gwa > (float) $s['MinimumGWA'])) return 'Your GWA does not meet the requirement of ' . number_format((float) $s['MinimumGWA'], 2) . ' for this scholarship.';
+    if (!empty($s['YearLevel']) && $s['YearLevel'] !== 'All Levels' && $s['YearLevel'] !== $u['YearLevel']) return "This scholarship is for {$s['YearLevel']} students.";
+    if (!empty($s['ProgramID']) && (int) $s['ProgramID'] !== (int) $u['ProgramID']) return 'This scholarship is for a different program.';
+    if (!empty($s['GenderRequirement']) && $s['GenderRequirement'] !== 'Any' && $s['GenderRequirement'] !== $u['Gender']) return 'You do not meet the requirements for this scholarship.';
+
+    $st = $pdo->prepare('SELECT p.ProgramName FROM scholarship_programs sp JOIN program p ON p.ProgramID = sp.ProgramID WHERE sp.ScholarshipID = ?');
+    $st->execute([$scholarship_id]);
+    $programs = $st->fetchAll(PDO::FETCH_COLUMN);
+    if ($programs && !in_array($u['Major'], $programs, true)) return 'This scholarship is for a different program.';
+
+    $name = strtolower($s['Name']);
+    $min_units = str_contains($name, 'academic scholars - partial') ? 12 : (str_contains($name, 'academic scholars - full') ? 15 : 0);
+    if ($min_units && (int) $u['UnitsEnrolled'] < $min_units) return "This scholarship requires at least $min_units enrolled units.";
+    return null;
+}
+
+// The GWA verified from the student's Report of Grades: what they type on a form is never used
+function verifiedStudentGwa(PDO $pdo, int $user_id) {
+    $st = $pdo->prepare('SELECT GPA FROM users WHERE UserID = ?');
+    $st->execute([$user_id]);
+    return $st->fetchColumn() ?: null;
+}
+
 function saveRequestedApplicationDocuments(PDO $pdo, int $application_id, int $scholarship_id, int $user_id): void {
     $owner = $pdo->prepare('SELECT 1 FROM application WHERE ApplicationID=? AND ScholarshipID=? AND UserID=?');
     $owner->execute([$application_id, $scholarship_id, $user_id]);

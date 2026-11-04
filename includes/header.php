@@ -6,8 +6,8 @@
     <title>ScholarLink | TAU</title>
     <script>if (window.self !== window.top) document.documentElement.classList.add('in-frame');</script>
     <?php require_once __DIR__ . '/theme.php'; themeHead(); ?>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="../assets/lib/tailwind.js"></script>
+    <link href="../assets/lib/fonts/fonts.css" rel="stylesheet">
     <style>
         :root {
             --sidebar-width: 5.5rem;

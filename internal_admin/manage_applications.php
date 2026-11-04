@@ -46,7 +46,7 @@ $query = "
 $params = [];
 
 if ($active_tab === 'pending') {
-    $query .= " AND a.Status IN ('Pending', 'Submitted', 'Under Review')";
+    $query .= " AND a.Status IN ('Pending', 'Submitted', 'Under Review', 'For Resubmission')";
 } elseif ($active_tab === 'shortlisted') {
     $query .= " AND a.Status = 'Shortlisted'";
 } elseif ($active_tab === 'approved') {
@@ -181,6 +181,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <p class="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 truncate">
                                 APP #<?= str_pad($app['ApplicationID'], 5, '0', STR_PAD_LEFT) ?> &bull; <?= htmlspecialchars($app['StudentID_Num']) ?>
                             </p>
+                            <?php if (in_array($app['Status'], ['Under Review', 'For Resubmission'], true)): ?><span class="inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-200"><?= htmlspecialchars($app['Status']) ?></span><?php endif; ?>
                         </div>
                     </div>
 
@@ -234,6 +235,9 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <span class="h-9 px-3 inline-flex items-center gap-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-[10px] font-black uppercase tracking-widest max-w-[220px]" title="Externally funded — decided by <?= htmlspecialchars($app['ProviderName']) ?>">
                                 <i class="fas fa-building"></i> <span class="truncate">Decided by <?= htmlspecialchars($app['ProviderName']) ?></span>
                             </span>
+
+                        <?php elseif ($app['Status'] === 'For Resubmission'): ?>
+                            <span class="h-9 px-3 inline-flex items-center rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-black text-amber-700">Waiting for the student's correction</span>
 
                         <?php elseif ($active_tab == 'pending'): ?>
                             <form action="../actions/process_crud.php" method="POST" class="m-0 p-0">
@@ -828,6 +832,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     application_id: currentAppID
                 }) 
             });
+            const safeAIText = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
             const data = await response.json();
             
             icon.classList.remove('animate-spin');
@@ -843,10 +848,10 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
                 if(data.authenticity.is_authentic) {
                     authEl.innerHTML = `<span class="text-green-500 text-lg">🛡️</span> <span class="text-green-700">Valid Document Match</span>`;
-                    authDet.innerHTML = `Layout and structure match a standard <b>${expectedDocType}</b>.<br><b>Confidence:</b> ${data.authenticity.confidence}%`;
+                    authDet.innerHTML = `Layout and structure match a standard <b>${safeAIText(expectedDocType)}</b>.<br><b>Confidence:</b> ${data.authenticity.confidence}%`;
                 } else {
                     authEl.innerHTML = `<span class="text-red-500 text-lg">🚨</span> <span class="text-red-700">MISMATCH / FAKE</span>`;
-                    authDet.innerHTML = `<b>Reason:</b> ${data.authenticity.flag_reason}`;
+                    authDet.innerHTML = `<b>Reason:</b> ${safeAIText(data.authenticity.flag_reason)}`;
                 }
 
                 const qualEl = document.getElementById('aiQualStatus');
@@ -855,13 +860,13 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 if(data.qualification.is_applicable) {
                     if(data.qualification.is_qualified === null) {
                         qualEl.innerHTML = `<span class="text-amber-500 text-lg">🔎</span> <span class="text-amber-700">Needs manual review</span>`;
-                        qualDet.textContent = `Extracted GWA: ${data.qualification.extracted_gwa} (Required: ${Number(currentReqGWA)}). Check the document by hand before relying on this GWA.`;
+                        qualDet.textContent = `Extracted GWA: ${safeAIText(data.qualification.extracted_gwa)} (Required: ${Number(currentReqGWA)}). Check the document by hand before relying on this GWA.`;
                     } else if(data.qualification.is_qualified) {
                         qualEl.innerHTML = `<span class="text-blue-500 text-lg">🎯</span> <span class="text-blue-700">Qualified (GWA Met)</span>`;
-                        qualDet.innerHTML = `Extracted GWA: <b>${data.qualification.extracted_gwa}</b> (Required: ${currentReqGWA})`;
+                        qualDet.innerHTML = `Extracted GWA: <b>${safeAIText(data.qualification.extracted_gwa)}</b> (Required: ${currentReqGWA})`;
                     } else {
                         qualEl.innerHTML = `<span class="text-orange-500 text-lg">⚠️</span> <span class="text-orange-700">Unqualified GWA</span>`;
-                        qualDet.innerHTML = `Extracted GWA: <b>${data.qualification.extracted_gwa}</b> (Required: ${currentReqGWA})`;
+                        qualDet.innerHTML = `Extracted GWA: <b>${safeAIText(data.qualification.extracted_gwa)}</b> (Required: ${currentReqGWA})`;
                     }
                 } else {
                     qualEl.innerHTML = `<span class="text-slate-400 text-lg">ℹ️</span> <span class="text-slate-600">N/A for this file</span>`;

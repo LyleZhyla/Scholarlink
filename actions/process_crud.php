@@ -90,18 +90,19 @@ if ($module === 'student_apply') {
             $deadline->execute([$scholarship_id]);
             $deadline_date = $deadline->fetchColumn();
             if (!$deadline_date || strtotime($deadline_date) < strtotime(date('Y-m-d'))) throw new RuntimeException('This scholarship is no longer accepting applications.');
+            if ($blocker = applicationBlocker($pdo, $scholarship_id, (int) $user_id)) throw new RuntimeException($blocker);
             if ($app_id) {
                 $owned = $pdo->prepare("SELECT ApplicationID FROM application WHERE ApplicationID = ? AND UserID = ? AND ScholarshipID = ? AND Status = 'Draft'");
                 $owned->execute([$app_id, $user_id, $scholarship_id]);
                 if (!$owned->fetchColumn()) throw new RuntimeException('This draft is no longer editable.');
                 $pdo->prepare("UPDATE application SET GPA = ?, LastSavedAt = NOW() WHERE ApplicationID = ?")
-                    ->execute([($_POST['gpa'] ?? '') !== '' ? $_POST['gpa'] : null, $app_id]);
+                    ->execute([verifiedStudentGwa($pdo, (int) $user_id), $app_id]);
             } else {
                 $duplicate = $pdo->prepare("SELECT ApplicationID FROM application WHERE UserID = ? AND ScholarshipID = ?");
                 $duplicate->execute([$user_id, $scholarship_id]);
                 if ($duplicate->fetchColumn()) throw new RuntimeException('You already have an application for this scholarship.');
                 $pdo->prepare("INSERT INTO application (UserID, ScholarshipID, Status, DateSubmitted, LastSavedAt, GPA, TermID) VALUES (?, ?, 'Draft', NOW(), NOW(), ?, (SELECT TermID FROM academic_terms WHERE Status = 'Active' ORDER BY TermID DESC LIMIT 1))")
-                    ->execute([$user_id, $scholarship_id, ($_POST['gpa'] ?? '') !== '' ? $_POST['gpa'] : null]);
+                    ->execute([$user_id, $scholarship_id, verifiedStudentGwa($pdo, (int) $user_id)]);
                 $app_id = (int) $pdo->lastInsertId();
             }
 
@@ -134,6 +135,7 @@ if ($module === 'student_apply') {
             if (!$app || !in_array($app['Status'], ['Draft', 'Withdrawn', 'For Resubmission'], true)) throw new RuntimeException('This application cannot be submitted from its current status.');
             if ($app['Status'] !== 'For Resubmission' && strtotime($app['Deadline']) < strtotime(date('Y-m-d'))) throw new RuntimeException('The scholarship deadline has passed.');
             if ($app['Status'] === 'Withdrawn' && !(int) $app['ResubmissionAllowed']) throw new RuntimeException('Resubmission has not been permitted.');
+            if ($app['Status'] !== 'For Resubmission' && ($blocker = applicationBlocker($pdo, (int) $app['ScholarshipID'], (int) $user_id))) throw new RuntimeException($blocker);
 
             require_once '../includes/form_fields.php';
             $fields = getFormFields($pdo, (int) $app['ScholarshipID']);
@@ -143,7 +145,7 @@ if ($module === 'student_apply') {
             saveRequestedApplicationDocuments($pdo, $app_id, (int) $app['ScholarshipID'], $user_id);
             $event = $app['Status'] === 'Draft' ? 'Submitted' : 'Resubmitted';
             $pdo->prepare("UPDATE application SET GPA = ?, Status = 'Submitted', DateSubmitted = NOW(), LastSavedAt = NOW(), WithdrawnAt = NULL, ResubmissionAllowed = 0 WHERE ApplicationID = ?")
-                ->execute([($_POST['gpa'] ?? '') !== '' ? $_POST['gpa'] : null, $app_id]);
+                ->execute([verifiedStudentGwa($pdo, (int) $user_id), $app_id]);
             snapshotApplicationVersion($pdo, $app_id, $event, $user_id);
             assignApplicationConfigurationVersion($pdo, $app_id, $user_id);
             initializeApplicationWorkflow($pdo, $app_id);
@@ -192,6 +194,7 @@ if ($module === 'student_apply') {
         }
 
         try {
+            if ($blocker = applicationBlocker($pdo, $scholarship_id, (int) $user_id)) throw new RuntimeException($blocker);
             $pdo->beginTransaction();
 
             // 1. Check for Duplicate Application
@@ -277,9 +280,9 @@ if ($module === 'student_apply') {
             header("Location: ../student/applications.php");
             exit();
 
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-            $_SESSION['error'] = "Application Error: " . $e->getMessage();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $_SESSION['error'] = $e instanceof RuntimeException ? $e->getMessage() : "Application Error: " . $e->getMessage();
             header("Location: ../student/applications.php");
             exit();
         }
@@ -287,9 +290,10 @@ if ($module === 'student_apply') {
    // --- ACTION: CREATE ---
     if ($action === 'create') {
         $scholarship_id = $_POST['scholarship_id'];
-        $gpa = $_POST['gpa'] ?? 0;
+        $gpa = verifiedStudentGwa($pdo, (int) $user_id) ?? 0;
 
         try {
+            if ($blocker = applicationBlocker($pdo, (int) $scholarship_id, (int) $user_id)) throw new RuntimeException($blocker);
             $deadline_stmt = $pdo->prepare("SELECT Deadline FROM scholarship WHERE ScholarshipID = ? AND Status = 'Active'");
             $deadline_stmt->execute([$scholarship_id]);
             $deadline_date = $deadline_stmt->fetchColumn();
@@ -357,7 +361,7 @@ if ($module === 'student_apply') {
     // --- ACTION: UPDATE ---
     if ($action === 'update') {
         $app_id = $_POST['application_id'];
-        $gpa    = $_POST['gpa'] ?? 0;
+        $gpa    = verifiedStudentGwa($pdo, (int) $user_id) ?? 0;
 
         try {
             // Only the student's own, still-editable application
@@ -1372,6 +1376,7 @@ if ($module === 'users' && $action === 'create') {
     if ($role === 'Super_Admin') $back("There can only be one Super Admin.");
     if (!in_array($role, ['Student', 'Internal_Admin', 'External_Admin'], true)) $back("Choose a role for the account.");
     if ($first_name === '' || $last_name === '') $back("First and last name are required.");
+    if (!validPersonName($first_name) || !validPersonName($last_name)) $back("Names can only contain letters, spaces, periods, apostrophes and hyphens.");
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $back("\"" . htmlspecialchars($email) . "\" is not a valid email address.");
     if ($password_error = passwordPolicyError($pdo, (string) ($_POST['password'] ?? ''))) $back("Security Policy: " . $password_error);
 

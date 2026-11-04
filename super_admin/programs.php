@@ -6,7 +6,7 @@ header("Cache-Control: post-check=0, pre-check=0", false);
 header("Pragma: no-cache");
 
 if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Super_Admin') {
-    session_destroy();
+    
     header("Location: ../admin_login.php"); 
     exit();
 }

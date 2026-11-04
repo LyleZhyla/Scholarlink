@@ -1,4 +1,7 @@
 <?php
+// Retired: no page uses this any more, and it skips the deadline, eligibility and workflow rules that process_crud.php (module student_apply) applies.
+http_response_code(410);
+exit('This action is no longer available.');
 session_start();
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);

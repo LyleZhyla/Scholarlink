@@ -85,7 +85,7 @@ foreach ($configurationSnapshot['requirements'] ?? [] as $requirement) {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
             <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Latest GWA / GPA</label>
-                <input type="number" step="0.01" name="gpa" id="modalGpa" value="<?= htmlspecialchars($app['GPA'] ?? '') ?>" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl lg:rounded-2xl font-bold outline-none focus:border-green-500 transition-colors">
+                <input type="number" step="0.01" name="gpa" readonly title="Verified from your Report of Grades" id="modalGpa" value="<?= htmlspecialchars($app['GPA'] ?? '') ?>" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl lg:rounded-2xl font-bold outline-none focus:border-green-500 transition-colors">
             </div>
         </div>
 

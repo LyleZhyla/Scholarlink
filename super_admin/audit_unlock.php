@@ -6,7 +6,7 @@ include '../includes/session_manager.php';
 
 // 🔒 2. THE SECURITY GATEKEEPER
 if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Super_Admin') {
-    session_destroy();
+    
     header("Location: ../admin_login.php");
     exit();
 }

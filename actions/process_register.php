@@ -75,8 +75,19 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     $errors[] = "Invalid email format.";
 }
 
+foreach ([$first_name, $last_name, $_POST['middle_name'] ?? '', $_POST['ext_name'] ?? ''] as $name_part) {
+    if (!validPersonName(trim((string) $name_part))) { $errors[] = "Names can only contain letters, spaces, periods, apostrophes and hyphens."; break; }
+}
+
 if (strlen($student_number) !== 10 || !ctype_digit($student_number)) {
     $errors[] = "Student number must be exactly 10 digits.";
+}
+
+// Proof of the email: the code sent to this address, or the Google account just signed in with
+if (empty($google_id)) {
+    if (($_SESSION['otp_verified_email'] ?? '') !== strtolower($email)) $errors[] = "Please verify your email with the code we sent you.";
+} elseif (($_SESSION['google_signup_data']['google_id'] ?? '') !== $google_id) {
+    $errors[] = "Your Google sign-up has expired. Please choose Sign up with Google again.";
 }
 
 if (empty($google_id)) {
@@ -203,7 +214,7 @@ try {
     $new_user_id = (int) $pdo->lastInsertId();
     $consent = $pdo->prepare("INSERT INTO privacy_consents (UserID, NoticeVersion, ConsentStatus, ConsentText, IPAddress) VALUES (?, '2026-11-02', 'Granted', ?, ?)");
     $consent->execute([$new_user_id, 'I have read and agree to the ScholarLink Data Privacy Notice and consent to the processing described in it.', $_SERVER['REMOTE_ADDR'] ?? null]);
-    unset($_SESSION['scanned_program_id'], $_SESSION['rog_verified']);
+    unset($_SESSION['scanned_program_id'], $_SESSION['rog_verified'], $_SESSION['otp_verified_email'], $_SESSION['otp_email'], $_SESSION['otp_attempts']);
     if ($units_enrolled > 0) {
         $pdo->prepare("UPDATE users SET UnitsEnrolled = ? WHERE UserID = ?")->execute([$units_enrolled, $new_user_id]);
     }

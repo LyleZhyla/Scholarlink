@@ -66,7 +66,7 @@ $query = "
     FROM application a
     JOIN users u ON a.UserID = u.UserID
     JOIN scholarship s ON a.ScholarshipID = s.ScholarshipID
-    WHERE " . ($active_tab === 'pending' ? "a.Status IN ('Pending', 'Submitted', 'Under Review')" : "a.Status = :status") . " AND s.CreatedBy = :ext_admin_id
+    WHERE " . ($active_tab === 'pending' ? "a.Status IN ('Pending', 'Submitted', 'Under Review', 'For Resubmission')" : "a.Status = :status") . " AND s.CreatedBy = :ext_admin_id
 ";
 $params = [':ext_admin_id' => $ext_admin_id];
 if ($active_tab !== 'pending') $params[':status'] = $db_status;
@@ -197,6 +197,7 @@ unset($versionedApplication);
                             <p class="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 truncate">
                                 APP #<?= str_pad($app['ApplicationID'], 5, '0', STR_PAD_LEFT) ?> &bull; <?= htmlspecialchars($app['StudentID_Num']) ?>
                             </p>
+                            <?php if (in_array($app['Status'], ['Under Review', 'For Resubmission'], true)): ?><span class="inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-200"><?= htmlspecialchars($app['Status']) ?></span><?php endif; ?>
                         </div>
                     </div>
 

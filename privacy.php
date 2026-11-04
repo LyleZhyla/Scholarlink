@@ -11,8 +11,8 @@ $updated = 'November 2, 2026';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Data Privacy Notice - ScholarLink</title>
     <?php require_once __DIR__ . '/includes/theme.php'; themeHead(); ?>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="assets/lib/tailwind.js"></script>
+    <link href="assets/lib/fonts/fonts.css" rel="stylesheet">
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; }
         .notice h2 { font-size: 1.05rem; font-weight: 800; margin: 2rem 0 .6rem; }

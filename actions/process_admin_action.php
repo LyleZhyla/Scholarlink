@@ -1,4 +1,7 @@
 <?php
+// Retired: no page uses this any more, and it skips the deadline, eligibility and workflow rules that process_crud.php (module applications) applies.
+http_response_code(410);
+exit('This action is no longer available.');
 session_start();
 require '../includes/db_connect.php';
 

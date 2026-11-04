@@ -14,7 +14,7 @@ $an_input = 'w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-s
 $an_label = 'block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5';
 $active_term = awardActiveTerm($pdo);
 ?>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="../assets/lib/fontawesome/css/all.min.css">
 
 <main class="flex-1 p-5 lg:p-10 lg:ml-72 bg-slate-50/50 min-h-screen transition-all duration-300">
     <header class="sticky top-0 z-40 -mx-5 lg:-mx-10 -mt-5 lg:-mt-10 mb-8 px-5 lg:px-10 py-4 bg-white/90 backdrop-blur border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">

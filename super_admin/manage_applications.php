@@ -62,7 +62,7 @@ if ($is_super_admin) {
 }
 
 // ✨ INSTANT SCORING QUERY (Supports both 'Pending' and 'Submitted' on the pending tab)
-$status_condition = ($active_tab === 'pending') ? "a.Status IN ('Pending', 'Submitted')" : "a.Status = :status";
+$status_condition = ($active_tab === 'pending') ? "a.Status IN ('Pending', 'Submitted', 'Under Review', 'For Resubmission')" : "a.Status = :status";
 
 $query = "
     SELECT a.*, u.*, s.Name as ScholarshipName, s.MinimumGWA,
@@ -219,6 +219,7 @@ unset($versionedApplication);
                             <p class="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 truncate">
                                 APP #<?= str_pad($app['ApplicationID'], 5, '0', STR_PAD_LEFT) ?> &bull; <?= htmlspecialchars($app['StudentID_Num']) ?>
                             </p>
+                            <?php if (in_array($app['Status'], ['Under Review', 'For Resubmission'], true)): ?><span class="inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-200"><?= htmlspecialchars($app['Status']) ?></span><?php endif; ?>
                         </div>
                     </div>
 

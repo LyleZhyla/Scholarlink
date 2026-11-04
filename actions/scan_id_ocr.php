@@ -4,6 +4,12 @@ header('Content-Type: application/json');
 require '../includes/db_connect.php';
 require_once '../includes/id_scanner.php';
 
+// Open before sign-in because registering needs it, and every scan uses the Google quota: limited per address
+if (!rateLimitAllowed($pdo, 'IdScan', 'all', 20, 600)) {
+    echo json_encode(['success' => false, 'error' => 'Too many scans. Please wait a few minutes and try again.']);
+    exit;
+}
+
 // 1. Check kung may na-receive na image mula sa frontend scanner
 if (!isset($_FILES['id_image']) || $_FILES['id_image']['error'] !== UPLOAD_ERR_OK) {
     echo json_encode(['success' => false, 'error' => 'No image uploaded or upload failed.']);

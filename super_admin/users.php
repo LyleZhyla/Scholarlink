@@ -11,7 +11,7 @@ header("Pragma: no-cache");
 
 // 🔒 3. THE SECURITY GATEKEEPER
 if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Super_Admin') {
-    session_destroy();
+    
     header("Location: ../admin_login.php"); 
     exit();
 }

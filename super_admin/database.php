@@ -1,6 +1,6 @@
 <?php
 session_start();include '../includes/session_manager.php';
-if(empty($_SESSION['logged_in'])||($_SESSION['role']??'')!=='Super_Admin'){session_destroy();header('Location: ../admin_login.php');exit;}
+if(empty($_SESSION['logged_in'])||($_SESSION['role']??'')!=='Super_Admin'){header('Location: ../admin_login.php');exit;}
 include '../includes/db_connect.php';require_once '../includes/disaster_recovery.php';
 $settings=drSettings($pdo);$backups=$pdo->query('SELECT b.*,GREATEST(0,TIMESTAMPDIFF(SECOND,b.CreatedAt,NOW())/3600) AgeHours FROM backup_records b ORDER BY b.CreatedAt DESC LIMIT 100')->fetchAll(PDO::FETCH_ASSOC);$drills=$pdo->query('SELECT d.*,b.FileName FROM restoration_drills d JOIN backup_records b ON b.BackupID=d.BackupID ORDER BY d.StartedAt DESC LIMIT 30')->fetchAll(PDO::FETCH_ASSOC);
 $latest=$backups[0]??null;$latestPassed=null;foreach($drills as $drill)if($drill['Status']==='Passed'){$latestPassed=$drill;break;}
