@@ -35,7 +35,7 @@ if ($app_id && $action) {
                 $waitlisted = waitlistIfScholarshipFull($pdo, $app_id, (int) $_SESSION['user_id']);
                 if ($waitlisted) {
                     $_SESSION['success'] = "All slots are filled. Applicant added at waitlist rank #{$waitlisted['rank']}.";
-                    header('Location: ' . evaluationCenterUrl('waitlist.php'));
+                    header('Location: ' . manageApplicationsUrl('tab=waitlist'));
                     exit();
                 }
             } catch (Throwable $e) {

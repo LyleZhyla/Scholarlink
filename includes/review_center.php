@@ -1,9 +1,9 @@
 <?php
 // ✨ EVALUATION CENTER and SCORING RULES: pages shown as tabs in a modal.
-// 'applications' (Manage Applications): Workflow Tasks, AI Review, Conflicts, Waitlist.
+// 'applications' (Manage Applications): Workflow Tasks, AI Review, Conflicts.
 // 'scoring' (Manage Scholarships): Rubrics, Overrides.
 // Each tab shows the real page in a frame (header.php hides its menus there), so its forms and rules stay in one place.
-// Add ?scholarship_id=N to limit a tab to one scholarship. Manage Applications opens on a tab with ?review=waitlist.php.
+// Add ?scholarship_id=N to limit a tab to one scholarship. Manage Applications opens on a tab with ?review=workflow_tasks.php.
 
 function reviewCenterTabs(string $set = 'applications'): array {
     $role = $_SESSION['role'] ?? '';
@@ -15,7 +15,6 @@ function reviewCenterTabs(string $set = 'applications'): array {
     }
     $tabs = ['workflow_tasks.php' => '🔀 Workflow Tasks', 'ai_reviews.php' => '🤖 AI Review'];
     if ($role !== 'Internal_Admin') $tabs['evaluation_conflicts.php'] = '⚠️ Conflicts';
-    $tabs['waitlist.php'] = '📋 Waitlist';
     return $tabs;
 }
 
@@ -46,14 +45,6 @@ function reviewCenterCounts(PDO $pdo): array {
         if ($role === 'External_Admin') { $sql .= ' AND s.CreatedBy = ?'; $params[] = $me; }
         $st = $pdo->prepare($sql); $st->execute($params);
         $counts['evaluation_conflicts.php'] = (int) $st->fetchColumn();
-
-        $sql = "SELECT COUNT(*) FROM application_waitlist w JOIN scholarship s ON s.ScholarshipID = w.ScholarshipID
-                LEFT JOIN users cu ON cu.UserID = s.CreatedBy WHERE w.Status IN ('Waiting', 'Offered')";
-        $params = [];
-        if ($role === 'Internal_Admin') $sql .= " AND (cu.Role IS NULL OR cu.Role IN ('Internal_Admin','Super_Admin'))";
-        elseif ($role === 'External_Admin') { $sql .= ' AND s.CreatedBy = ?'; $params[] = $me; }
-        $st = $pdo->prepare($sql); $st->execute($params);
-        $counts['waitlist.php'] = (int) $st->fetchColumn();
     } catch (PDOException $e) {
         error_log('Evaluation Center counts: ' . $e->getMessage());
     }
@@ -85,7 +76,7 @@ function reviewCenterModal(PDO $pdo, string $set = 'applications'): void {
     $tabs = reviewCenterTabs($set);
     $counts = $set === 'applications' ? reviewCenterCounts($pdo) : [];
     $title = $set === 'scoring' ? 'Scoring Rules' : 'Evaluation Center';
-    $intro = $set === 'scoring' ? 'How each scholarship is scored, without leaving this page.' : 'Review tasks, AI suggestions, conflicts and the waitlist without leaving this page.';
+    $intro = $set === 'scoring' ? 'How each scholarship is scored, without leaving this page.' : 'Review tasks and AI suggestions without leaving this page.';
     ?>
     <div id="reviewCenter" class="fixed inset-0 z-[100010] hidden items-center justify-center bg-slate-900/60 backdrop-blur-sm p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="reviewCenterTitle">
         <div class="bg-white w-full max-w-6xl h-full max-h-[94vh] rounded-[1.5rem] shadow-2xl flex flex-col overflow-hidden">
@@ -101,9 +92,9 @@ function reviewCenterModal(PDO $pdo, string $set = 'applications'): void {
                 <button type="button" onclick="closeReviewCenter()" aria-label="Close" class="absolute md:static top-4 right-4 w-9 h-9 shrink-0 rounded-full bg-slate-100 text-slate-600 hover:bg-red-500 hover:text-white font-bold transition-colors">&times;</button>
             </div>
             <div class="no-scrollbar flex gap-1.5 overflow-x-auto px-4 lg:px-6 py-2.5 border-b border-slate-100 bg-slate-50/60 shrink-0" role="tablist" style="scrollbar-width: none;">
-                <?php foreach ($tabs as $page => $label): ?>
-                    <button type="button" role="tab" data-review-tab="<?= htmlspecialchars($page) ?>" onclick="reviewCenterSet('<?= htmlspecialchars($page) ?>')" class="shrink-0 px-3.5 py-2 rounded-lg text-[11px] font-black whitespace-nowrap transition-colors">
-                        <?= $label ?><?php if (!empty($counts[$page])): ?> <span class="ml-0.5 opacity-80">(<?= number_format($counts[$page]) ?>)</span><?php endif; ?>
+                <?php foreach ($tabs as $page => $label): [$icon, $text] = explode(' ', $label, 2); ?>
+                    <button type="button" role="tab" data-review-tab="<?= htmlspecialchars($page) ?>" onclick="reviewCenterSet('<?= htmlspecialchars($page) ?>')" class="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-colors">
+                        <span class="text-2xl leading-none" aria-hidden="true"><?= $icon ?></span><span><?= $text ?><?php if (!empty($counts[$page])): ?> <span class="ml-0.5 opacity-80">(<?= number_format($counts[$page]) ?>)</span><?php endif; ?></span>
                     </button>
                 <?php endforeach; ?>
             </div>
@@ -162,7 +153,7 @@ function reviewCenterModal(PDO $pdo, string $set = 'applications'): void {
         modal.addEventListener('click', e => { if (e.target === modal) closeReviewCenter(); });
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeReviewCenter(); });
 
-        // Sent here with a tab to open (evaluationCenterUrl() in security_settings.php)
+        // Sent here with a tab to open (manageApplicationsUrl() in security_settings.php)
         const url = new URL(location.href), wanted = url.searchParams.get('review');
         if (wanted) {
             url.searchParams.delete('review');

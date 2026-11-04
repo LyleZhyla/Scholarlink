@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $waitlisted = waitlistIfScholarshipFull($pdo, (int) $application_id, (int) $_SESSION['user_id']);
             if ($waitlisted) {
                 $_SESSION['success'] = "All slots are filled. Applicant added at waitlist rank #{$waitlisted['rank']}.";
-                header('Location: ' . evaluationCenterUrl('waitlist.php'));
+                header('Location: ' . manageApplicationsUrl('tab=waitlist'));
                 exit();
             }
         } catch (Throwable $e) {

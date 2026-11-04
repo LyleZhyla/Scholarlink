@@ -27,6 +27,7 @@ $status_map = [
     'pending'     => 'Pending',
     'shortlisted' => 'Shortlisted',
     'approved'    => 'Approved',
+    'waitlist'    => 'Waitlisted',
     'rejected'    => 'Rejected'
 ];
 $db_status = $status_map[$active_tab] ?? 'Pending';
@@ -105,7 +106,7 @@ unset($versionedApplication);
                 <p class="text-sm font-bold text-slate-500 mt-1 uppercase tracking-widest">Evaluate & Verify Scholarships</p>
             </div>
             
-            <div class="flex flex-wrap items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3 lg:pr-12">
                 <button type="button" onclick="openReportsModal()" class="bg-blue-600 text-white border border-blue-700 px-5 py-2.5 rounded-xl text-[12px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md flex items-center gap-2 active:scale-95">
                     📑 Generate Reports
                 </button>
@@ -124,6 +125,7 @@ unset($versionedApplication);
                     'pending' => ['label' => '1. Pending', 'icon' => 'fa-clock', 'color' => 'orange'],
                     'shortlisted' => ['label' => '2. Shortlisted', 'icon' => 'fa-star', 'color' => 'blue'],
                     'approved' => ['label' => '3. Approved Scholars', 'icon' => 'fa-check-circle', 'color' => 'green'],
+                    'waitlist' => ['label' => 'Waitlist', 'icon' => 'fa-list-ol', 'color' => 'amber'],
                     'rejected' => ['label' => 'Rejected', 'icon' => 'fa-times-circle', 'color' => 'red']
                 ];
                 foreach ($tabs as $key => $t): 
@@ -137,6 +139,8 @@ unset($versionedApplication);
             <?php endforeach; ?>
         </div>
 
+        <?php if ($active_tab === 'waitlist') { require_once '../includes/waitlist_admin_view.php'; waitlistPanel($pdo); } ?>
+        <div class="<?= $active_tab === 'waitlist' ? 'hidden' : '' ?>">
         <div class="bg-white p-3 sm:p-4 rounded-[1.5rem] shadow-sm border border-slate-200 mb-8">
             <div class="flex flex-col lg:flex-row items-center gap-3">
                 <div class="flex-1 w-full relative group">
@@ -265,6 +269,7 @@ unset($versionedApplication);
         </div>
         
         <div id="paginationControls" class="flex justify-center gap-2 mt-8"></div>
+        </div>
     </div>
 </main>
 

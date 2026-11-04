@@ -13,11 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || empty($_SESSION['logged_in']) || !i
 $role = $_SESSION['role'];
 $admin_id = (int) $_SESSION['user_id'];
 $action = $_POST['action'] ?? '';
-$back = match ($role) {
-    'Internal_Admin' => '../internal_admin/waitlist.php',
-    'External_Admin' => '../external_admin/waitlist.php',
-    default => '../super_admin/waitlist.php',
-};
+$back = manageApplicationsUrl('tab=waitlist');
 
 try {
     $waitlist_id = (int) ($_POST['waitlist_id'] ?? 0);
@@ -101,5 +97,5 @@ try {
     $_SESSION['error'] = $e->getMessage();
 }
 
-header("Location: $back" . keepScholarshipScope());
+header("Location: $back");
 exit();

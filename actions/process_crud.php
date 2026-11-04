@@ -658,7 +658,7 @@ if ($module === 'applications' && $action === 'update_status') {
     }
     if ($status === 'Approved' && applicationUsesConfiguredWorkflow($pdo, (int) $app_id)) {
         $_SESSION['error'] = 'This scholarship uses a configured approval workflow. Complete its Final Approval task instead of bypassing the sponsor stages.';
-        header('Location: ' . evaluationCenterUrl('workflow_tasks.php')); exit;
+        header('Location: ' . manageApplicationsUrl('review=workflow_tasks.php')); exit;
     }
     
     // Slots and single-grant rules (includes/approval_rules.php)
@@ -668,7 +668,7 @@ if ($module === 'applications' && $action === 'update_status') {
             $waitlisted = waitlistIfScholarshipFull($pdo, (int) $app_id, (int) $_SESSION['user_id']);
             if ($waitlisted) {
                 $_SESSION['success'] = "All slots are filled. The qualified applicant was placed at rank #{$waitlisted['rank']} on the waitlist.";
-                header('Location: ' . evaluationCenterUrl('waitlist.php'));
+                header('Location: ' . manageApplicationsUrl('tab=waitlist'));
                 exit();
             }
         } catch (Throwable $e) {
@@ -1145,7 +1145,7 @@ if ($module === 'applications' && $action === 'final_decision') {
     $status = $_POST['status'];
     if ($status === 'Approved' && applicationUsesConfiguredWorkflow($pdo, (int) $application_id)) {
         $_SESSION['error'] = 'Direct approval is disabled for this scholarship. Complete the configured Final Approval workflow task.';
-        header('Location: ' . evaluationCenterUrl('workflow_tasks.php')); exit;
+        header('Location: ' . manageApplicationsUrl('review=workflow_tasks.php')); exit;
     }
 
     // Slots and single-grant rules (includes/approval_rules.php)
@@ -1155,7 +1155,7 @@ if ($module === 'applications' && $action === 'final_decision') {
             $waitlisted = waitlistIfScholarshipFull($pdo, (int) $application_id, (int) $_SESSION['user_id']);
             if ($waitlisted) {
                 $_SESSION['success'] = "All slots are filled. The qualified applicant was placed at rank #{$waitlisted['rank']} on the waitlist.";
-                header('Location: ' . evaluationCenterUrl('waitlist.php'));
+                header('Location: ' . manageApplicationsUrl('tab=waitlist'));
                 exit();
             }
         } catch (Throwable $e) {
