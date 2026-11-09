@@ -306,13 +306,43 @@ if (!function_exists('listPdfTemplates')) {
         return $pieces;
     }
 
+    // Printed pages after the layout: each source page, and for a page that grew past its bottom (it has a 'break' edit) a second
+    // page with what is below the break, moved up to just under the top margin. [['page' => source page, 'from' => y, 'to' => y, 'shift' => y], ...]
+    function pdfOutputPages(int $source_pages, array $edits): array {
+        $breaks = [];
+        foreach ($edits as $e) if ($e['kind'] === 'break') $breaks[(int) $e['page']] = (float) $e['y'];
+        $out = [];
+        for ($i = 1; $i <= $source_pages; $i++) {
+            if (!isset($breaks[$i])) { $out[] = ['page' => $i, 'from' => 0.0, 'to' => 1.0, 'shift' => 0.0]; continue; }
+            $b = $breaks[$i];
+            $out[] = ['page' => $i, 'from' => 0.0, 'to' => $b, 'shift' => 0.0];
+            $out[] = ['page' => $i, 'from' => $b, 'to' => 9.0, 'shift' => $b - 0.05];   // 0.05: NEW_PAGE_TOP in the designer
+        }
+        return $out;
+    }
+
+    // Moves answer boxes and content edits to the printed page they land on (see pdfOutputPages)
+    function pdfPlaceOnOutputPages(array $items, array $out_pages): array {
+        $placed = [];
+        foreach ($items as $item) {
+            foreach ($out_pages as $n => $o) {
+                $mid = (float) $item['y'] + (float) $item['h'] / 2;
+                if ((int) $item['page'] === $o['page'] && $mid >= $o['from'] && $mid < $o['to']) {
+                    $placed[] = array_merge($item, ['page' => $n + 1, 'y' => (float) $item['y'] - $o['shift']]);
+                    break;
+                }
+            }
+        }
+        return $placed;
+    }
+
     // Rebuilds the pages that have inserted rows / columns. $filled: the filled form, flattened (its answers are part of the
     // page); $blank: the empty form, flattened, which copied strips are taken from so no student's answer is ever repeated.
     // Returns the new file, $filled itself when nothing is inserted, or null on failure.
     function relayoutPdfPages(string $filled, string $blank, array $page_sizes, array $edits, string $temp_dir): ?string {
         $by_page = [];
         foreach ($edits as $e) if (in_array($e['kind'], ['row', 'column'], true)) $by_page[(int) $e['page']][] = $e;
-        if (!$by_page) return $filled;
+        if (!$by_page && !array_filter($edits, fn($e) => $e['kind'] === 'break')) return $filled;
         try {
             $pdf = new ScholarLinkLayoutPdf('P', 'pt');
             $pdf->SetAutoPageBreak(false);
@@ -322,13 +352,20 @@ if (!function_exists('listPdfTemplates')) {
                 if (!isset($templates[$file][$page])) { $pdf->setSourceFile($file); $templates[$file][$page] = $pdf->importPage($page); }
                 return $templates[$file][$page];
             };
-            for ($i = 1; $i <= $pages; $i++) {
+            foreach (pdfOutputPages($pages, $edits) as $o) {
+                $i = $o['page'];
                 [$w, $h] = $page_sizes[$i - 1] ?? [612.0, 792.0];
                 $pdf->AddPage($w > $h ? 'L' : 'P', [$w, $h]);
+                // This printed page shows the laid-out page from 'from' to 'to', moved up by 'shift'
+                $top = max(0.0, $o['from'] - $o['shift']);
+                $bottom = min(1.0, $o['to'] - $o['shift']);
                 foreach (pdfLayoutPieces($by_page[$i] ?? []) as $c) {
-                    if ($c['dx'] >= 1 || $c['dy'] >= 1) continue;   // pushed off the page
-                    $pdf->clipRect($c['dx'] * $w, $c['dy'] * $h, $c['w'] * $w, $c['h'] * $h);
-                    $pdf->useTemplate($template($c['copy'] ? $blank : $filled, $i), ($c['dx'] - $c['sx']) * $w, ($c['dy'] - $c['sy']) * $h, $w, $h);
+                    $y1 = max($c['dy'], $o['from']) - $o['shift'];
+                    $y2 = min($c['dy'] + $c['h'], $o['to']) - $o['shift'];
+                    $y1 = max($y1, $top); $y2 = min($y2, $bottom);
+                    if ($c['dx'] >= 1 || $y2 <= $y1) continue;
+                    $pdf->clipRect($c['dx'] * $w, $y1 * $h, $c['w'] * $w, ($y2 - $y1) * $h);
+                    $pdf->useTemplate($template($c['copy'] ? $blank : $filled, $i), ($c['dx'] - $c['sx']) * $w, ($c['dy'] - $o['shift'] - $c['sy']) * $h, $w, $h);
                     $pdf->endClip();
                 }
             }

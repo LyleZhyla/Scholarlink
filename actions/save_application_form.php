@@ -1,4 +1,6 @@
 <?php
+// A page with inserted rows may grow past its bottom; the part below its page break prints on a new page
+const PDF_MAX_PAGE_HEIGHT = 2.0001;
 session_start();
 header('Content-Type: application/json');
 require '../includes/db_connect.php';
@@ -77,7 +79,7 @@ foreach ($payload['fields'] as $i => $f) {
         [$bx, $by, $bw, $bh] = array_map(fn($k) => round((float) ($b[$k] ?? -1), 6), ['x', 'y', 'w', 'h']);
         $size = isset($b['size']) && $b['size'] !== '' && $b['size'] !== null ? (float) $b['size'] : null;
         if ($page < 1 || ($pdf_page_count && $page > $pdf_page_count)) fail("\"$label\" has a box on a page that isn't in the selected PDF.");
-        if ($bx < 0 || $by < 0 || $bw < 0.005 || $bh < 0.003 || $bx + $bw > 1.0001 || $by + $bh > 1.0001) fail("\"$label\" has a box outside the page.");
+        if ($bx < 0 || $by < 0 || $bw < 0.005 || $bh < 0.003 || $bx + $bw > 1.0001 || $by + $bh > PDF_MAX_PAGE_HEIGHT) fail("\"$label\" has a box outside the page.");
         if ($size !== null && ($size < 5 || $size > 24)) fail("\"$label\": text size must be between 5 and 24.");
         $box = ['page' => $page, 'x' => $bx, 'y' => $by, 'w' => $bw, 'h' => $bh, 'size' => $size];
     }
@@ -110,7 +112,7 @@ foreach ((array) ($payload['overrides'] ?? []) as $name => $o) {
         [$bx, $by, $bw, $bh] = array_map(fn($k) => round((float) ($b[$k] ?? -1), 6), ['x', 'y', 'w', 'h']);
         $size = isset($b['size']) && $b['size'] !== '' && $b['size'] !== null ? (float) $b['size'] : null;
         if ($page < 1 || ($pdf_page_count && $page > $pdf_page_count)) fail("The moved PDF field \"$name\" is on a page that isn't in the selected PDF.");
-        if ($bx < 0 || $by < 0 || $bw < 0.005 || $bh < 0.003 || $bx + $bw > 1.0001 || $by + $bh > 1.0001) fail("The moved PDF field \"$name\" is outside the page.");
+        if ($bx < 0 || $by < 0 || $bw < 0.005 || $bh < 0.003 || $bx + $bw > 1.0001 || $by + $bh > PDF_MAX_PAGE_HEIGHT) fail("The moved PDF field \"$name\" is outside the page.");
         if ($size !== null && ($size < 5 || $size > 24)) fail("The moved PDF field \"$name\": text size must be between 5 and 24.");
         $overrides[$name] = ['action' => 'move', 'box' => ['page' => $page, 'x' => $bx, 'y' => $by, 'w' => $bw, 'h' => $bh, 'size' => $size]];
     } else {
@@ -124,11 +126,11 @@ $edits = [];
 foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     $n = $i + 1;
     $kind = $e['kind'] ?? '';
-    if (!in_array($kind, ['erase', 'text', 'row', 'column'], true)) fail("Content edit $n has an unknown type.");
+    if (!in_array($kind, ['erase', 'text', 'row', 'column', 'break'], true)) fail("Content edit $n has an unknown type.");
     $page = (int) ($e['page'] ?? 0);
     [$ex, $ey, $ew, $eh] = array_map(fn($k) => round((float) ($e[$k] ?? -1), 6), ['x', 'y', 'w', 'h']);
     if ($page < 1 || ($pdf_page_count && $page > $pdf_page_count)) fail("Content edit $n is on a page that isn't in the selected PDF.");
-    if ($ex < 0 || $ey < 0 || $ew < 0.002 || $eh < 0.002 || $ex + $ew > 1.0001 || $ey + $eh > 1.0001) fail("Content edit $n is outside the page.");
+    if ($ex < 0 || $ey < 0 || $ew < 0.002 || $eh < 0.002 || $ex + $ew > 1.0001 || $ey + $eh > PDF_MAX_PAGE_HEIGHT) fail("Content edit $n is outside the page.");
     $text = $kind === 'text' ? mb_substr(trim((string) ($e['text'] ?? '')), 0, 1000) : null;
     if ($kind === 'text' && $text === '') fail("Text edit $n is empty. Type some text or delete it.");
     $font = in_array($e['font'] ?? '', ['Helvetica', 'Times', 'Courier'], true) ? $e['font'] : 'Helvetica';

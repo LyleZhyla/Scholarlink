@@ -131,7 +131,7 @@ try {
     $has_fillable_fields = (bool) getPdfTemplateFields($template_filename);
 
     // Inserted rows / columns move parts of the page, so the answers must become part of the page first (flattened)
-    $layout_stmt = $pdo->prepare("SELECT COUNT(*) FROM scholarship_pdf_edits e JOIN application a ON a.ScholarshipID = e.ScholarshipID WHERE a.ApplicationID = ? AND e.Kind IN ('row', 'column')");
+    $layout_stmt = $pdo->prepare("SELECT COUNT(*) FROM scholarship_pdf_edits e JOIN application a ON a.ScholarshipID = e.ScholarshipID WHERE a.ApplicationID = ? AND e.Kind IN ('row', 'column', 'break')");
     $layout_stmt->execute([$application_id]);
     $has_inserts = (int) $layout_stmt->fetchColumn() > 0;
     if ($has_fillable_fields) {
@@ -173,7 +173,16 @@ try {
             }
             if ($laid_out !== $filled_path) { @unlink($filled_path); $filled_path = $laid_out; }
         }
-        $stamped_path = stampPdfBoxes($filled_path, $page_sizes, $drawn_boxes, $temp_dir, $content_edits);
+        if ($has_inserts) {
+            // A page that grew continues on a new page: answers and edits go to the printed page they land on
+            $out_pages = pdfOutputPages(count($page_sizes), $content_edits);
+            $stamp_sizes = array_map(fn($o) => $page_sizes[$o['page'] - 1], $out_pages);
+            $drawn_boxes = pdfPlaceOnOutputPages($drawn_boxes, $out_pages);
+            $stamp_edits = pdfPlaceOnOutputPages(array_values(array_filter($content_edits, fn($e) => in_array($e['kind'], ['erase', 'text'], true))), $out_pages);
+        } else {
+            [$stamp_sizes, $stamp_edits] = [$page_sizes, $content_edits];
+        }
+        $stamped_path = stampPdfBoxes($filled_path, $stamp_sizes, $drawn_boxes, $temp_dir, $stamp_edits);
         if ($stamped_path !== $filled_path) @unlink($filled_path);
         if (!$stamped_path) {
             exit("PDF Generation Error: could not print the answers in the boxes drawn on the PDF.");
