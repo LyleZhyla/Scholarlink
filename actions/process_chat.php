@@ -297,45 +297,42 @@ try {
 // ==========================================
 // 4. STRICT ROLE-BASED NAVIGATION MAP
 // ==========================================
-$nav_guide = "AVAILABLE PATHS FOR YOUR ROLE ($user_role):\n";
+// The pages each role can open (paths from the ScholarLink folder, as in each portal's menu). Buttons the AI
+// makes are checked against this list after it answers (chatLinkTarget), so it can never send anyone to a page that doesn't exist.
+$nav_pages = [
+    'Guest' => ['Home' => 'index.php', 'Sign in or register' => 'student_login.php', 'Data privacy notice' => 'privacy.php'],
+    'Student' => ['Dashboard' => 'student/dashboard.php', 'Scholarships (matched programs)' => 'student/programs.php', 'My applications' => 'student/applications.php',
+        'Requirements (upload documents)' => 'student/requirements.php', 'Document vault' => 'student/vault.php', 'Benefits' => 'student/benefits.php',
+        'Messages' => 'student/messages.php', 'Notifications' => 'student/notifications.php', 'Profile' => 'student/profile.php', 'Privacy requests' => 'student/privacy_requests.php'],
+    'Internal_Admin' => ['Dashboard' => 'internal_admin/dashboard.php', 'Scholarships' => 'internal_admin/programs.php',
+        'Masterlist (applications, Evaluation Center, waitlist)' => 'internal_admin/manage_applications.php', 'Renewals' => 'internal_admin/manage_renewals.php',
+        'Appeals' => 'internal_admin/appeals.php', 'Benefits' => 'internal_admin/benefits.php', 'Reports (Annex 1 and sponsor reports)' => 'internal_admin/reports.php', 'Student messages (inbox)' => 'internal_admin/messages.php'],
+    'External_Admin' => ['Overview' => 'external_admin/dashboard.php', 'Scholarships (create and edit programs)' => 'external_admin/scholarships.php',
+        'Masterlist (applications, Evaluation Center, waitlist)' => 'external_admin/manage_applications.php', 'Verify documents' => 'external_admin/verify.php',
+        'Score applicants' => 'external_admin/score.php', 'Reports' => 'external_admin/reports.php', 'Appeals' => 'external_admin/appeals.php', 'Benefits' => 'external_admin/benefits.php'],
+    'Super_Admin' => ['Dashboard' => 'super_admin/dashboard.php', 'Manage scholarships' => 'super_admin/scholarships.php',
+        'Manage applications (Evaluation Center, waitlist)' => 'super_admin/manage_applications.php', 'Users' => 'super_admin/users.php',
+        'Profile requests' => 'super_admin/profile_requests.php', 'Appeals' => 'super_admin/appeals.php', 'Benefits' => 'super_admin/benefits.php',
+        'Audit logs' => 'super_admin/logs.php', 'Security (session timeout, passwords, 2FA)' => 'super_admin/security.php',
+        'Privacy lifecycle' => 'super_admin/privacy_lifecycle.php', 'Database and backups' => 'super_admin/database.php'],
+];
+$role_pages = $nav_pages[$user_role] ?? $nav_pages['Guest'];
 
-if ($user_role === 'Student' || $user_role === 'Guest') {
-    $nav_guide .= "- Dashboard: /student/dashboard.php\n";
-    $nav_guide .= "- Programs: /student/programs.php\n";
-    $nav_guide .= "- My Apps: /student/applications.php\n";
-    $nav_guide .= "- Requirements (Upload Docs): /student/requirements.php\n";
-    $nav_guide .= "- Profile: /student/profile.php\n";
-    $nav_guide .= "- Vault: /student/vault.php\n";
-    $nav_guide .= "- Logout: /actions/process_logout.php?type=student\n";  
-} 
-elseif ($user_role === 'Internal_Admin') {
-    $nav_guide .= "- Dashboard: /internal_admin/dashboard.php\n";
-    $nav_guide .= "- Shortlist: /internal_admin/shortlist.php\n";
-    $nav_guide .= "- Programs: /internal_admin/programs.php\n";
-    $nav_guide .= "- Reports: /internal_admin/reports.php\n";
-    $nav_guide .= "- Applications: /internal_admin/applications.php\n";
-    $nav_guide .= "- Scholars: /internal_admin/scholars.php\n";
-} 
-elseif ($user_role === 'External_Admin') {
-    $nav_guide .= "- Dashboard: /external_admin/dashboard.php\n";
-    $nav_guide .= "- Verify Documents: /external_admin/verify.php\n";
-    $nav_guide .= "- Score Applications: /external_admin/score.php\n";
-    $nav_guide .= "- Assigned Reports: /external_admin/reports.php\n";
-    $nav_guide .= "- Scholarship: /external_admin/scholarships.php\n";
-    $nav_guide .= "- Archive: /external_admin/archive.php\n";
-} 
-elseif ($user_role === 'Super_Admin') {
-    $nav_guide .= "- Dashboard: /super_admin/dashboard.php\n";
-    $nav_guide .= "- Manage Scholarships: /super_admin/scholarships.php\n";
-    $nav_guide .= "- Manage Applications: /super_admin/manage_applications.php\n";
-    $nav_guide .= "- Users: /super_admin/users.php\n";
-    $nav_guide .= "- Programs: /super_admin/programs.php\n";
-    $nav_guide .= "- Logs: /super_admin/logs.php\n";
-    $nav_guide .= "- Security: /super_admin/security.php\n";
-    $nav_guide .= "- Database: /super_admin/database.php\n";
+$nav_guide = "AVAILABLE PAGES FOR YOUR ROLE ($user_role):\n";
+foreach ($role_pages as $label => $path) $nav_guide .= "- $label: [GOTO:$path]\n";
+$nav_guide .= "\nCRITICAL RULE: A [GOTO:...] button may only use one of the exact paths listed above, written exactly as shown. Never make up a page or change a path.";
+
+// The page a [GOTO:...] button may open, or null: one of this role's pages (matched exactly, or by its file name)
+function chatLinkTarget(string $path, array $role_pages): ?string {
+    $path = trim(html_entity_decode($path));
+    $path = preg_replace('#^https?://[^/]+#i', '', $path);
+    $path = preg_replace('#^/*(scholarlink/)?#i', '', $path);
+    $path = preg_replace('#^(\.\./)+#', '', $path);
+    $path = strtok($path, '?#');
+    if (in_array($path, $role_pages, true)) return $path;
+    foreach ($role_pages as $page) if (basename($page) === basename((string) $path)) return $page;
+    return null;
 }
-
-$nav_guide .= "\nCRITICAL RULE: You MUST ONLY use the exact root-relative paths listed above (starting with /student/, /internal_admin/, /external_admin/, or /super_admin/). NEVER prepend /ScholarLink to any URL.";
 
 // ==========================================
 // 5. PROMPT INSTRUCTIONS & API CONNECTION
@@ -387,6 +384,11 @@ if (curl_errno($ch)) {
 curl_close($ch);
 
 $bot_reply = str_replace('**', '"', $bot_reply); 
+// Buttons go only to real pages of this role; anything else is dropped (the answer's text stays)
+$bot_reply = preg_replace_callback('/\[GOTO:([^\]]*)\]/', function ($m) use ($role_pages) {
+    $target = chatLinkTarget($m[1], $role_pages);
+    return $target ? "[GOTO:$target]" : '';
+}, $bot_reply);
 
 $_SESSION['chat_history'][] = ["role" => "model", "parts" => [["text" => $bot_reply]]];
 

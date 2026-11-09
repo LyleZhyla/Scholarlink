@@ -129,8 +129,13 @@ try {
     // Plain / scanned PDFs (e.g. a provider's uploaded form) have no fillable fields: pdftk can't
     // "fill" them, so their answers are only printed in the boxes drawn in the PDF designer
     $has_fillable_fields = (bool) getPdfTemplateFields($template_filename);
+
+    // Inserted rows / columns move parts of the page, so the answers must become part of the page first (flattened)
+    $layout_stmt = $pdo->prepare("SELECT COUNT(*) FROM scholarship_pdf_edits e JOIN application a ON a.ScholarshipID = e.ScholarshipID WHERE a.ApplicationID = ? AND e.Kind IN ('row', 'column')");
+    $layout_stmt->execute([$application_id]);
+    $has_inserts = (int) $layout_stmt->fetchColumn() > 0;
     if ($has_fillable_fields) {
-        $pdf->fillForm($field_map)->needAppearances();
+        $has_inserts ? $pdf->fillForm($field_map)->flatten() : $pdf->fillForm($field_map)->needAppearances();
     }
 
     // ✨ THIS SCHOLARSHIP'S EDITS TO THE PDF'S PRINTED CONTENT (erased areas, new / replaced text)
@@ -154,8 +159,22 @@ try {
         if (!$saved) {
             exit("PDF Generation Error: " . ($has_fillable_fields ? $pdf->getError() : 'could not read the PDF form.'));
         }
-        $stamped_path = stampPdfBoxes($filled_path, getPdfPageSizes($template_filename), $drawn_boxes, $temp_dir, $content_edits);
-        @unlink($filled_path);
+        $page_sizes = getPdfPageSizes($template_filename);
+        if ($has_inserts) {
+            // Copied rows / columns come from the empty form, so a student's answer is never printed twice
+            $blank_path = $temp_dir . '/blank_' . uniqid() . '.pdf';
+            if ($has_fillable_fields) shell_exec(escapeshellarg(PDFTK_BIN) . ' ' . escapeshellarg($pdf_template_path) . ' output ' . escapeshellarg($blank_path) . ' flatten 2>&1');
+            else copy($pdf_template_path, $blank_path);
+            $laid_out = is_file($blank_path) ? relayoutPdfPages($filled_path, $blank_path, $page_sizes, $content_edits, $temp_dir) : null;
+            @unlink($blank_path);
+            if (!$laid_out) {
+                @unlink($filled_path);
+                exit("PDF Generation Error: could not add the inserted rows and columns to the PDF.");
+            }
+            if ($laid_out !== $filled_path) { @unlink($filled_path); $filled_path = $laid_out; }
+        }
+        $stamped_path = stampPdfBoxes($filled_path, $page_sizes, $drawn_boxes, $temp_dir, $content_edits);
+        if ($stamped_path !== $filled_path) @unlink($filled_path);
         if (!$stamped_path) {
             exit("PDF Generation Error: could not print the answers in the boxes drawn on the PDF.");
         }

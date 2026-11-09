@@ -143,7 +143,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .pd-text { position: absolute; border-radius: 2px; cursor: pointer; }
     .pd-text:hover { background: rgba(37, 99, 235, 0.12); outline: 1px solid rgba(37, 99, 235, 0.6); }
     .pd-text.sel { background: rgba(37, 99, 235, 0.18); outline: 2px solid #2563eb; }
-    .content-mode.tool-erase .pd-text, .content-mode.tool-addtext .pd-text { pointer-events: none; }
+    .content-mode.tool-erase .pd-text, .content-mode.tool-addtext .pd-text, .content-mode.tool-row .pd-text, .content-mode.tool-column .pd-text { pointer-events: none; }
+    .content-mode.tool-row, .content-mode.tool-column { cursor: crosshair; }
+    /* inserted rows / columns: only outlined while editing content */
+    .pd-edit.insert { background: transparent; }
+    .content-mode .pd-edit.insert { outline: 1.5px dashed #7c3aed; outline-offset: -1px; background: rgba(124, 58, 237, 0.05); }
+    .content-mode .pd-edit.insert.sel { outline: 2.5px solid #7c3aed; background: rgba(124, 58, 237, 0.1); cursor: pointer; }
+    .pd-insert-tag { position: absolute; top: 2px; left: 4px; font: 900 9px/1.4 'Plus Jakarta Sans', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #6d28d9; background: rgba(255,255,255,.9); padding: 0 4px; border-radius: 4px; }
+    .pd-cutnote { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 6; padding: 6px 10px; border-radius: 10px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font: 700 11px/1.35 'Plus Jakarta Sans', sans-serif; pointer-events: none; }
     .content-mode.tool-addtext { cursor: text; }
     .pd-field.selected { outline: 3px solid #f59e0b; outline-offset: 1px; z-index: 2; }
     .pd-field.hid { border: 2px dashed #dc2626; background: repeating-linear-gradient(45deg, rgba(220, 38, 38, 0.14) 0 4px, transparent 4px 8px); display: flex; align-items: center; justify-content: center; }
@@ -330,6 +337,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <button type="button" data-tool="select" onclick="setContentTool('select')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-i-cursor"></i> Select text</button>
                 <button type="button" data-tool="erase" onclick="setContentTool('erase')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-eraser"></i> Erase area</button>
                 <button type="button" data-tool="addtext" onclick="setContentTool('addtext')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-font"></i> Add text</button>
+                <button type="button" data-tool="row" onclick="setContentTool('row')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black" title="Drag across a row: a copy of it is added below, and everything under it moves down"><i class="fas fa-grip-lines"></i> Insert row</button>
+                <button type="button" data-tool="column" onclick="setContentTool('column')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black" title="Drag down a column of a table: a copy of it is added to its right"><i class="fas fa-grip-lines-vertical"></i> Insert column</button>
             </div>
         </div>
         <button type="button" onclick="closePdfDesigner()" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-blue-600">Done</button>
@@ -348,6 +357,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <p><strong>Select text:</strong> click any printed text, then delete or replace it.</p>
                 <p class="mt-1"><strong>Erase area:</strong> drag over anything (text, lines, a logo) to remove it.</p>
                 <p class="mt-1"><strong>Add text:</strong> click where the new text should go.</p>
+                <p class="mt-1"><strong>Insert row:</strong> drag across a row (top to bottom of it). A copy goes right below it and everything underneath moves down.</p>
+                <p class="mt-1"><strong>Insert column:</strong> drag down a column of a table (its full height). A copy goes to its right and the cells beside it move right.</p>
                 <p class="mt-1">Click an edit again to move, resize, change or delete it. Edits apply to this scholarship's PDF only.</p>
             </div>
             <div id="pdSelected" class="p-4 border-b border-slate-100"></div>
@@ -405,7 +416,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     let fbKeySeq = 0;
     let fbInsertAt = 0;
     fbFields.forEach(f => f.key = 'k' + (++fbKeySeq));
-    // Edits to the PDF's printed content: [{ kind: 'erase'|'text', page, x, y, w, h, text, font, size, bold, cover }]
+    // Edits to the PDF's printed content: [{ kind: 'erase'|'text'|'row'|'column', page, x, y, w, h, text, font, size, bold, cover }]
+    // 'row' / 'column' insert a copy of the strip x,y,w,h (cover = copy its lines and labels; otherwise blank space), see layoutPieces()
     let fbEdits = <?= json_encode($pdf_edits) ?>;
     fbEdits.forEach(e => e.key = 'e' + (++fbKeySeq));
 
@@ -583,9 +595,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // Single quotes inside: these go into style="..." attributes
     const PD_FONTS = { Helvetica: "Arial, Helvetica, sans-serif", Times: "'Times New Roman', Times, serif", Courier: "'Courier New', Courier, monospace" };
     let pdDocFile = null;
-    let pdPages = [];            // [{ num, overlay, scale, hPt, fields: [...], texts: [...] }]
+    let pdPages = [];            // [{ num, overlay, canvas, source, scale, hPt, fields, texts (as laid out), fieldsOrig, textsOrig (on the untouched page), cut }]
     let pdMode = 'fields';       // 'fields' | 'content'
-    let pdTool = 'select';       // content tool: 'select' | 'erase' | 'addtext'
+    let pdTool = 'select';       // content tool: 'select' | 'erase' | 'addtext' | 'row' | 'column'
     let pdCurrentKey = null;     // selected question
     let pdSelField = null;       // selected PDF field (by name)
     let pdSelEdit = null;        // selected content edit (by key)
@@ -643,6 +655,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         holder.classList.toggle('content-mode', pdMode === 'content');
         holder.classList.toggle('tool-erase', pdMode === 'content' && tool === 'erase');
         holder.classList.toggle('tool-addtext', pdMode === 'content' && tool === 'addtext');
+        holder.classList.toggle('tool-row', pdMode === 'content' && tool === 'row');
+        holder.classList.toggle('tool-column', pdMode === 'content' && tool === 'column');
         if (redraw) renderDesigner();
     }
 
@@ -678,7 +692,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 wrap.appendChild(overlay);
                 holder.appendChild(wrap);
 
-                await page.render({ canvasContext: canvas.getContext('2d'), viewport: page.getViewport({ scale: viewport.scale * ratio }) }).promise;
+                // The untouched page; the visible canvas is painted from it with the inserted rows / columns (paintPage)
+                const source = document.createElement('canvas');
+                source.width = canvas.width;
+                source.height = canvas.height;
+                await page.render({ canvasContext: source.getContext('2d'), viewport: page.getViewport({ scale: viewport.scale * ratio }) }).promise;
 
                 // The PDF's own fillable fields, as fractions of the page
                 const fields = (await page.getAnnotations())
@@ -709,13 +727,170 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     };
                 });
 
-                pdPages.push({ num: n, overlay, fields, texts, scale: viewport.scale, hPt: viewport.height / viewport.scale });
+                pdPages.push({ num: n, overlay, canvas, source, fieldsOrig: fields, textsOrig: texts, fields, texts, cut: [], scale: viewport.scale, hPt: viewport.height / viewport.scale });
+                paintPage(pdPages[pdPages.length - 1]);
                 bindDesignerPage(pdPages[pdPages.length - 1]);
             }
             pdDocFile = file;
         } catch (err) {
             holder.innerHTML = `<p class="text-center text-white font-black py-20">Could not open the PDF: ${esc(err.message)}</p>`;
         }
+    }
+
+    // ---------- Inserted rows and columns ----------
+    // The page is cut into pieces that keep their place or move. Inserts are applied in order, each in the page as it looked
+    // after the earlier ones: a row pushes everything below its strip down by the strip's height; a column pushes what is
+    // right of it (within the strip's height) to the right. With cover, the new space shows a copy of the strip.
+    // actions/generate_application_pdf.php prints the same cut (pdfLayoutPieces in includes/pdf_templates.php).
+    const isInsert = e => e.kind === 'row' || e.kind === 'column';
+    function cutY(p, y) {
+        if (y <= p.dy + 1e-9) return [null, p];
+        if (y >= p.dy + p.h - 1e-9) return [p, null];
+        const k = y - p.dy;
+        return [{ ...p, h: k }, { ...p, sy: p.sy + k, dy: y, h: p.h - k }];
+    }
+    function cutX(p, x) {
+        if (x <= p.dx + 1e-9) return [null, p];
+        if (x >= p.dx + p.w - 1e-9) return [p, null];
+        const k = x - p.dx;
+        return [{ ...p, w: k }, { ...p, sx: p.sx + k, dx: x, w: p.w - k }];
+    }
+    function applyInsert(pieces, ins) {
+        const out = [], copies = [];
+        pieces.forEach(p => {
+            if (ins.kind === 'row') {
+                if (ins.cover) {
+                    const from = cutY(p, ins.y)[1], strip = from && cutY(from, ins.y + ins.h)[0];
+                    if (strip) copies.push({ ...strip, dy: strip.dy + ins.h, copy: true });
+                }
+                const [above, below] = cutY(p, ins.y + ins.h);
+                if (above) out.push(above);
+                if (below) out.push({ ...below, dy: below.dy + ins.h });
+                return;
+            }
+            const [above, rest] = cutY(p, ins.y);
+            if (above) out.push(above);
+            if (!rest) return;
+            const [band, below] = cutY(rest, ins.y + ins.h);
+            if (below) out.push(below);
+            if (!band) return;
+            if (ins.cover) {
+                const from = cutX(band, ins.x)[1], strip = from && cutX(from, ins.x + ins.w)[0];
+                if (strip) copies.push({ ...strip, dx: strip.dx + ins.w, copy: true });
+            }
+            const [left, right] = cutX(band, ins.x + ins.w);
+            if (left) out.push(left);
+            if (right) out.push({ ...right, dx: right.dx + ins.w });
+        });
+        return out.concat(copies);
+    }
+    function layoutPieces(pageNum) {
+        return fbEdits.filter(e => e.page === pageNum && isInsert(e)).reduce(applyInsert, [{ sx: 0, sy: 0, w: 1, h: 1, dx: 0, dy: 0, copy: false }]);
+    }
+
+    // Draws the page with its inserts, and places its fields and text where they now are
+    function paintPage(p) {
+        const pieces = layoutPieces(p.num);
+        const ctx = p.canvas.getContext('2d'), W = p.canvas.width, H = p.canvas.height;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, W, H);
+        pieces.forEach(c => ctx.drawImage(p.source, c.sx * W, c.sy * H, c.w * W, c.h * H, c.dx * W, c.dy * H, c.w * W, c.h * H));
+        const place = r => {
+            const c = pieces.find(c => !c.copy && r.x >= c.sx - 1e-9 && r.x < c.sx + c.w - 1e-9 && r.y >= c.sy - 1e-9 && r.y < c.sy + c.h - 1e-9);
+            return c ? { ...r, x: r.x - c.sx + c.dx, y: r.y - c.sy + c.dy } : null;
+        };
+        const placedTexts = p.textsOrig.map(place);
+        p.cut = placedTexts.filter(t => t && (t.y + t.h * 0.6 > 1 || t.x + t.w * 0.6 > 1)).map(t => t.str);
+        p.texts = placedTexts.filter(t => t && t.y < 1 && t.x < 1);
+        p.fields = p.fieldsOrig.map(place).filter(f => f && f.y < 1 && f.x < 1);
+    }
+
+    // Where an insert's new space is on the page
+    function insertArea(e) {
+        return e.kind === 'row' ? { x: 0, y: e.y + e.h, w: 1, h: Math.min(e.h, Math.max(0, 1 - e.y - e.h)) }
+            : { x: e.x + e.w, y: e.y, w: Math.min(e.w, Math.max(0, 1 - e.x - e.w)), h: e.h };
+    }
+
+    // Moves what was placed on the page (boxes, erased areas, text, moved fields) along with the content around an insert
+    function shiftAroundInsert(ins, sign, movesInsert = () => false) {
+        const size = ins.kind === 'row' ? ins.h : ins.w, line = ins.kind === 'row' ? ins.y + ins.h : ins.x + ins.w;
+        const affected = r => r && r.page === ins.page && (ins.kind === 'row'
+            ? r.y >= line - 1e-4
+            : r.x >= line - 1e-4 && r.y >= ins.y - 1e-4 && r.y + r.h <= ins.y + ins.h + 1e-4);
+        const shift = r => {
+            if (ins.kind === 'row') r.y = clamp(r.y + sign * size, 0, Math.max(0, 1 - r.h));
+            else r.x = clamp(r.x + sign * size, 0, Math.max(0, 1 - r.w));
+        };
+        fbEdits.forEach(e => { if (e !== ins && (!isInsert(e) || movesInsert(e)) && affected(e)) shift(e); });
+        fbFields.forEach(f => { if (f.box && affected(f.box)) shift(f.box); });
+        Object.values(fbOverrides).forEach(o => { if (o.box && affected(o.box)) shift(o.box); });
+    }
+
+    // A dragged strip snaps to the printed lines near its edges, so a row is copied from border to border
+    // (its top line is not repeated, its bottom line is) and a column from line to line within the table
+    function snapToLines(page, drawn, kind) {
+        const p = pdPages[page - 1], c = p.canvas, W = c.width, H = c.height;
+        const data = c.getContext('2d').getImageData(0, 0, W, H).data;
+        const dark = (x, y) => { const i = (y * W + x) * 4; return data[i] + data[i + 1] + data[i + 2] < 690; };   // anything clearly not white: thin lines are drawn faint
+        // Lines across [a, b] (fractions), as [start, end] pixel runs along the other axis
+        const lines = (horizontal, a, b, from, to) => {
+            const [pa, pb] = horizontal ? [Math.round(a * W), Math.round(b * W)] : [Math.round(a * H), Math.round(b * H)];
+            const runs = [];
+            for (let v = Math.max(0, Math.round(from * (horizontal ? H : W))); v < Math.min(horizontal ? H : W, Math.round(to * (horizontal ? H : W))); v++) {
+                let n = 0, total = 0;
+                for (let u = pa; u < pb; u += 2) { total++; if (horizontal ? dark(u, v) : dark(v, u)) n++; }
+                if (total && n / total > 0.85) { const last = runs[runs.length - 1]; if (last && v - last[1] <= 2) last[1] = v; else runs.push([v, v]); }
+            }
+            // Printed lines are thin and nearly solid; anything thicker is text or a filled shape
+            return runs.filter(r => r[1] - r[0] <= Math.max(4, Math.round((horizontal ? H : W) * 0.004)));
+        };
+        const gap = (r, at, size) => Math.abs((r[0] + r[1]) / 2 / size - at);
+        const near = (runs, at, size) => runs.reduce((best, r) => !best || gap(r, at, size) < gap(best, at, size) ? r : best, null);
+        const TOL = 0.025;   // how far from a drag edge a line may be (about 20px on screen)
+        const out = { ...drawn };
+        if (kind === 'row') {
+            const runs = lines(true, Math.max(0, drawn.x), Math.min(1, drawn.x + Math.max(drawn.w, 0.05)), drawn.y - TOL, drawn.y + drawn.h + TOL);
+            const t = near(runs, drawn.y, H), b = near(runs, drawn.y + drawn.h, H);
+            if (t && b && b !== t) { out.y = (t[1] + 1) / H; out.h = (b[1] + 1) / H - out.y; }
+            return out;
+        }
+        const rows = lines(true, drawn.x, drawn.x + drawn.w, drawn.y - TOL, drawn.y + drawn.h + TOL);
+        const t = near(rows, drawn.y, H), b = near(rows, drawn.y + drawn.h, H);
+        if (t && b && b !== t) { out.y = t[0] / H; out.h = (b[1] + 1) / H - out.y; }
+        const cols = lines(false, out.y, out.y + out.h, drawn.x - TOL, drawn.x + drawn.w + TOL);
+        const l = near(cols, drawn.x, W), r = near(cols, drawn.x + drawn.w, W);
+        if (l && r && r !== l) { out.x = (l[1] + 1) / W; out.w = (r[1] + 1) / W - out.x; }
+        return out;
+    }
+
+    function addInsert(kind, page, drawn) {
+        drawn = snapToLines(page, drawn, kind);
+        const ins = kind === 'row'
+            ? { kind, page, x: 0, y: drawn.y, w: 1, h: drawn.h, text: '', font: 'Helvetica', size: null, bold: false, cover: true }
+            : { kind, page, x: drawn.x, y: drawn.y, w: drawn.w, h: drawn.h, text: '', font: 'Helvetica', size: null, bold: false, cover: true };
+        shiftAroundInsert(ins, 1);
+        pdSelText = null;
+        addEdit(ins);
+    }
+
+    function deleteInsert(key) {
+        const ins = findEdit(key);
+        const index = fbEdits.indexOf(ins);
+        const area = insertArea(ins);
+        // Things placed inside the new row / column go with it
+        const inside = r => r && r.page === ins.page && r.x >= area.x - 1e-4 && r.y >= area.y - 1e-4 && r.x + r.w <= area.x + area.w + 1e-4 && r.y + r.h <= area.y + area.h + 1e-4;
+        const doomedEdits = fbEdits.filter(e => e !== ins && !isInsert(e) && inside(e));
+        const doomedBoxes = fbFields.filter(f => f.box && inside(f.box));
+        const count = doomedEdits.length + doomedBoxes.length;
+        if (count && !confirm(`Remove this ${ins.kind}? ${count} thing(s) placed inside it will be removed too (question boxes are taken off the PDF; the questions stay on the form).`)) return;
+        fbEdits = fbEdits.filter(e => !doomedEdits.includes(e));
+        doomedBoxes.forEach(f => { f.box = null; });
+        shiftAroundInsert(ins, -1, e => fbEdits.indexOf(e) > index);
+        fbEdits = fbEdits.filter(e => e !== ins);
+        if (pdSelEdit === key) pdSelEdit = null;
+        pdSelText = null;
+        markDirty();
+        renderDesigner();
     }
 
     function renderDesigner() {
@@ -733,12 +908,15 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const handles = '<span class="pd-handle" title="Drag to resize"></span><span class="pd-del" title="Delete">×</span>';
 
         pdPages.forEach(p => {
-            let html = '';
+            paintPage(p);
+            let html = p.cut.length ? `<div class="pd-cutnote">⚠ ${p.cut.length} piece(s) of printed text no longer fit on this page: “${esc(p.cut.slice(0, 2).join('”, “'))}”${p.cut.length > 2 ? '…' : ''}. Erase some empty space lower on the page, or remove the inserted row or column.</div>` : '';
 
             // Content edits are always shown, so both modes look like the final PDF
             fbEdits.filter(e => e.page === p.num).forEach(e => {
                 const sel = content && pdSelEdit === e.key;
-                if (e.kind === 'erase') {
+                if (isInsert(e)) {
+                    html += `<div class="pd-edit insert ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(insertArea(e))}" title="Inserted ${e.kind}">${content ? `<span class="pd-insert-tag">＋ ${e.kind}</span>` : ''}</div>`;
+                } else if (e.kind === 'erase') {
                     html += `<div class="pd-edit erase ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(e)}" title="Erased area">${sel ? handles : ''}</div>`;
                 } else {
                     const boxPx = e.h * p.hPt * p.scale;
@@ -836,6 +1014,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function contentPanel() {
         const btn = 'px-3 py-2 rounded-lg text-xs font-black border';
         const edit = findEdit(pdSelEdit);
+        if (edit && isInsert(edit)) {
+            const p = pdPages[edit.page - 1];
+            return `<p class="text-[10px] font-black text-violet-700 uppercase tracking-widest mb-1">Inserted ${edit.kind} · page ${edit.page}</p>
+                <p class="text-xs text-slate-500">${edit.kind === 'row' ? 'Everything below it moved down to make room.' : 'The cells to its right moved over to make room.'} Draw question boxes in it, or add text, like anywhere on the PDF.</p>
+                <label class="flex items-start gap-2 mt-3 text-xs font-bold text-slate-600 cursor-pointer">
+                    <input type="checkbox" ${edit.cover ? 'checked' : ''} onchange="updateEdit('cover', this.checked)" class="mt-0.5 accent-violet-600">
+                    Copy the ${edit.kind}'s lines and labels (unticked: blank space). Students' answers are never copied.
+                </label>
+                ${p && p.cut.length ? `<p class="mt-3 p-2 rounded-lg bg-red-50 border border-red-100 text-xs font-bold text-red-700">⚠ Some printed text on this page no longer fits. Erase empty space lower on the page, or remove and redraw a smaller ${edit.kind}.</p>` : ''}
+                <button type="button" onclick="deleteInsert('${edit.key}')" class="mt-3 w-full ${btn} bg-red-50 border-red-200 text-red-600 hover:bg-red-600 hover:text-white"><i class="fas fa-trash-can"></i> Remove this ${edit.kind}</button>`;
+        }
         if (edit && edit.kind === 'erase') {
             return `<p class="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1">Erased area</p>
                 <p class="text-xs text-slate-500">Everything printed in this area is removed from this scholarship's PDF (page ${edit.page}). Drag to move it, drag the corner to resize.</p>
@@ -868,15 +1057,16 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <textarea id="pdReplaceText" rows="2" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-blue-500">${esc(t.str)}</textarea>
                 <button type="button" onclick="replaceSelectedText(document.getElementById('pdReplaceText').value)" class="mt-2 w-full ${btn} bg-blue-600 border-blue-600 text-white hover:bg-blue-700"><i class="fas fa-pen"></i> Replace text</button>`;
         }
-        const tips = { select: 'Click any printed text on the PDF to delete or replace it.', erase: 'Drag over anything on the PDF to erase it.', addtext: 'Click where the new text should go.' };
+        const tips = { select: 'Click any printed text on the PDF to delete or replace it.', erase: 'Drag over anything on the PDF to erase it.', addtext: 'Click where the new text should go.',
+            row: 'Drag across the row to copy, from its top line to its bottom line. The copy goes right below it.', column: 'Drag down the column to copy, from the top to the bottom of the table. The copy goes to its right.' };
         return `<p class="text-sm font-bold text-slate-500">Nothing selected.</p><p class="text-xs text-slate-400 mt-1">${tips[pdTool]}</p>`;
     }
 
     function renderEditList() {
         document.getElementById('pdEdits').innerHTML = fbEdits.length
             ? fbEdits.map(e => `<button type="button" onclick="selectEdit('${e.key}')" class="w-full text-left px-3 py-2 rounded-lg border ${pdSelEdit === e.key ? 'border-amber-500 bg-amber-50' : 'border-transparent hover:bg-slate-50'}">
-                    <span class="block text-sm font-bold text-slate-800 truncate">${e.kind === 'erase' ? 'Erased area' : esc(e.text || '(empty text)')}</span>
-                    <span class="block text-[10px] font-black uppercase tracking-wider ${e.kind === 'erase' ? 'text-red-600' : 'text-amber-600'}">${e.kind === 'erase' ? '✕ Erase' : (e.cover ? '✎ Replaced text' : '＋ Added text')} · page ${e.page}</span>
+                    <span class="block text-sm font-bold text-slate-800 truncate">${isInsert(e) ? `Inserted ${e.kind}` : e.kind === 'erase' ? 'Erased area' : esc(e.text || '(empty text)')}</span>
+                    <span class="block text-[10px] font-black uppercase tracking-wider ${isInsert(e) ? 'text-violet-700' : e.kind === 'erase' ? 'text-red-600' : 'text-amber-600'}">${isInsert(e) ? (e.cover ? '⧉ Copy' : '▭ Blank space') : e.kind === 'erase' ? '✕ Erase' : (e.cover ? '✎ Replaced text' : '＋ Added text')} · page ${e.page}</span>
                 </button>`).join('')
             : '<p class="text-xs text-slate-400">No content edits yet.</p>';
     }
@@ -910,6 +1100,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function setEditSize(value) { updateEdit('size', value === '' ? null : Number(value)); }
 
     function deleteEdit(key) {
+        if (findEdit(key) && isInsert(findEdit(key))) { deleteInsert(key); return; }
         fbEdits = fbEdits.filter(e => e.key !== key);
         if (pdSelEdit === key) pdSelEdit = null;
         markDirty();
@@ -1127,7 +1318,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (pdMode === 'content') {
                 if (e.target.closest('.pd-del')) { deleteEdit(pdSelEdit); return; }
                 const editEl = e.target.closest('.pd-edit');
-                if (editEl) {
+                if (editEl && isInsert(findEdit(editEl.dataset.edit)) && pdTool !== 'row' && pdTool !== 'column') { selectEdit(editEl.dataset.edit); return; }
+                if (editEl && !isInsert(findEdit(editEl.dataset.edit))) {
                     if (pdSelEdit !== editEl.dataset.edit) { selectEdit(editEl.dataset.edit); return; }
                     const edit = findEdit(pdSelEdit);
                     pdDrag = { mode: e.target.closest('.pd-handle') ? 'resize' : 'move', start: point, orig: { ...edit }, ref: edit, el: editEl, moved: false };
@@ -1137,6 +1329,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     return;
                 } else if (pdTool === 'erase') {
                     pdDrag = { mode: 'draw-erase', start: point, page: page.num, moved: false };
+                } else if (pdTool === 'row' || pdTool === 'column') {
+                    pdDrag = { mode: 'draw-insert', kind: pdTool, start: point, page: page.num, moved: false };
                 } else {
                     const textEl = e.target.closest('.pd-text');
                     pdDrag = { mode: 'pick-text', start: point, page: page.num, i: textEl ? Number(textEl.dataset.i) : null, moved: false };
@@ -1177,12 +1371,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (Math.abs(dx) > 0.004 || Math.abs(dy) > 0.003) pdDrag.moved = true;
             if (!pdDrag.moved || pdDrag.mode === 'pick-text') return;
 
-            if (pdDrag.mode === 'draw' || pdDrag.mode === 'draw-erase') {
+            if (pdDrag.mode === 'draw' || pdDrag.mode === 'draw-erase' || pdDrag.mode === 'draw-insert') {
                 let ghost = overlay.querySelector('.pd-ghost');
                 if (!ghost) { ghost = document.createElement('div'); ghost.className = 'pd-ghost'; overlay.appendChild(ghost); }
                 if (pdDrag.mode === 'draw-erase') { ghost.style.borderColor = '#dc2626'; ghost.style.background = 'rgba(255,255,255,0.85)'; }
-                const x = Math.min(point.x, pdDrag.start.x), y = Math.min(point.y, pdDrag.start.y);
-                Object.assign(ghost.style, { left: x * 100 + '%', top: y * 100 + '%', width: Math.abs(dx) * 100 + '%', height: Math.abs(dy) * 100 + '%' });
+                if (pdDrag.mode === 'draw-insert') { ghost.style.borderColor = '#7c3aed'; ghost.style.background = 'rgba(124,58,237,0.12)'; }
+                const rowStrip = pdDrag.mode === 'draw-insert' && pdDrag.kind === 'row';
+                const x = rowStrip ? 0 : Math.min(point.x, pdDrag.start.x), y = Math.min(point.y, pdDrag.start.y);
+                Object.assign(ghost.style, { left: x * 100 + '%', top: y * 100 + '%', width: (rowStrip ? 1 : Math.abs(dx)) * 100 + '%', height: Math.abs(dy) * 100 + '%' });
                 return;
             }
 
@@ -1209,6 +1405,13 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 pdSelEdit = null;
                 pdSelText = drag.i === null ? null : { page: drag.page, i: drag.i };
                 renderDesigner();
+                return;
+            }
+
+            if (drag.mode === 'draw-insert') {
+                const tooSmall = drag.kind === 'row' ? drawn.h < 0.006 : drawn.w < 0.01 || drawn.h < 0.01;
+                if (!drag.moved || tooSmall) { renderDesigner(); return; }
+                addInsert(drag.kind, drag.page, drawn);
                 return;
             }
 

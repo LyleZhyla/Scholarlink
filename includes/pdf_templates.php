@@ -192,7 +192,7 @@ if (!function_exists('listPdfTemplates')) {
             $overlay->AddPage($page_w > $page_h ? 'L' : 'P', [$page_w, $page_h]);
 
             // ✨ CONTENT EDITS: erased areas first, then new text (with a white background when replacing)
-            $page_edits = array_filter($edits, fn($e) => (int) $e['page'] === $index + 1);
+            $page_edits = array_filter($edits, fn($e) => (int) $e['page'] === $index + 1 && in_array($e['kind'], ['erase', 'text'], true));
             usort($page_edits, fn($a, $b) => ($a['kind'] === 'erase' ? 0 : 1) <=> ($b['kind'] === 'erase' ? 0 : 1));
             foreach ($page_edits as $edit) {
                 $x = $edit['x'] * $page_w;
@@ -259,6 +259,88 @@ if (!function_exists('listPdfTemplates')) {
         return is_file($output_path) ? $output_path : null;
     }
 
+    // ✨ INSERTED ROWS AND COLUMNS (PDF designer → Edit content). The same cutting as layoutPieces() in
+    // includes/form_builder_view.php: pieces of the page (as fractions) that keep their place or move; 'copy' pieces
+    // repeat a strip in the new space. $inserts: one page's 'row' / 'column' edits, in order.
+    function pdfLayoutPieces(array $inserts): array {
+        $cut = function (array $p, float $at, string $axis): array {
+            [$pos, $size, $src] = $axis === 'y' ? ['dy', 'h', 'sy'] : ['dx', 'w', 'sx'];
+            if ($at <= $p[$pos] + 1e-9) return [null, $p];
+            if ($at >= $p[$pos] + $p[$size] - 1e-9) return [$p, null];
+            $k = $at - $p[$pos];
+            return [array_merge($p, [$size => $k]), array_merge($p, [$src => $p[$src] + $k, $pos => $at, $size => $p[$size] - $k])];
+        };
+        $pieces = [['sx' => 0.0, 'sy' => 0.0, 'w' => 1.0, 'h' => 1.0, 'dx' => 0.0, 'dy' => 0.0, 'copy' => false]];
+        foreach ($inserts as $ins) {
+            $out = []; $copies = [];
+            [$x, $y, $w, $h, $copy] = [(float) $ins['x'], (float) $ins['y'], (float) $ins['w'], (float) $ins['h'], !empty($ins['cover'])];
+            foreach ($pieces as $p) {
+                if ($ins['kind'] === 'row') {
+                    if ($copy) {
+                        $from = $cut($p, $y, 'y')[1];
+                        $strip = $from ? $cut($from, $y + $h, 'y')[0] : null;
+                        if ($strip) $copies[] = array_merge($strip, ['dy' => $strip['dy'] + $h, 'copy' => true]);
+                    }
+                    [$above, $below] = $cut($p, $y + $h, 'y');
+                    if ($above) $out[] = $above;
+                    if ($below) $out[] = array_merge($below, ['dy' => $below['dy'] + $h]);
+                    continue;
+                }
+                [$above, $rest] = $cut($p, $y, 'y');
+                if ($above) $out[] = $above;
+                if (!$rest) continue;
+                [$band, $below] = $cut($rest, $y + $h, 'y');
+                if ($below) $out[] = $below;
+                if (!$band) continue;
+                if ($copy) {
+                    $from = $cut($band, $x, 'x')[1];
+                    $strip = $from ? $cut($from, $x + $w, 'x')[0] : null;
+                    if ($strip) $copies[] = array_merge($strip, ['dx' => $strip['dx'] + $w, 'copy' => true]);
+                }
+                [$left, $right] = $cut($band, $x + $w, 'x');
+                if ($left) $out[] = $left;
+                if ($right) $out[] = array_merge($right, ['dx' => $right['dx'] + $w]);
+            }
+            $pieces = array_merge($out, $copies);
+        }
+        return $pieces;
+    }
+
+    // Rebuilds the pages that have inserted rows / columns. $filled: the filled form, flattened (its answers are part of the
+    // page); $blank: the empty form, flattened, which copied strips are taken from so no student's answer is ever repeated.
+    // Returns the new file, $filled itself when nothing is inserted, or null on failure.
+    function relayoutPdfPages(string $filled, string $blank, array $page_sizes, array $edits, string $temp_dir): ?string {
+        $by_page = [];
+        foreach ($edits as $e) if (in_array($e['kind'], ['row', 'column'], true)) $by_page[(int) $e['page']][] = $e;
+        if (!$by_page) return $filled;
+        try {
+            $pdf = new ScholarLinkLayoutPdf('P', 'pt');
+            $pdf->SetAutoPageBreak(false);
+            $pages = $pdf->setSourceFile($filled);
+            $templates = [];
+            $template = function (string $file, int $page) use ($pdf, &$templates) {
+                if (!isset($templates[$file][$page])) { $pdf->setSourceFile($file); $templates[$file][$page] = $pdf->importPage($page); }
+                return $templates[$file][$page];
+            };
+            for ($i = 1; $i <= $pages; $i++) {
+                [$w, $h] = $page_sizes[$i - 1] ?? [612.0, 792.0];
+                $pdf->AddPage($w > $h ? 'L' : 'P', [$w, $h]);
+                foreach (pdfLayoutPieces($by_page[$i] ?? []) as $c) {
+                    if ($c['dx'] >= 1 || $c['dy'] >= 1) continue;   // pushed off the page
+                    $pdf->clipRect($c['dx'] * $w, $c['dy'] * $h, $c['w'] * $w, $c['h'] * $h);
+                    $pdf->useTemplate($template($c['copy'] ? $blank : $filled, $i), ($c['dx'] - $c['sx']) * $w, ($c['dy'] - $c['sy']) * $h, $w, $h);
+                    $pdf->endClip();
+                }
+            }
+            $out = $temp_dir . '/layout_' . uniqid() . '.pdf';
+            $pdf->Output('F', $out);
+            return is_file($out) ? $out : null;
+        } catch (Throwable $e) {
+            error_log('PDF layout error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     function wrapPdfText(FPDF $pdf, string $text, float $max_width): array {
         $lines = [];
         $line = '';
@@ -273,5 +355,15 @@ if (!function_exists('listPdfTemplates')) {
         }
         if ($line !== '') $lines[] = $line;
         return $lines;
+    }
+}
+
+// FPDI page builder that can limit drawing to a rectangle (used by relayoutPdfPages)
+if (!class_exists('ScholarLinkLayoutPdf') && class_exists(\setasign\Fpdi\Fpdi::class)) {
+    class ScholarLinkLayoutPdf extends \setasign\Fpdi\Fpdi {
+        public function clipRect(float $x, float $y, float $w, float $h): void {
+            $this->_out(sprintf('q %.3F %.3F %.3F %.3F re W n', $x * $this->k, ($this->h - $y - $h) * $this->k, $w * $this->k, $h * $this->k));
+        }
+        public function endClip(): void { $this->_out('Q'); }
     }
 }

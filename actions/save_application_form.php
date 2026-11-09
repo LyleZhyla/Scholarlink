@@ -118,12 +118,13 @@ foreach ((array) ($payload['overrides'] ?? []) as $name => $o) {
     }
 }
 
-// Edits to the PDF's printed content: [{ kind: 'erase'|'text', page, x, y, w, h, text, font, size, bold, cover }]
+// Edits to the PDF's printed content: [{ kind: 'erase'|'text'|'row'|'column', page, x, y, w, h, text, font, size, bold, cover }]
+// 'row' / 'column' insert a copy (cover) or blank space after the strip x,y,w,h; their order matters, so SortOrder keeps it
 $edits = [];
 foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     $n = $i + 1;
     $kind = $e['kind'] ?? '';
-    if (!in_array($kind, ['erase', 'text'], true)) fail("Content edit $n has an unknown type.");
+    if (!in_array($kind, ['erase', 'text', 'row', 'column'], true)) fail("Content edit $n has an unknown type.");
     $page = (int) ($e['page'] ?? 0);
     [$ex, $ey, $ew, $eh] = array_map(fn($k) => round((float) ($e[$k] ?? -1), 6), ['x', 'y', 'w', 'h']);
     if ($page < 1 || ($pdf_page_count && $page > $pdf_page_count)) fail("Content edit $n is on a page that isn't in the selected PDF.");
