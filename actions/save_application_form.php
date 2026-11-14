@@ -95,6 +95,7 @@ foreach ($payload['fields'] as $i => $f) {
         'pdf'         => mb_substr($pdf, 0, 100) ?: null,
         'box'         => $box,
         'order'       => $n,
+        'width'       => ($type !== 'Section' && ($f['width'] ?? '') === 'half') ? 'half' : 'full',
     ];
 }
 
@@ -148,14 +149,14 @@ try {
     $existing_ids->execute([$scholarship_id]);
     $existing_ids = array_map('intval', $existing_ids->fetchAll(PDO::FETCH_COLUMN));
 
-    $update = $pdo->prepare("UPDATE scholarship_custom_fields SET FieldName = ?, FieldType = ?, HelpText = ?, Placeholder = ?, Options = ?, IsRequired = ?, PDFFieldName = ?, PdfPage = ?, PdfX = ?, PdfY = ?, PdfW = ?, PdfH = ?, PdfFontSize = ?, SortOrder = ?, IsActive = 1 WHERE FieldID = ? AND ScholarshipID = ?");
-    $insert = $pdo->prepare("INSERT INTO scholarship_custom_fields (ScholarshipID, FieldName, FieldType, HelpText, Placeholder, Options, IsRequired, PDFFieldName, PdfPage, PdfX, PdfY, PdfW, PdfH, PdfFontSize, SortOrder, IsActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
+    $update = $pdo->prepare("UPDATE scholarship_custom_fields SET FieldName = ?, FieldType = ?, HelpText = ?, Placeholder = ?, Options = ?, IsRequired = ?, PDFFieldName = ?, PdfPage = ?, PdfX = ?, PdfY = ?, PdfW = ?, PdfH = ?, PdfFontSize = ?, SortOrder = ?, Width = ?, IsActive = 1 WHERE FieldID = ? AND ScholarshipID = ?");
+    $insert = $pdo->prepare("INSERT INTO scholarship_custom_fields (ScholarshipID, FieldName, FieldType, HelpText, Placeholder, Options, IsRequired, PDFFieldName, PdfPage, PdfX, PdfY, PdfW, PdfH, PdfFontSize, SortOrder, Width, IsActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
 
     $kept_ids = [];
     $saved = [];
     foreach ($clean as $f) {
         $b = $f['box'] ?? ['page' => null, 'x' => null, 'y' => null, 'w' => null, 'h' => null, 'size' => null];
-        $values = [$f['label'], $f['type'], $f['help'], $f['placeholder'], $f['options'], $f['required'], $f['pdf'], $b['page'], $b['x'], $b['y'], $b['w'], $b['h'], $b['size'], $f['order']];
+        $values = [$f['label'], $f['type'], $f['help'], $f['placeholder'], $f['options'], $f['required'], $f['pdf'], $b['page'], $b['x'], $b['y'], $b['w'], $b['h'], $b['size'], $f['order'], $f['width']];
         if ($f['id'] !== null && in_array($f['id'], $existing_ids, true)) {
             $answered = $pdo->prepare('SELECT COUNT(*) FROM application_custom_answers WHERE FieldID = ?');
             $answered->execute([$f['id']]);

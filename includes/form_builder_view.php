@@ -15,6 +15,7 @@ $builder_fields = array_map(function ($f) {
         'options'     => (string) ($f['Options'] ?? ''),
         'required'    => (bool) $f['IsRequired'],
         'pdf'         => (string) ($f['PDFFieldName'] ?? ''),
+        'width'       => ($f['Width'] ?? 'full') === 'half' ? 'half' : 'full',   // half: side by side with the next half field
         // Box drawn on the PDF in the designer (page + position as fractions of the page)
         'box'         => $f['PdfPage'] === null ? null : [
             'page' => (int) $f['PdfPage'], 'x' => (float) $f['PdfX'], 'y' => (float) $f['PdfY'],
@@ -75,23 +76,48 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 <link rel="stylesheet" href="../assets/lib/fontawesome/css/all.min.css">
 
 <style>
-    /* ---- question blocks (shown as the student sees them) ---- */
-    .q-block { position: relative; border-radius: 18px; padding: 14px 16px; margin: 0 -16px; border: 2px solid transparent; transition: border-color 0.15s, background 0.15s; cursor: pointer; }
-    .q-block:hover { border-color: #bfdbfe; background: #f8fbff; }
-    .q-block.is-dragging { opacity: 0.35; }
-    .q-block.drop-before { box-shadow: 0 -3px 0 0 #2563eb; }
-    .q-block.drop-after { box-shadow: 0 3px 0 0 #2563eb; }
-    .q-toolbar { position: absolute; top: -16px; right: 12px; display: flex; gap: 2px; padding: 3px; border-radius: 12px; background: #0f172a; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25); opacity: 0; transform: translateY(4px); pointer-events: none; transition: all 0.15s; z-index: 5; }
-    .q-block:hover .q-toolbar { opacity: 1; transform: none; pointer-events: auto; }
-    .q-toolbar button { width: 30px; height: 30px; border-radius: 9px; color: #cbd5e1; font-size: 12px; }
-    .q-toolbar button:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: #fff; }
-    .q-toolbar button:disabled { opacity: 0.3; cursor: not-allowed; }
-    .q-toolbar .danger:hover { background: #dc2626 !important; }
-    .q-type-tag { position: absolute; top: -10px; left: 14px; padding: 1px 8px; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-size: 9px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0; transition: opacity 0.15s; }
-    .q-block:hover .q-type-tag { opacity: 1; }
+    /* ---- Edit tab: the form as rows of one or two fields ---- */
+    .fb-tabbtn { flex: 1; padding: 14px 10px; font-size: 12px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; color: #64748b; border-bottom: 3px solid transparent; transition: color 0.15s, border-color 0.15s; }
+    .fb-tabbtn:hover { color: #0f172a; }
+    .fb-tabbtn.active { color: #0f172a; border-bottom-color: #2563eb; }
+    .fb-tabbtn .count { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #e2e8f0; color: #334155; font-size: 10px; letter-spacing: 0; }
+    .fb-tabbtn.active .count { background: #2563eb; color: #fff; }
+    .fb-row { display: flex; align-items: stretch; gap: 8px; padding: 10px 12px 10px 4px; border-radius: 16px; background: #fff; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+    .fb-grip { display: flex; align-items: center; padding: 0 8px; color: #94a3b8; font-size: 16px; cursor: grab; }
+    .fb-grip:hover { color: #0f172a; }
+    .fb-tile { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 12px 8px 12px 16px; border-radius: 12px; background: #f8fafc; border: 1.5px solid #e2e8f0; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .fb-tile:hover { border-color: #93c5fd; }
+    .fb-tile.sel { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
+    .fb-tile.section { background: #0f172a; border-color: #0f172a; }
+    .fb-tile.section .fb-tile-title { color: #fff; }
+    .fb-tile.section .fb-tile-sub, .fb-tile.section .fb-tile-btn { color: #94a3b8; }
+    .fb-tile-title { font-size: 15px; font-weight: 800; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fb-tile-sub { margin-top: 2px; font-size: 12px; font-weight: 600; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fb-tile-btn { width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; color: #64748b; font-size: 14px; }
+    .fb-tile-btn:hover { background: #e2e8f0; color: #0f172a; }
+    .fb-tile-btn.danger:hover { background: #fee2e2; color: #dc2626; }
+    .fb-dragging .fb-tile, .fb-dragging .fb-row { transition: none; }
+    #fbDropMark { position: fixed; z-index: 9995; border-radius: 4px; background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2); pointer-events: none; }
+
+    /* ---- Form elements (left) ---- */
+    .fb-group > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: #f1f5f9; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; color: #334155; cursor: pointer; user-select: none; }
+    .fb-group > summary::-webkit-details-marker { display: none; }
+    .fb-group > summary i.chev { transition: transform 0.15s; color: #94a3b8; }
+    .fb-group[open] > summary i.chev { transform: rotate(180deg); }
+    .fb-el { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border-radius: 12px; background: #f8fafc; border: 1px solid #eef2f7; font-size: 13px; font-weight: 700; color: #334155; text-align: left; cursor: grab; }
+    .fb-el:hover { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
+    .fb-el .dots { color: #cbd5e1; font-size: 12px; }
+    .fb-el .ico { width: 18px; text-align: center; color: #2563eb; }
+    .fb-el:disabled { opacity: 0.45; cursor: default; }
+    html.dark .fb-row { background: #0f172a; border-color: #1e293b; }
+    html.dark .fb-tile { background: #1e293b; border-color: #334155; }
+    html.dark .fb-tile.sel { background: #172554; border-color: #3b82f6; }
+    html.dark .fb-tile-title { color: #f1f5f9; }
+    html.dark .fb-tile-btn:hover { background: #334155; color: #fff; }
+    html.dark .fb-el, html.dark .fb-group > summary { background: #1e293b; border-color: #334155; color: #e2e8f0; }
 
     /* ---- the question being edited ---- */
-    .q-edit { position: relative; margin: 6px -16px; padding: 20px; border-radius: 18px; background: #fff; border: 2px solid #2563eb; border-left-width: 6px; box-shadow: 0 20px 40px -12px rgba(37, 99, 235, 0.25); }
+    .q-edit { position: relative; margin: 0 0 12px; padding: 24px 20px 20px; border-radius: 18px; background: #fff; border: 2px solid #2563eb; border-left-width: 6px; box-shadow: 0 20px 40px -12px rgba(37, 99, 235, 0.25); }
     .q-edit .inline-input { width: 100%; background: transparent; border: none; border-bottom: 2px solid #e2e8f0; outline: none; padding: 6px 2px; transition: border-color 0.15s; }
     .q-edit .inline-input:focus { border-bottom-color: #2563eb; }
     .q-edit .opt-row input[type=text] { flex: 1; min-width: 0; background: transparent; border: none; border-bottom: 1px dashed transparent; outline: none; padding: 6px 2px; font-weight: 700; font-size: 14px; color: #334155; }
@@ -101,19 +127,6 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
     .switch.on { background: #2563eb; }
     .switch.on::after { transform: translateX(18px); }
-
-    /* ---- "+" insert points between questions ---- */
-    .insert-zone { position: relative; height: 18px; display: flex; align-items: center; justify-content: center; }
-    .insert-zone::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 2px dashed #bfdbfe; opacity: 0; transition: opacity 0.15s; }
-    .insert-zone button { position: relative; width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 2px solid #bfdbfe; color: #2563eb; font-size: 11px; opacity: 0; transform: scale(0.8); transition: all 0.15s; }
-    .insert-zone:hover::before, .insert-zone:hover button { opacity: 1; transform: none; }
-    .insert-zone button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
-
-    /* ---- type picker ---- */
-    #typeMenu { position: absolute; z-index: 60; width: 320px; max-width: calc(100vw - 32px); }
-    #typeMenu .type-btn { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; font-size: 13px; font-weight: 700; color: #334155; text-align: left; }
-    #typeMenu .type-btn:hover { background: #eff6ff; color: #1d4ed8; }
-    #typeMenu .type-btn i { width: 18px; text-align: center; color: #3b82f6; }
 
     /* ---- PDF designer ---- */
     .pd-page { position: relative; margin: 0 auto 28px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18); background: #fff; }
@@ -173,10 +186,6 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     #pdfMissingPanel > summary { list-style: none; }
     #pdfMissingPanel > summary::-webkit-details-marker { display: none; }
 
-    /* ---- preview mode hides every editing control ---- */
-    body.fb-preview .q-toolbar, body.fb-preview .q-type-tag, body.fb-preview .insert-zone, body.fb-preview .edit-only { display: none !important; }
-    body.fb-preview .q-block { cursor: default; }
-    body.fb-preview .q-block:hover { border-color: transparent; background: transparent; }
 </style>
 
 <main class="flex-1 p-5 lg:p-10 lg:ml-72 bg-slate-50/50 min-h-screen transition-all duration-300">
@@ -209,20 +218,88 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         </div>
     </header>
 
-    <div class="max-w-4xl mx-auto">
+    <div class="max-w-7xl mx-auto">
         <div id="fbAlert" class="hidden mb-5 px-5 py-4 rounded-2xl text-sm font-bold"></div>
+        <?php if ($application_count > 0): ?>
+            <p class="mb-4 text-xs font-bold text-amber-700"><i class="fas fa-circle-info"></i> <?= $application_count ?> application<?= $application_count === 1 ? ' has' : 's have' ?> already been submitted — removed fields are archived so those answers are kept.</p>
+        <?php endif; ?>
 
-        <div class="edit-only mb-5 flex items-start gap-3 px-5 py-4 rounded-2xl bg-blue-50 border border-blue-100 text-blue-900 text-sm">
-            <i class="fas fa-hand-pointer mt-0.5"></i>
-            <div>
-            <p class="font-black text-slate-900 mb-1">① Add the questions below &nbsp;→&nbsp; ② Open the PDF designer to place each answer on the official form &nbsp;→&nbsp; ③ Save form</p>
-            <p><strong>This is the form exactly as students see it.</strong> Click a question to edit it, hover for move / duplicate / delete, and use <strong>+</strong> to add a question anywhere.
-            <?php if ($application_count > 0): ?><br><span class="text-amber-700 font-bold"><?= $application_count ?> application<?= $application_count === 1 ? ' has' : 's have' ?> already been submitted — removed questions are archived so those answers are kept.</span><?php endif; ?></p>
-            </div>
-        </div>
+        <div id="fbLayout" class="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
+            <!-- FORM ELEMENTS: drag onto the form, or click to add after the selected field -->
+            <aside id="fbPalette" class="lg:sticky lg:top-24 bg-white border border-slate-200 rounded-2xl shadow-sm lg:max-h-[calc(100vh-7.5rem)] lg:overflow-y-auto">
+                <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-2.5">
+                    <i class="fas fa-clipboard-list text-orange-500 text-lg"></i>
+                    <h2 class="text-base font-black text-slate-900">Form elements</h2>
+                </div>
+                <p class="px-5 pt-3 text-xs font-medium text-slate-500">Drag an element onto the form — between two rows, or beside a field to put them side by side. Or click it to add it after the selected field.</p>
+                <div id="fbPaletteGroups" class="p-3 space-y-2"></div>
+            </aside>
+
+            <section class="min-w-0">
+                <div class="flex bg-white border border-slate-200 rounded-2xl mb-5 overflow-hidden" role="tablist">
+                    <button type="button" role="tab" data-fbtab="edit" onclick="showTab('edit')" class="fb-tabbtn active">Edit<span class="count" id="fbQuestionCount">0</span></button>
+                    <button type="button" role="tab" data-fbtab="preview" onclick="showTab('preview')" class="fb-tabbtn">Preview</button>
+                    <button type="button" role="tab" data-fbtab="pdf" onclick="showTab('pdf')" class="fb-tabbtn">PDF form<span class="count" id="fbPdfCount">–</span></button>
+                </div>
+
+                <!-- EDIT: the fields as rows -->
+                <div id="fbTabEdit">
+                    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Application form</p>
+                        <h2 class="text-xl lg:text-2xl font-black text-slate-900 tracking-tight">Apply for <?= htmlspecialchars($scholarship['Name']) ?></h2>
+                        <textarea id="fbInstructions" rows="2" oninput="markDirty(); autoGrow(this);" placeholder="✏️ Instructions shown at the top of the form (optional)"
+                            class="mt-3 w-full p-3 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900 font-medium outline-none resize-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 placeholder:text-blue-300"><?= htmlspecialchars($scholarship['FormInstructions'] ?? '') ?></textarea>
+                    </div>
+                    <div id="fbCanvas" class="space-y-3 min-h-[120px]"></div>
+                    <button type="button" onclick="addElement(JSON.stringify({ type: 'Text', edit: true }), true)" class="w-full mt-3 py-4 rounded-2xl border-2 border-dashed border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-400 text-sm font-black uppercase tracking-widest transition-all">
+                        <i class="fas fa-plus"></i> Add field
+                    </button>
+                    <p class="text-xs font-medium text-slate-400 mt-4"><i class="fas fa-lock"></i> Every form also asks for the student's GWA and the required documents (<?= count($builder_documents) ?>), which are set in the scholarship settings.</p>
+                </div>
+
+                <!-- PREVIEW: exactly what students see (mirrors student/apply_form.php) -->
+                <div id="fbTabPreview" class="hidden">
+                    <div class="bg-white p-6 lg:p-10 rounded-[2rem] border border-slate-200 shadow-sm space-y-8">
+                        <div>
+                            <h2 class="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight leading-tight">Apply for <?= htmlspecialchars($scholarship['Name']) ?></h2>
+                            <p class="text-slate-500 font-medium text-xs lg:text-sm mt-1">Complete the dynamic form and upload your requirements.</p>
+                        </div>
+                        <div class="space-y-4">
+                            <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Academic Profile</h3>
+                            <div>
+                                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Declared GWA / GPA</label>
+                                <div class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-400">1.50</div>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Application Questions</h3>
+                            <div id="fbInstructionsBox" class="hidden p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900 font-medium whitespace-pre-line"></div>
+                            <div id="fbPreviewCanvas" class="grid sm:grid-cols-2 gap-x-4 gap-y-6"></div>
+                        </div>
+                        <div class="space-y-4">
+                            <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Required Documents</h3>
+                            <?php if (empty($builder_documents)): ?>
+                                <p class="text-xs text-slate-400 font-bold">No documents required.</p>
+                            <?php endif; ?>
+                            <?php foreach ($builder_documents as $doc): ?>
+                                <div class="flex items-center justify-between p-4 border border-slate-200 rounded-xl bg-slate-50 gap-4">
+                                    <div>
+                                        <p class="font-bold text-slate-900 text-sm"><?= htmlspecialchars($doc) ?></p>
+                                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Pending Upload</p>
+                                    </div>
+                                    <span class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest">From Vault</span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="flex justify-end pt-2">
+                            <span class="w-full sm:w-auto text-center bg-slate-900/90 text-white px-10 py-4 rounded-xl font-black text-sm uppercase tracking-widest cursor-not-allowed">Submit Application</span>
+                        </div>
+                    </div>
+                </div>
 
         <!-- OFFICIAL PDF FORM: which template is printed, and which of its fields the questions fill -->
-        <div class="edit-only mb-8 bg-white border border-slate-200 rounded-[1.5rem] p-5 shadow-sm">
+        <div id="fbTabPdf" class="hidden bg-white border border-slate-200 rounded-[1.5rem] p-5 shadow-sm">
+            <p class="text-sm font-bold text-slate-600 mb-4">Pick the official PDF students' answers are printed on, then open the designer to place each answer where it belongs.</p>
             <div class="flex flex-col md:flex-row md:items-center gap-4">
                 <div class="w-11 h-11 shrink-0 rounded-xl bg-red-50 text-red-600 flex items-center justify-center text-lg"><i class="fas fa-file-pdf"></i></div>
                 <div class="flex-1 min-w-0">
@@ -270,69 +347,16 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             </details>
         </div>
 
-        <!-- THE FORM (mirrors student/apply_form.php) -->
-        <div class="mb-6 flex items-center gap-4">
-            <span class="w-12 h-12 shrink-0 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-300"><i class="fas fa-arrow-left"></i></span>
-            <div>
-                <h2 class="text-2xl lg:text-4xl font-black text-slate-900 tracking-tight leading-tight">Apply for <?= htmlspecialchars($scholarship['Name']) ?></h2>
-                <p class="text-slate-500 font-medium text-xs lg:text-sm mt-1">Complete the dynamic form and upload your requirements.</p>
-            </div>
-        </div>
-
-        <div class="bg-white p-6 lg:p-10 rounded-[2rem] border border-slate-200 shadow-sm space-y-8">
-            <!-- Fixed part of every form -->
-            <div class="space-y-4 relative">
-                <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Academic Profile
-                    <span class="edit-only ml-2 text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full align-middle"><i class="fas fa-lock"></i> Always included</span>
-                </h3>
-                <div>
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Declared GWA / GPA</label>
-                    <div class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-400">1.50</div>
-                </div>
-            </div>
-
-            <div class="space-y-3">
-                <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Application Questions</h3>
-
-                <!-- Instructions: edited in place -->
-                <div class="relative group">
-                    <textarea id="fbInstructions" rows="2" oninput="markDirty(); autoGrow(this); document.getElementById('fbInstructionsBox').classList.toggle('is-empty', !this.value.trim());"
-                        placeholder="✏️ Click to add instructions shown at the top of the form (optional)"
-                        class="w-full p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900 font-medium outline-none resize-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 placeholder:text-blue-300 edit-only"><?= htmlspecialchars($scholarship['FormInstructions'] ?? '') ?></textarea>
-                    <div id="fbInstructionsBox" class="hidden p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900 font-medium whitespace-pre-line"></div>
-                </div>
-
-                <div id="fbCanvas"></div>
-
-                <button type="button" onclick="openTypeMenu(this, fbFields.length)" class="edit-only w-full mt-2 py-4 rounded-2xl border-2 border-dashed border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-400 text-sm font-black uppercase tracking-widest transition-all">
-                    <i class="fas fa-plus"></i> Add question
-                </button>
-            </div>
-
-            <div class="space-y-4">
-                <h3 class="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-100 pb-2">Required Documents
-                    <span class="edit-only ml-2 text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full align-middle"><i class="fas fa-gear"></i> Managed in scholarship settings</span>
-                </h3>
-                <?php if (empty($builder_documents)): ?>
-                    <p class="text-xs text-slate-400 font-bold">No documents required.</p>
-                <?php endif; ?>
-                <?php foreach ($builder_documents as $doc): ?>
-                    <div class="flex items-center justify-between p-4 border border-slate-200 rounded-xl bg-slate-50 gap-4">
-                        <div>
-                            <p class="font-bold text-slate-900 text-sm"><?= htmlspecialchars($doc) ?></p>
-                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Pending Upload</p>
-                        </div>
-                        <span class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest">From Vault</span>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-
-            <div class="flex justify-end pt-2">
-                <span class="w-full sm:w-auto text-center bg-slate-900/90 text-white px-10 py-4 rounded-xl font-black text-sm uppercase tracking-widest cursor-not-allowed">Submit Application</span>
-            </div>
+            </section>
         </div>
     </div>
 </main>
+
+<!-- EDIT ONE FIELD (its pencil) -->
+<div id="fieldEditor" class="hidden fixed inset-0 z-[9990] bg-slate-900/50 backdrop-blur-sm items-start justify-center p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="Edit field" onmousedown="if (event.target === this) closeEditor()">
+    <div id="fieldEditorBody" class="w-full max-w-2xl mt-10 mb-10"></div>
+</div>
+<div id="fbDropMark" class="hidden"></div>
 
 <!-- PDF DESIGNER: the real PDF with its fields and the boxes admins draw -->
 <div id="pdfDesigner" class="hidden fixed inset-0 z-[9998] bg-slate-900/80 backdrop-blur-sm flex flex-col">
@@ -377,27 +401,6 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     </div>
 </div>
 
-<!-- TYPE PICKER (opened by every "+") -->
-<div id="typeMenu" class="hidden bg-white border border-slate-200 rounded-2xl shadow-2xl p-3">
-    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 pb-2">Add a question</p>
-    <div class="grid grid-cols-2 gap-1">
-        <?php foreach ($field_types as $key => $t): ?>
-            <button type="button" class="type-btn" onclick="pickType('<?= $key ?>')"><i class="fas <?= $t['icon'] ?>"></i><?= htmlspecialchars($t['label']) ?></button>
-        <?php endforeach; ?>
-    </div>
-    <div class="mt-2 pt-3 border-t border-slate-100 px-1">
-        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 pb-2">⚡ Auto-fill from student profile</p>
-        <div class="flex gap-2">
-            <select id="fbAutoType" class="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs font-bold outline-none">
-                <?php foreach ($auto_types as $key => $label): ?>
-                    <option value="<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($label) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <button type="button" onclick="pickType(document.getElementById('fbAutoType').value)" class="px-3 rounded-xl bg-blue-600 text-white text-xs font-black hover:bg-blue-700">Add</button>
-        </div>
-    </div>
-</div>
-
 <!-- pdf.js renders the official PDF inside the designer -->
 <script src="../assets/lib/pdfjs/pdf.min.js"></script>
 <script>
@@ -413,7 +416,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     let fbEditingKey = null;
     let fbDirty = false;
     let fbKeySeq = 0;
-    let fbInsertAt = 0;
+    let fbSelectedKey = null;   // new fields go right after the selected one's row
     fbFields.forEach(f => f.key = 'k' + (++fbKeySeq));
     // Edits to the PDF's printed content: [{ kind: 'erase'|'text'|'row'|'column', page, x, y, w, h, text, font, size, bold, cover }]
     // 'row' / 'column' insert a copy of the strip x,y,w,h (cover = copy its lines and labels; otherwise blank space), see layoutPieces()
@@ -573,6 +576,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const pct = tpl.fields.length ? Math.round(filled / tpl.fields.length * 100) : 0;
 
         document.getElementById('pdfCoverageText').textContent = tpl.fields.length ? `${filled} / ${tpl.fields.length}` : 'n/a';
+        document.getElementById('fbPdfCount').textContent = tpl.fields.length ? `${filled}/${tpl.fields.length}` : '–';
         document.getElementById('pdfCoverageBar').style.width = pct + '%';
         document.getElementById('pdfMissingSummary').textContent = missing.length
             ? `${missing.length} PDF field${missing.length === 1 ? ' is' : 's are'} not filled yet — add questions for them`
@@ -585,7 +589,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
     function addQuestionForPdf(name) {
         const pdfField = activeTemplate().fields.find(p => p.name === name);
-        addField(pdfField && pdfField.type === 'Checkbox' ? 'YesNo' : 'Text', fbFields.length);
+        showTab('edit');
+        addField(pdfField && pdfField.type === 'Checkbox' ? 'YesNo' : 'Text', insertIndex());
         const f = findField(fbEditingKey);
         f.label = humanize(name);
         f.pdf = name;
@@ -1603,47 +1608,70 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
 
     // ================= RENDERING =================
+    // The form as rows: one field, or two "half" fields side by side (students see the same)
+    const isHalf = f => !!f && f.width === 'half' && f.type !== 'Section';
+    function formRows() {
+        const rows = [];
+        for (let i = 0; i < fbFields.length; i++) {
+            if (isHalf(fbFields[i]) && isHalf(fbFields[i + 1])) { rows.push([fbFields[i], fbFields[i + 1]]); i++; }
+            else rows.push([fbFields[i]]);
+        }
+        return rows;
+    }
+
     function render() {
         renderPdfCoverage();
-        const canvas = document.getElementById('fbCanvas');
-        let html = insertZone(0);
-        fbFields.forEach((f, i) => {
-            html += f.key === fbEditingKey ? editorBlock(f, i) : questionBlock(f, i);
-            html += insertZone(i + 1);
-        });
-        if (!fbFields.length) {
-            html = `<div class="edit-only text-center py-10 text-slate-400"><i class="fas fa-wand-magic-sparkles text-3xl mb-3 text-slate-300"></i><p class="font-black text-slate-600">No questions yet</p><p class="text-sm">Click <strong>Add question</strong> below to start.</p></div>`;
-        }
-        canvas.innerHTML = html;
-        bindDragAndDrop();
-
-        const editing = canvas.querySelector('.q-edit');
-        if (editing) {
-            editing.querySelectorAll('textarea').forEach(autoGrow);
-        }
+        document.getElementById('fbQuestionCount').textContent = fbFields.filter(f => f.type !== 'Section').length;
+        document.getElementById('fbCanvas').innerHTML = fbFields.length ? formRows().map(rowHtml).join('')
+            : `<div class="text-center py-12 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400"><i class="fas fa-hand-pointer text-3xl mb-3 text-slate-300"></i><p class="font-black text-slate-600">No fields yet</p><p class="text-sm">Drag an element here from the left, or press <b>Scan the PDF form</b> to start from the official form.</p></div>`;
+        renderPalettePdf();
+        renderFieldEditor();
+        if (!document.getElementById('fbTabPreview').classList.contains('hidden')) renderPreview();
     }
 
-    function insertZone(index) {
-        return `<div class="insert-zone"><button type="button" title="Insert a question here" onclick="openTypeMenu(this, ${index})"><i class="fas fa-plus"></i></button></div>`;
+    function rowHtml(row) {
+        return `<div class="fb-row" data-keys="${row.map(f => f.key).join(',')}">
+            <span class="fb-grip" draggable="true" title="Drag to move this row"><i class="fas fa-grip-vertical"></i></span>
+            <div class="flex-1 min-w-0 grid gap-3 ${row.length > 1 ? 'sm:grid-cols-2' : ''}">${row.map(tileHtml).join('')}</div>
+        </div>`;
     }
 
-    // A question exactly as the student sees it, with hover controls
-    function questionBlock(f, i) {
-        const toolbar = `
-            <div class="q-toolbar" onclick="event.stopPropagation()">
-                <button type="button" class="fb-handle cursor-grab" title="Drag to reorder"><i class="fas fa-grip-vertical"></i></button>
-                <button type="button" onclick="moveField('${f.key}', -1)" ${i === 0 ? 'disabled' : ''} title="Move up"><i class="fas fa-arrow-up"></i></button>
-                <button type="button" onclick="moveField('${f.key}', 1)" ${i === fbFields.length - 1 ? 'disabled' : ''} title="Move down"><i class="fas fa-arrow-down"></i></button>
-                <button type="button" onclick="duplicateField('${f.key}')" title="Duplicate"><i class="fas fa-clone"></i></button>
-                <button type="button" onclick="editField('${f.key}')" title="Edit"><i class="fas fa-pen"></i></button>
-                <button type="button" class="danger" onclick="deleteField('${f.key}')" title="Delete"><i class="fas fa-trash-can"></i></button>
-            </div>`;
-        const tag = `<span class="q-type-tag"><i class="fas ${typeIcon(f.type)}"></i> ${esc(typeLabel(f.type))}${f.id === null ? ' · new' : ''}</span>`
-            + (f.box && f.type !== 'Section' ? `<span class="edit-only absolute -top-2.5 left-44 px-2 py-px rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[9px] font-black uppercase tracking-wider" title="Printed in a box drawn on the PDF">▭ Box on PDF page ${f.box.page}</span>` : '')
-            + (f.pdf && f.type !== 'Section' ? (activeTemplate().fields.some(p => p.name === f.pdf)
-                ? `<span class="edit-only absolute -top-2.5 left-44 px-2 py-px rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[9px] font-black uppercase tracking-wider" title="Printed on the PDF form">📄 ${esc(f.pdf)}</span>`
-                : `<span class="edit-only absolute -top-2.5 left-44 px-2 py-px rounded-full bg-amber-50 border border-amber-300 text-amber-700 text-[9px] font-black uppercase tracking-wider" title="This field is not on the selected PDF, so the answer is not printed">⚠️ ${esc(f.pdf)} — not on this PDF</span>`) : '');
-        return `<div class="q-block" data-key="${f.key}" onclick="editField('${f.key}')" title="Click to edit">${tag}${toolbar}${studentView(f)}</div>`;
+    function tileHtml(f) {
+        const section = f.type === 'Section';
+        const missing = f.pdf && !f.box && !activeTemplate().fields.some(p => p.name === f.pdf);
+        const pdf = section ? '' : f.box ? '<span class="text-emerald-600">▭ box on the PDF</span>' : f.pdf ? `<span class="${missing ? 'text-amber-600' : 'text-emerald-600'}">${missing ? '⚠ PDF field not on this form' : '▣ prints on the PDF'}</span>` : '';
+        return `<div class="fb-tile ${section ? 'section' : ''} ${f.key === fbSelectedKey ? 'sel' : ''}" data-key="${f.key}" draggable="true" onclick="selectField('${f.key}')" ondblclick="editField('${f.key}')" title="Click to select, double-click or ✎ to edit">
+            <div class="min-w-0 flex-1">
+                <p class="fb-tile-title">${esc(f.label) || (section ? 'Untitled section' : 'Untitled question')}${f.required && !section ? ' <span class="text-red-500">*</span>' : ''}</p>
+                <p class="fb-tile-sub"><i class="fas ${typeIcon(f.type)}"></i> ${esc(typeLabel(f.type))}${pdf ? ' · ' + pdf : ''}</p>
+            </div>
+            <button type="button" class="fb-tile-btn" onclick="event.stopPropagation(); editField('${f.key}')" title="Edit"><i class="fas fa-pen"></i></button>
+            <button type="button" class="fb-tile-btn danger" onclick="event.stopPropagation(); deleteField('${f.key}')" title="Delete"><i class="fas fa-trash-can"></i></button>
+        </div>`;
+    }
+
+    function selectField(key) {
+        fbSelectedKey = fbSelectedKey === key ? null : key;
+        render();
+    }
+
+    // The edit window shows the field being edited, redrawn as it changes (keeping the cursor where it was)
+    function renderFieldEditor() {
+        const modal = document.getElementById('fieldEditor');
+        const f = fbEditingKey ? findField(fbEditingKey) : null;
+        modal.classList.toggle('hidden', !f);
+        modal.classList.toggle('flex', !!f);
+        if (!f) return;
+        const focused = document.activeElement && modal.contains(document.activeElement) ? document.activeElement.id : null;
+        document.getElementById('fieldEditorBody').innerHTML = editorBlock(f, findIndex(f.key));
+        modal.querySelectorAll('textarea').forEach(autoGrow);
+        if (focused && document.getElementById(focused)) document.getElementById(focused).focus();
+    }
+
+    function setWidth(key, width) {
+        findField(key).width = width;
+        markDirty();
+        render();
     }
 
     // Mirrors renderFormField() in includes/form_fields.php
@@ -1675,7 +1703,16 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return html + `</div>`;
     }
 
-    // The same question turned into an in-place editor
+    function renderPreview() {
+        const instructions = document.getElementById('fbInstructions').value.trim();
+        const box = document.getElementById('fbInstructionsBox');
+        box.textContent = 'ℹ️ ' + instructions;
+        box.classList.toggle('hidden', !instructions);
+        document.getElementById('fbPreviewCanvas').innerHTML = fbFields.map(f => `<div class="${isHalf(f) ? '' : 'sm:col-span-2'}">${studentView(f)}</div>`).join('')
+            || '<p class="text-sm text-slate-400 font-bold">No questions yet.</p>';
+    }
+
+    // The edit window for one field (opened with its pencil)
     function editorBlock(f, i) {
         const isSection = f.type === 'Section';
         const typeOptions = Object.keys(FB_TYPES).map(t => `<option value="${t}" ${t === f.type ? 'selected' : ''}>${esc(FB_TYPES[t].label)}</option>`).join('')
@@ -1723,6 +1760,10 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <button type="button" onclick="toggleRequired('${f.key}')" class="inline-flex items-center gap-2 text-sm font-black text-slate-700">
                         <span class="switch ${f.required ? 'on' : ''}" id="sw-${f.key}"></span> Required
                     </button>
+                    <div class="${f.type === 'Section' ? 'hidden' : 'inline-flex'} rounded-lg bg-slate-100 p-0.5 text-[11px] font-black" title="Half: shown side by side with the field next to it">
+                        <button type="button" onclick="setWidth('${f.key}', 'full')" class="px-3 py-1.5 rounded-md ${f.width === 'half' ? 'text-slate-500' : 'bg-white shadow-sm text-slate-900'}">Full row</button>
+                        <button type="button" onclick="setWidth('${f.key}', 'half')" class="px-3 py-1.5 rounded-md ${f.width === 'half' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}">Half</button>
+                    </div>
                     <details class="text-xs" ${f.pdf || f.box ? 'open' : ''}>
                         <summary class="cursor-pointer font-black text-slate-400 uppercase tracking-widest"><i class="fas fa-file-pdf text-red-400"></i> Print on PDF</summary>
                         ${f.box
@@ -1740,7 +1781,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <button type="button" onclick="moveField('${f.key}', 1)" ${i === fbFields.length - 1 ? 'disabled' : ''} class="w-9 h-9 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30" title="Move down"><i class="fas fa-arrow-down"></i></button>
                     <button type="button" onclick="duplicateField('${f.key}')" class="w-9 h-9 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-900" title="Duplicate"><i class="fas fa-clone"></i></button>
                     <button type="button" onclick="deleteField('${f.key}')" class="w-9 h-9 rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-600" title="Delete"><i class="fas fa-trash-can"></i></button>
-                    <button type="button" onclick="closeEditor()" class="ml-2 bg-blue-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700">Done</button>
+                    <button type="button" onclick="closeEditor()" class="ml-2 bg-blue-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700" title="Or click anywhere outside the question">Done</button>
                 </div>
             </div>
         </div>`;
@@ -1833,13 +1874,46 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
 
     // ---- structure ----
+    // New fields go after the selected field's row, else at the end
+    function insertIndex() {
+        if (!fbSelectedKey || !findField(fbSelectedKey)) return fbFields.length;
+        const row = formRows().find(r => r.some(f => f.key === fbSelectedKey));
+        return findIndex(row[row.length - 1].key) + 1;
+    }
+
+    function makeField(spec) {
+        const type = spec.type;
+        return { id: null, key: 'k' + (++fbKeySeq), type, required: spec.required !== undefined ? !!spec.required : type !== 'Section',
+            help: spec.help || '', placeholder: '', pdf: spec.pdf || '', box: null, width: spec.width || 'full',
+            label: spec.label !== undefined ? spec.label : (type === 'Section' ? 'New Section' : (isAuto(type) ? FB_AUTO_TYPES[type] : '')),
+            options: spec.options || (needsOptions(type) ? 'Option 1\nOption 2' : '') };
+    }
+
     function addField(type, at) {
-        const f = { id: null, key: 'k' + (++fbKeySeq), type, required: type !== 'Section', help: '', placeholder: '', pdf: '',
-            label: type === 'Section' ? 'New Section' : (isAuto(type) ? FB_AUTO_TYPES[type] : ''),
-            options: needsOptions(type) ? 'Option 1\nOption 2' : '' };
+        const f = makeField({ type });
         fbFields.splice(at, 0, f);
+        fbSelectedKey = f.key;
         markDirty();
         editField(f.key);
+    }
+
+    // Adds a Form elements item (JSON from its data-el) after the selected row; blank fields open their edit window
+    function addElement(json, atEnd = false) {
+        const spec = JSON.parse(json);
+        const f = makeField(spec);
+        if (f.type === 'Section') f.width = 'full';
+        fbFields.splice(atEnd ? fbFields.length : insertIndex(), 0, f);
+        fbSelectedKey = f.key;
+        markDirty();
+        if (spec.edit) editField(f.key);
+        else { render(); flashTile(f.key); }
+    }
+
+    function flashTile(key) {
+        const tile = document.querySelector(`.fb-tile[data-key="${key}"]`);
+        if (!tile) return;
+        tile.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        tile.animate([{ boxShadow: '0 0 0 6px rgba(37,99,235,.35)' }, { boxShadow: '0 0 0 0 rgba(37,99,235,0)' }], { duration: 900 });
     }
 
     function moveField(key, delta) {
@@ -1864,88 +1938,270 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (!confirm(`Delete "${f.label || 'this question'}" from the form?` + (f.id ? '\n\nAnswers already submitted for it are kept with those applications.' : ''))) return;
         fbFields = fbFields.filter(x => x.key !== key);
         if (fbEditingKey === key) fbEditingKey = null;
+        if (fbSelectedKey === key) fbSelectedKey = null;
         markDirty();
         render();
     }
 
-    // ================= TYPE PICKER =================
-    function openTypeMenu(button, index) {
-        fbInsertAt = index;
-        const menu = document.getElementById('typeMenu');
-        menu.classList.remove('hidden');
-        const r = button.getBoundingClientRect();
-        const left = Math.min(window.scrollX + r.left + r.width / 2 - 160, window.scrollX + document.documentElement.clientWidth - menu.offsetWidth - 16);
-        menu.style.left = Math.max(16, left) + 'px';
-        const below = window.scrollY + r.bottom + 8;
-        const fitsBelow = r.bottom + menu.offsetHeight + 16 < window.innerHeight;
-        menu.style.top = (fitsBelow ? below : window.scrollY + r.top - menu.offsetHeight - 8) + 'px';
+    // ================= FORM ELEMENTS (left) =================
+    // Ready-made questions most scholarships ask (Form elements → Common questions)
+    const FB_SUGGESTIONS = [
+        { label: 'Why should you receive this scholarship?', type: 'Textarea', help: 'Write at least three sentences.' },
+        { label: 'Total monthly family income', type: 'Auto_Income' },
+        { label: 'Number of siblings', type: 'Number' },
+        { label: 'How many of your siblings are currently studying?', type: 'Number' },
+        { label: "Father's occupation", type: 'Text' },
+        { label: "Mother's occupation", type: 'Text' },
+        { label: 'Are you currently receiving another scholarship or grant?', type: 'YesNo' },
+        { label: 'If yes, which scholarship or grant?', type: 'Text', required: false },
+        { label: 'Do you belong to an Indigenous Peoples (IP) group?', type: 'YesNo' },
+        { label: 'Are you a person with disability (PWD)?', type: 'YesNo' },
+        { label: 'Awards, honors or activities', type: 'Textarea', required: false },
+        { label: 'Preferred way to receive the grant', type: 'Radio', options: 'Cash\nBank deposit\nGCash' },
+    ];
+    function elementButton(spec, icon, label, sub = '') {
+        return `<button type="button" class="fb-el" draggable="true" data-el="${esc(JSON.stringify(spec))}" onclick="addElement(this.dataset.el)">
+            <i class="fas fa-grip-vertical dots"></i><i class="fas ${icon} ico"></i><span class="min-w-0 flex-1"><span class="block truncate">${esc(label)}</span>${sub ? `<span class="block text-[10px] font-black uppercase tracking-wider text-slate-400">${esc(sub)}</span>` : ''}</span></button>`;
+    }
+    function elementGroup(title, body, open = false, id = '') {
+        return `<details class="fb-group" ${open ? 'open' : ''} ${id ? `id="${id}"` : ''}><summary>${title}<i class="fas fa-chevron-down chev"></i></summary><div class="pt-2 space-y-1.5">${body}</div></details>`;
+    }
+    function renderPalette() {
+        document.getElementById('fbPaletteGroups').innerHTML =
+            elementGroup('Custom field', Object.keys(FB_TYPES).map(t => elementButton({ type: t, edit: true }, FB_TYPES[t].icon, FB_TYPES[t].label)).join(''), true)
+            + elementGroup('From the PDF form', `<button type="button" id="fbScanBtn" onclick="scanPdfForm()" class="w-full px-3 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest hover:bg-blue-700 disabled:opacity-60"><i class="fas fa-wand-magic-sparkles"></i> Scan the PDF form</button>
+                <p class="text-[11px] text-slate-500 px-1">Adds a field for every blank on the official form, laid out the way the form is. Or drag one blank:</p><div id="fbPdfBlanks" class="space-y-1.5"></div>`, true, 'fbPdfGroup')
+            + elementGroup('Student profile (filled in for them)', Object.keys(FB_AUTO_TYPES).map(t => elementButton({ type: t }, 'fa-bolt', FB_AUTO_TYPES[t])).join(''))
+            + elementGroup('Common scholarship questions', FB_SUGGESTIONS.map(q => elementButton({ type: q.type, label: q.label, help: q.help || '', required: q.required !== false, options: q.options || '' }, typeIcon(q.type), q.label, typeLabel(q.type))).join(''));
+    }
+    // The official form's blanks that no field fills yet
+    function renderPalettePdf() {
+        const box = document.getElementById('fbPdfBlanks');
+        if (!box) return;
+        const tpl = activeTemplate(), used = pdfUsage();
+        const blanks = tpl.fields.filter(p => !used[p.name] && !tpl.auto.includes(p.name) && !(fbOverrides[p.name] && fbOverrides[p.name].action === 'hide'));
+        box.innerHTML = blanks.slice(0, 40).map(p => elementButton({ type: p.type === 'Checkbox' ? 'YesNo' : 'Text', label: humanize(p.name), pdf: p.name }, p.type === 'Checkbox' ? 'fa-square-check' : 'fa-font', humanize(p.name), 'blank on the PDF')).join('')
+            + (blanks.length > 40 ? `<p class="text-[11px] text-slate-400 px-1">…and ${blanks.length - 40} more — use Scan the PDF form.</p>` : '')
+            || `<p class="text-[11px] text-slate-400 px-1">${tpl.fields.length ? 'Every blank on the form is filled. 🎉' : 'This PDF has no fillable blanks: Scan reads its printed labels instead.'}</p>`;
     }
 
-    function closeTypeMenu() { document.getElementById('typeMenu').classList.add('hidden'); }
-
-    function pickType(type) {
-        closeTypeMenu();
-        addField(type, fbInsertAt);
+    // ================= SCAN THE PDF FORM =================
+    // Reads the official form and adds a field for each blank still unfilled, in the form's order: blanks on the same line
+    // become one row of two side-by-side fields. A plain or scanned PDF has no blanks, so its printed labels ("Name:") are used.
+    async function scanPdfForm() {
+        const btn = document.getElementById('fbScanBtn');
+        const file = fbTemplate || FB_DEFAULT_TEMPLATE;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reading the form…';
+        try {
+            if (!window.pdfjsLib) throw new Error('The PDF reader could not load.');
+            pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+            const doc = await pdfjsLib.getDocument('../forms/' + encodeURIComponent(file)).promise;
+            const tpl = activeTemplate(), used = pdfUsage(), seen = new Set(), blanks = [], labels = [];
+            for (let n = 1; n <= doc.numPages; n++) {
+                const page = await doc.getPage(n), vp = page.getViewport({ scale: 1 });
+                // The printed words on the page, one by one (0–1 of the page; y is the baseline)
+                const words = [];
+                (await page.getTextContent()).items.forEach(it => {
+                    const str = it.str || '';
+                    if (!str.trim()) return;
+                    const [x, y] = vp.convertToViewportPoint(it.transform[4], it.transform[5]);
+                    const h = (Math.hypot(it.transform[2], it.transform[3]) || 8) / vp.height, per = it.width / vp.width / str.length;
+                    for (const m of str.matchAll(/\S+/g)) {
+                        const text = m[0].replace(/^[()\[\]_.]+|[()\[\]_]+$/g, '');
+                        if (/[A-Za-z0-9]/.test(text)) words.push({ text, x: x / vp.width + m.index * per, w: m[0].length * per, y: y / vp.height, h });
+                    }
+                });
+                // A plain PDF's labels: words up to a colon ("Name:", "Date of Birth:")
+                phrases(words).forEach(p => {
+                    if (/^[A-Za-z][^:]{1,40}:$/.test(p.text)) labels.push({ page: n, x: p.x, y: p.y - p.h, spec: { type: 'Text', label: p.text.slice(0, -1).trim() } });
+                });
+                const widgets = (await page.getAnnotations()).filter(a => a.subtype === 'Widget' && a.fieldName && !a.pushButton).map(a => {
+                    const [x1, y1, x2, y2] = vp.convertToViewportRectangle(a.rect);
+                    return { a, box: { x: Math.min(x1, x2) / vp.width, y: Math.min(y1, y2) / vp.height, r: Math.max(x1, x2) / vp.width, b: Math.max(y1, y2) / vp.height } };
+                });
+                widgets.forEach(({ a, box }) => {
+                    if (a.fieldType === 'Sig' || seen.has(a.fieldName) || used[a.fieldName] || tpl.auto.includes(a.fieldName) || (fbOverrides[a.fieldName] && fbOverrides[a.fieldName].action === 'hide')) return;
+                    seen.add(a.fieldName);
+                    const check = !!(a.checkBox || a.radioButton);
+                    blanks.push({ page: n, x: box.x, y: box.y, spec: { type: check ? 'YesNo' : 'Text', label: printedLabel(words, box, widgets.map(w => w.box), check) || humanize(a.fieldName), pdf: a.fieldName } });
+                });
+            }
+            const plain = !tpl.fields.length;
+            const items = (plain ? labels : blanks).filter(b => plain ? !fbFields.some(f => f.label.trim().toLowerCase() === b.spec.label.toLowerCase()) : true);
+            if (!items.length) { showAlert('success', plain ? 'No new labels found on this form.' : 'Every blank on the PDF form already has a field.'); return; }
+            // In the form's order; things on the same line make one row (two side by side)
+            items.sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
+            const specs = [];
+            let line = [];
+            const flush = () => {
+                for (let i = 0; i < line.length; i += 2) {
+                    const pair = line.slice(i, i + 2);
+                    pair.forEach(b => specs.push({ ...b.spec, width: pair.length === 2 ? 'half' : 'full' }));
+                }
+                line = [];
+            };
+            items.forEach(b => { if (line.length && (b.page !== line[0].page || Math.abs(b.y - line[0].y) > 0.012)) flush(); line.push(b); });
+            flush();
+            const question = plain
+                ? `This PDF has no fillable blanks. Found ${specs.length} printed label(s) like “${specs[0].label}:”. Add them as fields? (Place each on the PDF afterwards in the PDF form tab.)`
+                : `Found ${specs.length} blank(s) on “${(FB_PDF_TEMPLATES[file] || {}).label || file}” that no field fills yet. Add them as fields, laid out like the form?`;
+            if (!confirm(question)) return;
+            const at = insertIndex();
+            const added = specs.map(makeField);
+            fbFields.splice(at, 0, ...added);
+            fbSelectedKey = added[added.length - 1].key;
+            markDirty();
+            showTab('edit');
+            render();
+            showAlert('success', `${added.length} field(s) added from the PDF form. Rename, reorder or delete them, then press Save form.`);
+        } catch (err) {
+            showAlert('error', 'Could not read the PDF form: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Scan the PDF form';
+        }
     }
 
-    document.addEventListener('mousedown', e => {
-        const menu = document.getElementById('typeMenu');
-        if (!menu.classList.contains('hidden') && !menu.contains(e.target) && !e.target.closest('.insert-zone, [onclick^="openTypeMenu"]')) closeTypeMenu();
-    });
+    // Joins words that sit next to each other on one line into phrases
+    function phrases(words) {
+        const out = [];
+        [...words].sort((a, b) => a.y - b.y || a.x - b.x).forEach(w => {
+            const p = out[out.length - 1];
+            if (p && Math.abs(p.y - w.y) < p.h * 0.4 && w.x - (p.x + p.w) < p.h * 1.2 && w.x >= p.x + p.w - p.h) {
+                p.text += (w.x - (p.x + p.w) > p.h * 0.12 ? ' ' : '') + w.text;
+                p.w = w.x + w.w - p.x;
+            } else out.push({ ...w });
+        });
+        return out;
+    }
+
+    // The words printed next to a blank: before it on its line (after it, for a checkbox), else just above it.
+    // A label never reaches past the next blank on the same line.
+    function printedLabel(words, box, boxes, check) {
+        const mid = (box.y + box.b) / 2, tall = Math.max(0.012, (box.b - box.y) * 0.9);
+        const onLine = t => Math.abs((t.y - t.h * 0.35) - mid) < tall;
+        const sameLine = boxes.filter(o => o !== box && Math.abs((o.y + o.b) / 2 - mid) < tall);
+        const leftEnd = Math.max(0, ...sameLine.filter(o => o.r <= box.x + 0.002).map(o => o.r));
+        const rightEnd = Math.min(1, ...sameLine.filter(o => o.x >= box.r - 0.002).map(o => o.x));
+        const clean = t => t.replace(/[:*]+$/, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+        // the run of words closest to the blank, stopping at a wide gap
+        const run = (list, fromRight) => {
+            const sorted = list.sort((a, b) => fromRight ? (b.x + b.w) - (a.x + a.w) : a.x - b.x), got = [];
+            for (const w of sorted) {
+                const prev = got[got.length - 1];
+                if (prev && (fromRight ? prev.x - (w.x + w.w) : w.x - (prev.x + prev.w)) > w.h * 1.5) break;
+                if (fromRight && prev && /:$/.test(w.text)) break;   // the previous label ends here
+                got.push(w);
+                if (!fromRight && /:$/.test(w.text)) break;
+            }
+            return clean(phrases(fromRight ? got.reverse() : got).map(p => p.text).join(' '));
+        };
+        const after = run(words.filter(t => onLine(t) && t.x >= box.r - 0.004 && t.x + t.w <= rightEnd + 0.004 && t.x - box.r < 0.2), false);
+        const before = run(words.filter(t => onLine(t) && t.x + t.w <= box.x + 0.008 && t.x >= leftEnd - 0.004 && box.x - (t.x + t.w) < 0.25), true);
+        const lineAbove = words.filter(t => t.y <= box.y + 0.004 && box.y - t.y < 0.03 && t.x < box.r && t.x + t.w > box.x);
+        const topY = Math.max(...lineAbove.map(t => t.y));
+        const above = lineAbove.length ? clean(phrases(lineAbove.filter(t => Math.abs(t.y - topY) < 0.004)).map(p => p.text).join(' ')) : '';
+        return (check ? after || before : before || above) || above;
+    }
 
     // ================= DRAG & DROP =================
-    function bindDragAndDrop() {
-        let dragKey = null;
-        document.querySelectorAll('.q-block').forEach(block => {
-            // Blocks are only draggable while the grip is held
-            const handle = block.querySelector('.fb-handle');
-            handle.addEventListener('mousedown', () => block.setAttribute('draggable', 'true'));
-            handle.addEventListener('mouseup', () => block.removeAttribute('draggable'));
+    // Elements from the left, a field, or a whole row (its grip) can be dropped between rows, or beside a field on its own row
+    let fbDrag = null;
+    document.addEventListener('dragstart', e => {
+        const el = e.target.closest && e.target.closest('.fb-el, .fb-grip, .fb-tile');
+        if (!el) return;
+        if (el.classList.contains('fb-el')) fbDrag = { kind: 'new', spec: JSON.parse(el.dataset.el) };
+        else if (el.classList.contains('fb-grip')) fbDrag = { kind: 'row', keys: el.closest('.fb-row').dataset.keys.split(',') };
+        else fbDrag = { kind: 'field', key: el.dataset.key };
+        e.dataTransfer.effectAllowed = 'copyMove';
+        e.dataTransfer.setData('text/plain', 'field');
+        document.body.classList.add('fb-dragging');
+    });
+    document.addEventListener('dragend', () => { fbDrag = null; showDropMark(null); document.body.classList.remove('fb-dragging'); });
 
-            block.addEventListener('dragstart', e => {
-                dragKey = block.dataset.key;
-                block.classList.add('is-dragging');
-                e.dataTransfer.effectAllowed = 'move';
-            });
-            block.addEventListener('dragend', () => {
-                block.removeAttribute('draggable');
-                block.classList.remove('is-dragging');
-                document.querySelectorAll('.q-block').forEach(b => b.classList.remove('drop-before', 'drop-after'));
-            });
-            block.addEventListener('dragover', e => {
-                if (!dragKey || block.dataset.key === dragKey) return;
-                e.preventDefault();
-                const after = e.offsetY > block.offsetHeight / 2;
-                block.classList.toggle('drop-after', after);
-                block.classList.toggle('drop-before', !after);
-            });
-            block.addEventListener('dragleave', () => block.classList.remove('drop-before', 'drop-after'));
-            block.addEventListener('drop', e => {
-                e.preventDefault();
-                if (!dragKey || block.dataset.key === dragKey) return;
-                const after = block.classList.contains('drop-after');
-                const moving = findField(dragKey);
-                fbFields = fbFields.filter(f => f.key !== dragKey);
-                const target = findIndex(block.dataset.key);
-                fbFields.splice(after ? target + 1 : target, 0, moving);
-                dragKey = null;
-                markDirty();
-                render();
-            });
-        });
+    function dropTarget(e) {
+        const rows = [...document.querySelectorAll('#fbCanvas .fb-row')];
+        const tile = e.target.closest && e.target.closest('.fb-tile');
+        if (tile && fbDrag.kind !== 'row') {
+            const row = tile.closest('.fb-row'), target = findField(tile.dataset.key);
+            const r = tile.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width;
+            const dragged = fbDrag.kind === 'new' ? fbDrag.spec : findField(fbDrag.key);
+            if (row.dataset.keys.split(',').length === 1 && target.type !== 'Section' && dragged.type !== 'Section' && (fbDrag.kind === 'new' || fbDrag.key !== target.key) && (fx < 0.3 || fx > 0.7))
+                return { mode: 'beside', key: target.key, side: fx < 0.3 ? 'left' : 'right', rect: r };
+        }
+        for (const row of rows) {
+            const r = row.getBoundingClientRect();
+            if (e.clientY < r.top + r.height / 2) return { mode: 'row', before: row.dataset.keys.split(',')[0], rect: r, edge: 'top' };
+        }
+        const last = rows.length ? rows[rows.length - 1].getBoundingClientRect() : document.getElementById('fbCanvas').getBoundingClientRect();
+        return { mode: 'row', before: null, rect: last, edge: rows.length ? 'bottom' : 'top' };
     }
 
-    // ================= PREVIEW MODE =================
+    function showDropMark(t) {
+        const mark = document.getElementById('fbDropMark');
+        if (!t) { mark.classList.add('hidden'); return; }
+        mark.classList.remove('hidden');
+        const r = t.rect;
+        Object.assign(mark.style, t.mode === 'beside'
+            ? { left: (t.side === 'left' ? r.left - 4 : r.right) + 'px', top: r.top + 'px', width: '4px', height: r.height + 'px' }
+            : { left: r.left + 'px', top: (t.edge === 'top' ? r.top - 7 : r.bottom + 3) + 'px', width: r.width + 'px', height: '4px' });
+    }
+
+    const canvasEl = () => document.getElementById('fbCanvas');
+    document.addEventListener('dragover', e => {
+        if (!fbDrag || !canvasEl().contains(e.target) && e.target !== canvasEl()) { if (fbDrag) showDropMark(null); return; }
+        e.preventDefault();
+        showDropMark(dropTarget(e));
+    });
+    document.addEventListener('drop', e => {
+        if (!fbDrag || !canvasEl().contains(e.target) && e.target !== canvasEl()) return;
+        e.preventDefault();
+        const t = dropTarget(e), drag = fbDrag;
+        showDropMark(null);
+        let moving;
+        if (drag.kind === 'new') moving = [makeField(drag.spec)];
+        else {
+            const keys = drag.kind === 'row' ? drag.keys : [drag.key];
+            if (t.mode === 'row' && t.before && keys.includes(t.before)) return;   // dropped where it already is
+            // A field leaving a side-by-side pair: the one staying behind takes the whole row
+            if (drag.kind === 'field') formRows().find(r => r.some(f => f.key === drag.key)).forEach(f => { if (f.key !== drag.key) f.width = 'full'; });
+            moving = keys.map(findField);
+            fbFields = fbFields.filter(f => !keys.includes(f.key));
+        }
+        if (t.mode === 'beside') {
+            findField(t.key).width = 'half';
+            moving[0].width = 'half';
+            fbFields.splice(findIndex(t.key) + (t.side === 'right' ? 1 : 0), 0, moving[0]);
+        } else {
+            if (drag.kind !== 'row') moving.forEach(f => { f.width = 'full'; });
+            fbFields.splice(t.before ? findIndex(t.before) : fbFields.length, 0, ...moving);
+        }
+        fbSelectedKey = moving[0].key;
+        markDirty();
+        if (drag.kind === 'new' && drag.spec.edit) editField(moving[0].key);
+        else render();
+    });
+
+    // Clicking outside the edit window closes it
+    document.addEventListener('mousedown', e => {
+        if (fbEditingKey && !e.target.closest('.q-edit, #pdfDesigner, header, #fbTabPdf')) closeEditor();
+    });
+
+    // ================= TABS =================
+    function showTab(name) {
+        if (name !== 'edit') closeEditor();
+        document.querySelectorAll('[data-fbtab]').forEach(b => b.classList.toggle('active', b.dataset.fbtab === name));
+        ['edit', 'preview', 'pdf'].forEach(t => document.getElementById({ edit: 'fbTabEdit', preview: 'fbTabPreview', pdf: 'fbTabPdf' }[t]).classList.toggle('hidden', t !== name));
+        // The Form elements belong to the Edit tab
+        document.getElementById('fbPalette').classList.toggle('hidden', name !== 'edit');
+        document.getElementById('fbLayout').classList.toggle('lg:grid-cols-[300px_minmax(0,1fr)]', name === 'edit');
+        if (name === 'preview') renderPreview();
+        document.querySelector('#fbPreviewBtn span').textContent = name === 'preview' ? 'Back to editing' : 'Preview as student';
+        document.querySelector('#fbPreviewBtn i').className = name === 'preview' ? 'fas fa-pen' : 'fas fa-eye';
+    }
     function togglePreview() {
-        const on = !document.body.classList.contains('fb-preview');
-        if (on) { fbEditingKey = null; closeTypeMenu(); render(); }
-        document.body.classList.toggle('fb-preview', on);
-        const instructions = document.getElementById('fbInstructions').value.trim();
-        const box = document.getElementById('fbInstructionsBox');
-        box.textContent = 'ℹ️ ' + instructions;
-        box.classList.toggle('hidden', !on || !instructions);
-        document.querySelector('#fbPreviewBtn span').textContent = on ? 'Back to editing' : 'Preview as student';
-        document.querySelector('#fbPreviewBtn i').className = on ? 'fas fa-pen' : 'fas fa-eye';
+        showTab(document.getElementById('fbTabPreview').classList.contains('hidden') ? 'preview' : 'edit');
     }
 
     // ================= SAVE =================
@@ -2002,7 +2258,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     window.addEventListener('beforeunload', e => { if (fbDirty) { e.preventDefault(); e.returnValue = ''; } });
     document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveForm(); }
-        if (e.key === 'Escape') { closeTypeMenu(); if (fbEditingKey) closeEditor(); }
+        if (e.key === 'Escape' && fbEditingKey) closeEditor();
         const typing = e.target.closest && e.target.closest('input, textarea, select, [contenteditable]');
         if (typing) return;
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undoChange(); }
@@ -2012,6 +2268,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     });
 
     autoGrow(document.getElementById('fbInstructions'));
+    fbFields.forEach(f => { if (!f.width) f.width = 'full'; });
     fbLastState = fbState();
+    renderPalette();
     render();
 </script>

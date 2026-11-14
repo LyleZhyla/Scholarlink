@@ -169,11 +169,14 @@ if (!function_exists('getFormFields')) {
             $html .= '<div class="p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900 font-medium whitespace-pre-line">ℹ️ '
                 . htmlspecialchars($instructions) . '</div>';
         }
+        // Fields set to "half" sit side by side with the next one (on wider screens)
+        $html .= '<div class="grid sm:grid-cols-2 gap-x-4 gap-y-6">';
         foreach ($fields as $field) {
             $value = $answers[$field['FieldID']] ?? (isAutoFillType($field['FieldType']) ? resolveAutoFillValue($pdo, $field['FieldType'], $student) : '');
-            $html .= renderFormField($field, (string) $value);
+            $half = ($field['Width'] ?? 'full') === 'half' && $field['FieldType'] !== 'Section';
+            $html .= '<div class="' . ($half ? 'min-w-0' : 'sm:col-span-2 min-w-0') . '">' . renderFormField($field, (string) $value) . '</div>';
         }
-        return $html;
+        return $html . '</div>';
     }
 
     // Checks the submitted answers against the form. Returns [answers by FieldID, list of error messages].
