@@ -99,6 +99,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .fb-dragging .fb-tile, .fb-dragging .fb-row { transition: none; }
     #fbDropMark { position: fixed; z-index: 9995; border-radius: 4px; background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2); pointer-events: none; }
 
+    .pdf-row .fb-tile { flex: 1 1 200px; }
+    .pdf-row.sel { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
+    .pdf-row.added { border-style: dashed; border-color: #a78bfa; }
+    .pdf-row-tag { align-self: center; flex-shrink: 0; width: 34px; text-align: center; font-size: 11px; font-weight: 900; color: #94a3b8; }
+    .pdf-row-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+    .pdf-page-chip { display: inline-block; margin: 14px 0 4px; padding: 4px 12px; border-radius: 999px; background: #0f172a; color: #fff; font-size: 10px; font-weight: 900; letter-spacing: 0.15em; text-transform: uppercase; }
+    .pdf-empty-tile { flex: 1; padding: 14px; border-radius: 12px; border: 2px dashed #c4b5fd; color: #7c3aed; font-size: 12px; font-weight: 800; text-align: center; }
+
     /* ---- Form elements (left) ---- */
     .fb-group > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: #f1f5f9; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; color: #334155; cursor: pointer; user-select: none; }
     .fb-group > summary::-webkit-details-marker { display: none; }
@@ -231,7 +239,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <i class="fas fa-clipboard-list text-orange-500 text-lg"></i>
                     <h2 class="text-base font-black text-slate-900">Form elements</h2>
                 </div>
-                <p class="px-5 pt-3 text-xs font-medium text-slate-500">Drag an element onto the form — between two rows, or beside a field to put them side by side. Or click it to add it after the selected field.</p>
+                <p id="fbPaletteHint" class="px-5 pt-3 text-xs font-medium text-slate-500">Drag an element onto the form — between two rows, or beside a field to put them side by side. Or click it to add it after the selected field.</p>
                 <div id="fbPaletteGroups" class="p-3 space-y-2"></div>
             </aside>
 
@@ -298,8 +306,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 </div>
 
         <!-- OFFICIAL PDF FORM: which template is printed, and which of its fields the questions fill -->
-        <div id="fbTabPdf" class="hidden bg-white border border-slate-200 rounded-[1.5rem] p-5 shadow-sm">
-            <p class="text-sm font-bold text-slate-600 mb-4">Pick the official PDF students' answers are printed on, then open the designer to place each answer where it belongs.</p>
+        <div id="fbTabPdf" class="hidden">
+        <div class="bg-white border border-slate-200 rounded-[1.5rem] p-5 shadow-sm">
+            <p class="text-sm font-bold text-slate-600 mb-4">Pick the official PDF students' answers are printed on. Below, the form is read line by line so you can change it.</p>
             <div class="flex flex-col md:flex-row md:items-center gap-4">
                 <div class="w-11 h-11 shrink-0 rounded-xl bg-red-50 text-red-600 flex items-center justify-center text-lg"><i class="fas fa-file-pdf"></i></div>
                 <div class="flex-1 min-w-0">
@@ -347,6 +356,19 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             </details>
         </div>
 
+        <!-- THE PDF FORM, LINE BY LINE: every printed line as a row of parts (text + its blank) -->
+        <div class="mt-5">
+            <div class="flex flex-wrap items-end justify-between gap-3 mb-3">
+                <div>
+                    <h3 class="text-lg font-black text-slate-900">The PDF form, line by line</h3>
+                    <p class="text-xs font-medium text-slate-500 max-w-2xl"><b>✎</b> changes the printed words or what fills a blank · <b>🗑</b> removes it from the PDF. To add something, drag an element from the left <b>between two lines</b> (a new line) or <b>onto a line</b> (next to what's there), or click a line and then click an element.</p>
+                </div>
+                <button type="button" onclick="openPdfDesigner()" class="shrink-0 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest hover:bg-slate-700"><i class="fas fa-eye"></i> See it on the PDF</button>
+            </div>
+            <div id="pdfRows" class="space-y-2"></div>
+        </div>
+        </div>
+
             </section>
         </div>
     </div>
@@ -357,6 +379,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     <div id="fieldEditorBody" class="w-full max-w-2xl mt-10 mb-10"></div>
 </div>
 <div id="fbDropMark" class="hidden"></div>
+
+<!-- EDIT ONE PART OF THE PDF (its pencil on the PDF form tab) -->
+<div id="pdfTileEditor" class="hidden fixed inset-0 z-[9990] bg-slate-900/50 backdrop-blur-sm items-start justify-center p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="Edit this part of the PDF" onmousedown="if (event.target === this) closePdfTile(true)">
+    <div id="pdfTileEditorBody" class="w-full max-w-xl mt-16 mb-10 bg-white rounded-2xl shadow-2xl p-6"></div>
+</div>
 
 <!-- PDF DESIGNER: the real PDF with its fields and the boxes admins draw -->
 <div id="pdfDesigner" class="hidden fixed inset-0 z-[9998] bg-slate-900/80 backdrop-blur-sm flex flex-col">
@@ -417,6 +444,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     let fbDirty = false;
     let fbKeySeq = 0;
     let fbSelectedKey = null;   // new fields go right after the selected one's row
+    let fbTab = 'edit';
     fbFields.forEach(f => f.key = 'k' + (++fbKeySeq));
     // Edits to the PDF's printed content: [{ kind: 'erase'|'text'|'row'|'column', page, x, y, w, h, text, font, size, bold, cover }]
     // 'row' / 'column' insert a copy of the strip x,y,w,h (cover = copy its lines and labels; otherwise blank space), see layoutPieces()
@@ -726,7 +754,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const doc = await pdfjsLib.getDocument('../forms/' + encodeURIComponent(file)).promise;
             holder.innerHTML = '';
             pdPages = [];
-            const cssWidth = Math.min(880, holder.clientWidth - 48);
+            const cssWidth = Math.min(880, (holder.clientWidth || 928) - 48);   // the designer may still be closed
             const ratio = window.devicePixelRatio || 1;
 
             for (let n = 1; n <= doc.numPages; n++) {
@@ -1626,6 +1654,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             : `<div class="text-center py-12 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400"><i class="fas fa-hand-pointer text-3xl mb-3 text-slate-300"></i><p class="font-black text-slate-600">No fields yet</p><p class="text-sm">Drag an element here from the left, or press <b>Scan the PDF form</b> to start from the official form.</p></div>`;
         renderPalettePdf();
         renderFieldEditor();
+        if (fbTab === 'pdf') { renderPdfPalette(); renderPdfRows(); }
         if (!document.getElementById('fbTabPreview').classList.contains('hidden')) renderPreview();
     }
 
@@ -1959,8 +1988,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         { label: 'Awards, honors or activities', type: 'Textarea', required: false },
         { label: 'Preferred way to receive the grant', type: 'Radio', options: 'Cash\nBank deposit\nGCash' },
     ];
-    function elementButton(spec, icon, label, sub = '') {
-        return `<button type="button" class="fb-el" draggable="true" data-el="${esc(JSON.stringify(spec))}" onclick="addElement(this.dataset.el)">
+    function elementButton(spec, icon, label, sub = '', fn = 'addElement') {
+        return `<button type="button" class="fb-el" draggable="true" data-el="${esc(JSON.stringify(spec))}" onclick="${fn}(this.dataset.el)">
             <i class="fas fa-grip-vertical dots"></i><i class="fas ${icon} ico"></i><span class="min-w-0 flex-1"><span class="block truncate">${esc(label)}</span>${sub ? `<span class="block text-[10px] font-black uppercase tracking-wider text-slate-400">${esc(sub)}</span>` : ''}</span></button>`;
     }
     function elementGroup(title, body, open = false, id = '') {
@@ -2111,7 +2140,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     document.addEventListener('dragstart', e => {
         const el = e.target.closest && e.target.closest('.fb-el, .fb-grip, .fb-tile');
         if (!el) return;
-        if (el.classList.contains('fb-el')) fbDrag = { kind: 'new', spec: JSON.parse(el.dataset.el) };
+        if (el.classList.contains('fb-el')) { const spec = JSON.parse(el.dataset.el); fbDrag = spec.pdf ? { kind: 'pdf', json: el.dataset.el, spec } : { kind: 'new', spec }; }
         else if (el.classList.contains('fb-grip')) fbDrag = { kind: 'row', keys: el.closest('.fb-row').dataset.keys.split(',') };
         else fbDrag = { kind: 'field', key: el.dataset.key };
         e.dataTransfer.effectAllowed = 'copyMove';
@@ -2150,11 +2179,13 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
     const canvasEl = () => document.getElementById('fbCanvas');
     document.addEventListener('dragover', e => {
+        if (fbDrag && fbDrag.kind === 'pdf') return;   // handled by the PDF lines
         if (!fbDrag || !canvasEl().contains(e.target) && e.target !== canvasEl()) { if (fbDrag) showDropMark(null); return; }
         e.preventDefault();
         showDropMark(dropTarget(e));
     });
     document.addEventListener('drop', e => {
+        if (fbDrag && fbDrag.kind === 'pdf') return;
         if (!fbDrag || !canvasEl().contains(e.target) && e.target !== canvasEl()) return;
         e.preventDefault();
         const t = dropTarget(e), drag = fbDrag;
@@ -2188,14 +2219,502 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (fbEditingKey && !e.target.closest('.q-edit, #pdfDesigner, header, #fbTabPdf')) closeEditor();
     });
 
+    // ================= THE PDF FORM, LINE BY LINE =================
+    // The PDF (as it prints, with this scholarship's changes) read into lines; each line is a row of parts: some printed
+    // words and the blank after them (a fillable field, or a box drawn for a question). Changing a part adds the same
+    // content edits the PDF designer makes, so printing is unchanged: replaced or added text, erased areas, inserted lines.
+    let pdRows = [], pdSelRowAt = null, pdTile = null, pdLoading = null;
+    const LINE_H = 0.024;   // a new line: about 19 pt
+    const centreIn = (r, a) => r.x + r.w / 2 >= a.x && r.x + r.w / 2 <= a.x + a.w && r.y + r.h / 2 >= a.y && r.y + r.h / 2 <= a.y + a.h;
+    const unionOf = list => {
+        const x = Math.min(...list.map(q => q.x)), y = Math.min(...list.map(q => q.y));
+        return { x, y, w: Math.max(...list.map(q => q.x + q.w)) - x, h: Math.max(...list.map(q => q.y + q.h)) - y };
+    };
+    const tileParts = t => t.blank ? [...t.labels, t.blank] : t.labels;
+    const tileText = t => t.labels.map(l => l.str).join(' ').replace(/_{2,}/g, ' ').replace(/\s+/g, ' ').trim();
+    const pushEdit = e => { e.key = 'e' + (++fbKeySeq); fbEdits.push(e); return e; };
+    // A new line goes before the added lines below it (inserts apply in order, each on the page as the earlier ones left
+    // it), and those move down with everything else, so every added line keeps its place
+    function addLineInsert(ins) {
+        const below = e => isInsert(e) && e !== ins && e.page === ins.page && e.y >= ins.y + ins.h - 1e-4;
+        shiftAroundInsert(ins, 1, below);
+        ins.key = 'e' + (++fbKeySeq);
+        const at = fbEdits.findIndex(below);
+        fbEdits.splice(at < 0 ? fbEdits.length : at, 0, ins);
+        return ins;
+    }
+
+    // A printed run can hold several labels ("Average:      Date of Graduation:") and ____ answer lines: its phrases,
+    // placed by their share of the run's width
+    function splitPrinted(t) {
+        const str = t.str, per = t.w / Math.max(1, str.length), out = [];
+        for (const m of str.matchAll(/[^\s_]+(?: [^\s_]+)*/g)) out.push({ str: m[0], x: t.x + m.index * per, y: t.y, w: m[0].length * per, h: t.h });
+        return out;
+    }
+
+    // Where one line ends and the next begins, in the white space between them on the page image
+    function whiteRow(p, py) {
+        const c = p.canvas, W = c.width;
+        if (py < 0 || py >= c.height) return true;
+        const data = c.getContext('2d').getImageData(0, py, W, 1).data;
+        let dark = 0;
+        for (let x = Math.round(W * 0.03); x < W * 0.97; x++) if (data[x * 4] + data[x * 4 + 1] + data[x * 4 + 2] < 600) dark++;
+        return dark < W * 0.01;   // a table's side borders may cross it
+    }
+    // lo..hi (fractions of the page height): 'next' = just above the content at hi (under any border line), 'mid' = nearest the middle
+    function cutBetween(page, lo, hi, prefer) {
+        const p = pdPages[page - 1], H = p.source.height;
+        if (hi <= lo) return (lo + hi) / 2;
+        const from = Math.ceil(lo * H), to = Math.floor(hi * H), mid = (from + to) / 2;
+        let best = null;
+        for (let py = to - 1; py >= from; py--) {
+            if (!whiteRow(p, py)) continue;
+            if (prefer === 'next') return (py + 1) / H;
+            if (best === null || Math.abs(py - mid) < Math.abs(best - mid)) best = py;
+        }
+        return best === null ? (lo + hi) / 2 : (best + 1) / H;
+    }
+    const rowAbove = i => i > 0 && pdRows[i - 1].page === pdRows[i].page ? pdRows[i - 1] : null;
+    const rowBelow = i => pdRows[i + 1] && pdRows[i + 1].page === pdRows[i].page ? pdRows[i + 1] : null;
+    function cutUnder(i, prefer) {
+        const r = pdRows[i], next = rowBelow(i);
+        return cutBetween(r.page, r.bot, next ? next.top : Math.min(pdPages[r.page - 1].maxY, r.bot + 0.03), prefer);
+    }
+    function cutOver(i) {
+        const r = pdRows[i], prev = rowAbove(i);
+        return cutBetween(r.page, prev ? prev.bot : Math.max(0, r.top - 0.03), r.top, 'next');
+    }
+
+    async function ensurePdfLoaded() {
+        const file = fbTemplate || FB_DEFAULT_TEMPLATE;
+        if (pdDocFile === file) return true;
+        if (!pdLoading || pdLoading.file !== file) pdLoading = { file, done: loadPdfIntoDesigner(file) };
+        await pdLoading.done;
+        return pdDocFile === file;
+    }
+
+    function scanPdfRows() {
+        const rows = [];
+        pdPages.forEach(p => {
+            paintPage(p);
+            const edits = fbEdits.filter(e => e.page === p.num);
+            const covered = r => edits.some(e => (e.kind === 'erase' || (e.kind === 'text' && e.cover)) && centreIn(r, e));
+            const items = [];
+            p.texts.forEach(t => splitPrinted(t).forEach(c => { if (!covered(c)) items.push({ kind: 'text', ...c, size: t.size, font: t.font, bold: t.bold, copied: !!t.copied }); }));
+            edits.filter(e => e.kind === 'text' && e.text.trim()).forEach(e => items.push({ kind: 'edit', key: e.key, x: e.x, y: e.y, w: e.w, h: e.h, str: e.text.trim(), size: e.size, font: e.font, bold: e.bold }));
+            p.fields.forEach(fl => { if (!fbOverrides[fl.name]) items.push({ kind: 'field', name: fl.name, check: fl.checkbox, sig: fl.sig, x: fl.x, y: fl.y, w: fl.w, h: fl.h }); });
+            Object.entries(fbOverrides).forEach(([name, ov]) => {
+                if (ov.action === 'move' && ov.box.page === p.num) items.push({ kind: 'field', name, moved: true, check: !!(pdfFieldInfo(name) || {}).checkbox, x: ov.box.x, y: ov.box.y, w: ov.box.w, h: ov.box.h });
+            });
+            fbFields.filter(f => placeable(f) && f.box && f.box.page === p.num).forEach(f => items.push({ kind: 'box', key: f.key, x: f.box.x, y: f.box.y, w: f.box.w, h: f.box.h }));
+
+            // Lines: things whose middles are level
+            const lines = [];
+            items.sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2)).forEach(it => {
+                const cy = it.y + it.h / 2, line = lines[lines.length - 1];
+                if (line && Math.abs(cy - line.cy) < Math.max(0.006, Math.min(it.h, line.hMin) * 0.55)) {
+                    line.items.push(it);
+                    line.cy += (cy - line.cy) / line.items.length;
+                    line.hMin = Math.min(line.hMin, it.h);
+                } else lines.push({ cy, hMin: it.h, items: [it] });
+            });
+            const inserts = edits.filter(e => e.kind === 'row');
+            lines.forEach(line => {
+                // Parts: words next to each other make one label; the blank right after it belongs to it
+                const tiles = [];
+                line.items.sort((a, b) => a.x - b.x).forEach(it => {
+                    const cur = tiles[tiles.length - 1], blank = it.kind === 'field' || it.kind === 'box';
+                    const gap = cur ? it.x - Math.max(...tileParts(cur).map(q => q.x + q.w)) : 1;
+                    if (!blank) {
+                        if (cur && !cur.blank && gap < 0.025) cur.labels.push(it);
+                        else if (cur && cur.blank && cur.blank.check && gap < (cur.labels.length ? 0.02 : 0.04)) cur.labels.push(it);   // a checkbox's words come after it
+                        else tiles.push({ labels: [it], blank: null });
+                    } else if (cur && !cur.blank && cur.labels.length && gap < 0.3) cur.blank = it;
+                    else tiles.push({ labels: [], blank: it });
+                });
+                const box = unionOf(line.items);
+                const ins = inserts.find(e => centreIn(box, insertArea(e)));
+                const top = Math.min(...line.items.map(it => it.y)), bot = Math.max(...line.items.map(it => it.y + it.h * (it.kind === 'text' || it.kind === 'edit' ? 0.8 : 1)));
+                rows.push({ page: p.num, y: box.y, h: box.h, top, bot, tiles, insert: ins ? ins.key : null, copied: line.items.every(it => it.copied) });
+            });
+            // Inserted lines with nothing in them yet
+            inserts.forEach(e => {
+                const a = insertArea(e);
+                if (!rows.some(r => r.page === p.num && r.insert === e.key)) rows.push({ page: p.num, y: a.y, h: a.h, top: a.y, bot: a.y + a.h, tiles: [], insert: e.key, empty: true });
+            });
+        });
+        return rows.sort((a, b) => a.page - b.page || a.y - b.y);
+    }
+
+    async function renderPdfRows() {
+        const box = document.getElementById('pdfRows');
+        const file = fbTemplate || FB_DEFAULT_TEMPLATE;
+        if (pdDocFile !== file) box.innerHTML = '<p class="text-center py-10 text-sm font-black text-slate-400"><i class="fas fa-spinner fa-spin"></i> Reading the PDF form…</p>';
+        if (!(await ensurePdfLoaded())) { box.innerHTML = '<p class="text-center py-10 text-sm font-black text-red-600">The PDF form could not be opened.</p>'; return; }
+        pdRows = scanPdfRows();
+        const selIndex = pdSelIndex();
+        let html = '', page = 0;
+        pdRows.forEach((r, i) => {
+            if (r.page !== page) { page = r.page; html += `<p class="pdf-page-chip">Page ${page} of ${pdPages.length}</p>`; }
+            html += pdfRowHtml(r, i, i === selIndex);
+        });
+        box.innerHTML = html || '<p class="text-center py-10 text-sm font-bold text-slate-400">No printed text was found on this PDF (it may be a scanned image). Use <b>See it on the PDF</b> to draw on it instead.</p>';
+        if (pdTile) renderPdfTile();
+    }
+
+    function pdSelIndex() {
+        if (!pdSelRowAt) return -1;
+        return pdRows.findIndex(r => r.page === pdSelRowAt.page && pdSelRowAt.y >= r.y - 0.003 && pdSelRowAt.y <= r.y + r.h + 0.003);
+    }
+    function selectPdfRow(i) {
+        const r = pdRows[i];
+        pdSelRowAt = pdSelIndex() === i ? null : { page: r.page, y: r.y + r.h / 2 };
+        document.querySelectorAll('#pdfRows .pdf-row').forEach(el => el.classList.toggle('sel', pdSelRowAt && +el.dataset.row === i));
+    }
+
+    function pdfTileSub(t) {
+        const b = t.blank, used = pdfUsage();
+        if (!b) return t.labels.some(l => l.kind === 'edit') ? '<span class="text-amber-600">✎ Text you added or changed</span>' : 'Printed text';
+        if (b.kind === 'box') { const f = findField(b.key); return `<span class="text-emerald-600">▭ Answer: “${esc(f.label || 'Untitled question')}”</span>`; }
+        if (b.sig) return 'Signature — signed by hand';
+        const owner = used[b.name], kind = b.check ? '☑ Checkbox' : 'Blank';
+        if (owner) return `<span class="text-emerald-600">${kind} · filled by “${esc(owner.label || 'Untitled question')}”</span>`;
+        if (activeTemplate().auto.includes(b.name)) return `<span class="text-blue-600">${kind} · filled from the student profile</span>`;
+        return `<span class="text-amber-600">${kind} · nothing fills it yet</span>`;
+    }
+
+    function pdfRowHtml(r, i, sel) {
+        const tiles = r.tiles.map((t, j) => {
+            const title = tileText(t) || (t.blank ? (t.blank.kind === 'box' ? (findField(t.blank.key) || {}).label : humanize(t.blank.name)) : '') || 'Blank';
+            return `<div class="fb-tile" onclick="selectPdfRow(${i})" ondblclick="editPdfTile(${i}, ${j})" title="${esc(title)}">
+                <div class="min-w-0 flex-1">
+                    <p class="fb-tile-title" style="font-size:14px">${esc(title)}</p>
+                    <p class="fb-tile-sub">${pdfTileSub(t)}</p>
+                </div>
+                <button type="button" class="fb-tile-btn" onclick="event.stopPropagation(); editPdfTile(${i}, ${j})" title="Edit"><i class="fas fa-pen"></i></button>
+                <button type="button" class="fb-tile-btn danger" onclick="event.stopPropagation(); deletePdfTile(${i}, ${j})" title="Remove from the PDF"><i class="fas fa-trash-can"></i></button>
+            </div>`;
+        }).join('') || `<div class="pdf-empty-tile" onclick="selectPdfRow(${i})">New empty line — drag an element here, or click this line and then an element</div>`;
+        return `<div class="fb-row pdf-row ${sel ? 'sel' : ''} ${r.insert ? 'added' : ''}" data-row="${i}">
+            <span class="pdf-row-tag" title="${r.insert ? 'A line you added' : 'Line ' + (i + 1)}">${r.insert ? '<i class="fas fa-plus text-violet-500"></i>' : ''}</span>
+            <div class="flex-1 min-w-0 flex flex-wrap gap-2">${tiles}</div>
+            <div class="pdf-row-actions">
+                ${r.tiles.length ? `<button type="button" class="fb-tile-btn" onclick="duplicatePdfRow(${i})" title="Add a copy of this line right below it (for one more table row)"><i class="fas fa-clone"></i></button>` : ''}
+                <button type="button" class="fb-tile-btn danger" onclick="deletePdfRow(${i})" title="${r.insert ? 'Remove this added line' : 'Erase this whole line from the PDF'}"><i class="fas fa-${r.insert ? 'xmark' : 'eraser'}"></i></button>
+            </div>
+        </div>`;
+    }
+
+    // ---- the parts' pencil ----
+    function editPdfTile(i, j) {
+        const row = pdRows[i];
+        pdSelRowAt = { page: row.page, y: row.y + row.h / 2 };
+        pdTile = { row, tile: row.tiles[j], text: tileText(row.tiles[j]) };
+        renderPdfTile();
+        const input = document.getElementById('ptText');
+        if (input) { input.focus(); input.select(); }
+    }
+
+    function renderPdfTile() {
+        const modal = document.getElementById('pdfTileEditor');
+        modal.classList.toggle('hidden', !pdTile);
+        modal.classList.toggle('flex', !!pdTile);
+        if (!pdTile) return;
+        const { row, tile } = pdTile, b = tile.blank, used = pdfUsage();
+        const label = 'text-[10px] font-black text-slate-400 uppercase tracking-widest';
+        const input = 'mt-1 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-blue-500 focus:bg-white';
+        let body = `<div class="flex items-start justify-between gap-3 mb-4">
+                <div><p class="${label}">Page ${row.page} · ${row.insert ? 'a line you added' : 'printed line'}</p><h3 class="text-xl font-black text-slate-900">Edit this part of the PDF</h3></div>
+                <button type="button" onclick="closePdfTile(true)" class="w-9 h-9 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-900" title="Close"><i class="fas fa-xmark"></i></button>
+            </div>`;
+        if (tile.labels.length) body += `<label class="block ${label}">Printed words
+                <input id="ptText" type="text" value="${esc(pdTile.text)}" class="${input} normal-case tracking-normal" onkeydown="if (event.key === 'Enter') closePdfTile(true)">
+            </label>
+            <p class="text-[11px] text-slate-400 mt-1">Leave it empty to remove these words from the PDF.</p>`;
+        if (b && b.kind === 'field' && !b.sig) {
+            const owner = used[b.name];
+            body += `<label class="block mt-4 ${label}">${b.check ? 'This checkbox' : 'This blank'} is filled with
+                <select onchange="pdfTileFill(this.value)" class="${input} normal-case tracking-normal">
+                    <option value="">${activeTemplate().auto.includes(b.name) ? 'The student profile (automatic)' : '— Nothing —'}</option>
+                    ${fbFields.filter(placeable).map(f => `<option value="${f.key}" ${owner && owner.key === f.key ? 'selected' : ''}>${esc(f.label || 'Untitled question')}</option>`).join('')}
+                </select>
+            </label>
+            ${owner ? '' : `<button type="button" onclick="pdfTileNewQuestion()" class="mt-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-xs font-black hover:bg-blue-600 hover:text-white"><i class="fas fa-plus"></i> New question that fills it</button>`}`;
+        } else if (b && b.kind === 'box') {
+            const f = findField(b.key);
+            body += `<label class="block mt-4 ${label}">The question whose answer prints here
+                <input type="text" value="${esc(f.label)}" oninput="updateField('${f.key}', 'label', this.value)" class="${input} normal-case tracking-normal">
+            </label>
+            <p class="text-[11px] text-slate-400 mt-1">${esc(typeLabel(f.type))} · students answer it on the application form.</p>`;
+        } else if (b && b.sig) {
+            body += '<p class="mt-4 text-sm text-slate-500">A signature blank: it is signed by hand on the printed form.</p>';
+        } else {
+            body += `<button type="button" onclick="pdfTileAddBlank()" class="mt-4 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-xs font-black hover:bg-blue-600 hover:text-white"><i class="fas fa-plus"></i> Add an answer blank after these words</button>`;
+        }
+        body += `<div class="flex flex-wrap items-center justify-between gap-2 mt-6 pt-4 border-t border-slate-100">
+                <button type="button" onclick="deletePdfTile(null)" class="px-4 py-2.5 rounded-xl bg-red-50 text-red-600 text-xs font-black hover:bg-red-600 hover:text-white"><i class="fas fa-trash-can"></i> Remove from the PDF</button>
+                <button type="button" onclick="closePdfTile(true)" class="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest hover:bg-blue-700">Done</button>
+            </div>`;
+        const focused = document.activeElement && document.activeElement.id === 'ptText' ? document.getElementById('ptText').value : null;
+        document.getElementById('pdfTileEditorBody').innerHTML = body;
+        if (focused !== null) { const el = document.getElementById('ptText'); el.value = focused; el.focus(); }
+    }
+
+    function closePdfTile(apply) {
+        if (!pdTile) return;
+        if (apply) applyPdfTileText();
+        pdTile = null;
+        renderPdfTile();
+        render();
+    }
+
+    // New wording for a part: one replaced-text edit over the old words (or an erase when it is emptied)
+    function applyPdfTileText() {
+        const input = document.getElementById('ptText');
+        if (!input || !pdTile) return;
+        const { row, tile } = pdTile, text = input.value.trim();
+        if (text === pdTile.text) return;
+        const bare = v => v.replace(/[:*]+$/, '').trim();
+        const q = tile.blank && tile.blank.kind === 'box' ? findField(tile.blank.key) : null;
+        if (q && text && (q.label === bare(pdTile.text) || q.label === 'New question')) q.label = bare(text);
+        const added = tile.labels.filter(l => l.kind === 'edit'), printed = tile.labels.filter(l => l.kind !== 'edit');
+        if (!printed.length && added.length === 1) {
+            const e = findEdit(added[0].key);
+            if (text) { e.w = clamp(Math.max(e.w, e.w * text.length / Math.max(1, e.text.length)), 0.01, 1 - e.x); e.text = text; }
+            else fbEdits = fbEdits.filter(x => x !== e);
+            markDirty();
+            return;
+        }
+        fbEdits = fbEdits.filter(e => !added.some(a => a.key === e.key));
+        const area = textArea(row.page, unionOf(tile.labels)), first = printed[0] || tile.labels[0];
+        if (!text) pushEdit({ kind: 'erase', ...area, text: '', font: 'Helvetica', size: null, bold: false, cover: false });
+        else {
+            // Longer wording gets room to the right, up to whatever comes next on the line
+            // up to whatever comes next on the line; wording that still doesn't fit is printed smaller
+            const next = Math.min(1, ...row.tiles.flatMap(tileParts).filter(q => q.x > area.x + area.w - 0.002 && !tile.labels.includes(q)).map(q => q.x));
+            const needed = area.w * text.length / Math.max(1, pdTile.text.length) + 0.004, room = Math.max(area.w, next - area.x - 0.003);
+            let size = clamp(first.size || 10, 5, 48);
+            if (needed > room) size = Math.max(5, Math.floor(size * room / needed * 2) / 2);
+            area.w = clamp(Math.min(needed, room), area.w, 1 - area.x);
+            pushEdit({ kind: 'text', ...area, text, font: first.font || 'Helvetica', size, bold: !!first.bold, cover: true });
+        }
+        markDirty();
+    }
+
+    function pdfTileFill(key) {
+        pdSelField = pdTile.tile.blank.name;
+        fillPdfFieldWith(key);
+        pdSelField = null;
+        render();
+    }
+
+    // Where a new question goes in the form: after the question that fills the blank just above it on the PDF
+    function questionIndexAt(page, y) {
+        let at = -1;
+        pdRows.filter(r => r.page < page || (r.page === page && r.y < y)).forEach(r => r.tiles.forEach(t => {
+            const b = t.blank, f = b && (b.kind === 'box' ? findField(b.key) : pdfUsage()[b.name]);
+            if (f) at = Math.max(at, findIndex(f.key));
+        }));
+        return at >= 0 ? at + 1 : fbFields.length;
+    }
+    function addQuestionAt(f, page, y) {
+        fbFields.splice(questionIndexAt(page, y), 0, f);
+        return f;
+    }
+
+    function pdfTileNewQuestion() {
+        const { row, tile } = pdTile, b = tile.blank;
+        const owner = pdfUsage()[b.name];
+        if (owner) owner.pdf = '';
+        addQuestionAt(makeField({ type: b.check ? 'YesNo' : 'Text', label: tileText(tile).replace(/[:*]+$/, '').trim() || humanize(b.name), pdf: b.name }), row.page, row.y);
+        markDirty();
+        render();
+        showAlert('success', 'Question added. Students answer it on the application form, and the answer prints in this blank.');
+    }
+
+    function pdfTileAddBlank() {
+        const { row, tile } = pdTile, end = Math.max(...tile.labels.map(l => l.x + l.w));
+        const next = Math.min(0.95, ...row.tiles.flatMap(tileParts).filter(q => q.x > end).map(q => q.x));
+        if (next - end < 0.08) { showAlert('error', 'There is no room after these words. Add a new line with an element from the left instead.'); return; }
+        const f = addQuestionAt(makeField({ type: 'Text', label: tileText(tile).replace(/[:*]+$/, '').trim() || 'New question' }), row.page, row.y);
+        f.box = { page: row.page, x: end + 0.006, y: row.y, w: Math.min(0.35, next - end - 0.012), h: Math.max(0.012, row.h), size: null };
+        markDirty();
+        pdTile = null;
+        render();
+        showAlert('success', `Answer blank added for “${f.label}”. Students answer it on the application form.`);
+    }
+
+    // ---- removing ----
+    function removeTileParts(page, tile) {
+        const added = tile.labels.filter(l => l.kind === 'edit').map(l => l.key), printed = tile.labels.filter(l => l.kind !== 'edit');
+        fbEdits = fbEdits.filter(e => !added.includes(e.key));
+        if (printed.length) pushEdit({ kind: 'erase', ...textArea(page, unionOf(printed)), text: '', font: 'Helvetica', size: null, bold: false, cover: false });
+        const b = tile.blank;
+        if (b && b.kind === 'box') findField(b.key).box = null;
+        if (b && b.kind === 'field' && !b.sig) {
+            const owner = pdfUsage()[b.name];
+            if (owner) owner.pdf = '';
+            fbOverrides[b.name] = { action: 'hide' };
+        }
+    }
+    function deletePdfTile(i, j) {
+        const { row, tile } = i === null ? pdTile : { row: pdRows[i], tile: pdRows[i].tiles[j] };
+        const what = tileText(tile) || 'this blank';
+        const note = tile.blank && tile.blank.kind === 'box' ? '\n\nThe question stays on the application form; its answer just will not print.' : '';
+        if (!confirm(`Remove “${what}” from the PDF?${note}`)) return;
+        removeTileParts(row.page, tile);
+        pdTile = null;
+        markDirty();
+        renderPdfTile();
+        render();
+    }
+    function deletePdfRow(i) {
+        const row = pdRows[i];
+        if (row.insert) { deleteInsert(row.insert); render(); return; }
+        if (!confirm('Erase this whole line from the PDF? Its words are whited out and its blanks are removed (questions stay on the application form).')) return;
+        row.tiles.forEach(t => removeTileParts(row.page, t));
+        markDirty();
+        render();
+    }
+
+    // ---- adding ----
+    // A copy of a line right under it; its blanks get new questions in the same spots (one more row of a table)
+    function duplicatePdfRow(i) {
+        const row = pdRows[i];
+        const top = cutOver(i), bottom = cutUnder(i, 'next');
+        const ins = { kind: 'row', page: row.page, x: 0, y: top, w: 1, h: Math.max(0.008, bottom - top), text: '', font: 'Helvetica', size: null, bold: false, cover: true, lineX: [0.05, 0.9] };
+        addLineInsert(ins);
+        let at = questionIndexAt(row.page, row.y + row.h);
+        row.tiles.filter(t => t.blank && !t.blank.sig).forEach(t => {
+            const b = t.blank, src = b.kind === 'box' ? findField(b.key) : pdfUsage()[b.name];
+            const f = makeField({ type: src ? src.type : (b.check ? 'YesNo' : 'Text'), label: (tileText(t).replace(/[:*]+$/, '').trim() || (src && src.label) || humanize(b.name || 'Answer')) + ' (2)' });
+            f.box = { page: row.page, x: b.x, y: b.y + ins.h, w: b.w, h: b.h, size: null };
+            fbFields.splice(at++, 0, f);
+        });
+        pdSelRowAt = { page: row.page, y: row.y + row.h / 2 + ins.h };
+        markDirty();
+        render();
+    }
+
+    const leftMargin = p => clamp(Math.min(0.2, ...p.texts.map(t => t.x)), 0.03, 0.2);
+    function pdfTextWidth(p, text, size, bold) {
+        const pagePtWide = p.hPt * p.source.width / p.source.height;
+        return Math.min(0.85, text.length * size * (bold ? 0.6 : 0.53) / pagePtWide + 0.008);
+    }
+
+    // Adds a Form element to the PDF: on a new line under a line ("after"), or on a line next to what is there ("beside")
+    function addPdfElement(json, target = null) {
+        const spec = JSON.parse(json);
+        if (!pdRows.length) { showAlert('error', 'The PDF form is still loading.'); return; }
+        const sel = pdSelIndex();
+        target = target || { mode: 'after', row: sel >= 0 ? sel : pdRows.length - 1 };
+        const row = pdRows[target.row], p = pdPages[row.page - 1];
+        const blank = spec.pdf === 'field' || spec.pdf === 'place';
+        let slot;
+        if (spec.pdf !== 'empty' && (target.mode === 'beside' || row.empty)) {
+            const end = row.tiles.length ? Math.max(...row.tiles.flatMap(tileParts).map(q => q.x + q.w)) + 0.02 : leftMargin(p);
+            if (0.95 - end < (blank ? 0.22 : 0.1)) { showAlert('error', 'There is no room left on that line. Drop it between two lines to put it on a new line.'); return; }
+            slot = { page: row.page, x: end, y: row.y + row.h / 2 - Math.max(row.h, 0.016) / 2, h: Math.max(row.h, 0.016) };
+        } else {
+            // A new empty line under the row: everything below moves down (a long page continues on a new page)
+            const at = cutUnder(target.row, 'mid');
+            const ins = { kind: 'row', page: row.page, x: 0, y: Math.max(0, at - LINE_H), w: 1, h: Math.min(LINE_H, at), text: '', font: 'Helvetica', size: null, bold: false, cover: false };
+            addLineInsert(ins);
+            slot = { page: row.page, x: leftMargin(p), y: insertArea(ins).y, h: LINE_H };
+        }
+        pdSelRowAt = { page: slot.page, y: slot.y + slot.h / 2 };
+        if (spec.pdf === 'empty') { markDirty(); render(); return; }
+
+        const size = spec.pdf === 'heading' ? 11 : 10, bold = spec.pdf === 'heading';
+        const th = size * 1.35 / p.hPt, ty = slot.y + (slot.h - th) / 2;
+        let label, f = null;
+        if (blank) {
+            f = spec.pdf === 'place' ? findField(spec.key) : addQuestionAt(makeField({ type: spec.type, label: spec.label || (isAuto(spec.type) ? FB_AUTO_TYPES[spec.type] : 'New question') }), slot.page, slot.y);
+            label = (f.label || 'Question') + ':';
+        } else label = spec.pdf === 'heading' ? 'NEW HEADING' : 'New text';
+        const tw = pdfTextWidth(p, label, size, bold);
+        const textEdit = pushEdit({ kind: 'text', page: slot.page, x: slot.x, y: ty, w: Math.min(tw, 1 - slot.x), h: th, text: label, font: 'Helvetica', size, bold, cover: false });
+        if (f) {
+            const bx = slot.x + tw + 0.004;
+            f.pdf = '';
+            f.box = { page: slot.page, x: bx, y: slot.y + 0.002, w: clamp(0.95 - bx, 0.06, f.type === 'YesNo' ? 0.1 : 0.35), h: Math.max(0.012, slot.h - 0.004), size: null };
+        }
+        markDirty();
+        render();
+        // Name it right away
+        setTimeout(() => {
+            const i = pdRows.findIndex(r => r.tiles.some(t => t.labels.some(l => l.key === textEdit.key)));
+            if (i >= 0) editPdfTile(i, pdRows[i].tiles.findIndex(t => t.labels.some(l => l.key === textEdit.key)));
+        }, 60);
+    }
+
+    // Form elements for the PDF tab
+    function renderPdfPalette() {
+        const pick = ['Text', 'Paragraph', 'Number', 'Date', 'YesNo', 'Dropdown'].filter(t => FB_TYPES[t]);
+        const off = fbFields.filter(f => placeable(f) && !f.box && !f.pdf);
+        document.getElementById('fbPaletteGroups').innerHTML =
+            elementGroup('Add to the PDF', [
+                elementButton({ pdf: 'field', type: 'Text' }, 'fa-pen-to-square', 'Question + answer blank', 'students answer it', 'addPdfElement'),
+                ...pick.filter(t => t !== 'Text').map(t => elementButton({ pdf: 'field', type: t }, FB_TYPES[t].icon, FB_TYPES[t].label + ' question', 'with an answer blank', 'addPdfElement')),
+                elementButton({ pdf: 'text' }, 'fa-font', 'Printed text', 'words only', 'addPdfElement'),
+                elementButton({ pdf: 'heading' }, 'fa-heading', 'Heading', 'bold words', 'addPdfElement'),
+                elementButton({ pdf: 'empty' }, 'fa-arrows-up-down', 'Empty line', 'space to fill later', 'addPdfElement'),
+            ].join(''), true)
+            + elementGroup(`Questions not on the PDF yet (${off.length})`, off.map(f => elementButton({ pdf: 'place', key: f.key }, typeIcon(f.type), f.label || 'Untitled question', typeLabel(f.type), 'addPdfElement')).join('')
+                || '<p class="text-[11px] text-slate-400 px-1">Every question prints somewhere on the PDF. 🎉</p>', off.length > 0)
+            + elementGroup('Student profile (filled in for them)', Object.keys(FB_AUTO_TYPES).map(t => elementButton({ pdf: 'field', type: t }, 'fa-bolt', FB_AUTO_TYPES[t], '', 'addPdfElement')).join(''));
+    }
+
+    // Dragging a PDF element: between two lines = a new line, onto a line = next to what is there
+    function pdfDropTarget(e) {
+        const rows = [...document.querySelectorAll('#pdfRows .pdf-row')];
+        if (!rows.length) return null;
+        for (const el of rows) {
+            const r = el.getBoundingClientRect(), i = +el.dataset.row;
+            if (e.clientY < r.top || e.clientY > r.bottom) continue;
+            const fy = (e.clientY - r.top) / r.height;
+            if (fbDrag.spec.pdf !== 'empty' && (pdRows[i].empty || (fy > 0.28 && fy < 0.72))) return { mode: 'beside', row: i, rect: r };
+            if (fy >= 0.5) return { mode: 'after', row: i, rect: r, edge: 'bottom' };
+            return i > 0 ? { mode: 'after', row: i - 1, rect: rows[i - 1].getBoundingClientRect(), edge: 'bottom' } : { mode: 'after', row: 0, rect: r, edge: 'bottom' };
+        }
+        let best = 0;
+        rows.forEach((el, k) => { if (el.getBoundingClientRect().top < e.clientY) best = k; });
+        return { mode: 'after', row: +rows[best].dataset.row, rect: rows[best].getBoundingClientRect(), edge: 'bottom' };
+    }
+    const pdfRowsEl = () => document.getElementById('pdfRows');
+    document.addEventListener('dragover', e => {
+        if (!fbDrag || fbDrag.kind !== 'pdf') return;
+        const over = pdfRowsEl().contains(e.target);
+        if (!over) { showDropMark(null); return; }
+        e.preventDefault();
+        const t = pdfDropTarget(e);
+        if (!t) return;
+        showDropMark(t.mode === 'beside'
+            ? { mode: 'beside', side: 'right', rect: { left: t.rect.left, right: t.rect.right - 70, top: t.rect.top + 6, height: t.rect.height - 12 } }
+            : { mode: 'row', rect: t.rect, edge: 'bottom' });
+    });
+    document.addEventListener('drop', e => {
+        if (!fbDrag || fbDrag.kind !== 'pdf' || !pdfRowsEl().contains(e.target)) return;
+        e.preventDefault();
+        const t = pdfDropTarget(e), json = fbDrag.json;
+        showDropMark(null);
+        if (t) addPdfElement(json, t);
+    });
+
     // ================= TABS =================
     function showTab(name) {
         if (name !== 'edit') closeEditor();
         document.querySelectorAll('[data-fbtab]').forEach(b => b.classList.toggle('active', b.dataset.fbtab === name));
         ['edit', 'preview', 'pdf'].forEach(t => document.getElementById({ edit: 'fbTabEdit', preview: 'fbTabPreview', pdf: 'fbTabPdf' }[t]).classList.toggle('hidden', t !== name));
-        // The Form elements belong to the Edit tab
-        document.getElementById('fbPalette').classList.toggle('hidden', name !== 'edit');
-        document.getElementById('fbLayout').classList.toggle('lg:grid-cols-[300px_minmax(0,1fr)]', name === 'edit');
+        // Form elements: questions on the Edit tab, PDF parts on the PDF form tab
+        fbTab = name;
+        document.getElementById('fbPalette').classList.toggle('hidden', name === 'preview');
+        document.getElementById('fbLayout').classList.toggle('lg:grid-cols-[300px_minmax(0,1fr)]', name !== 'preview');
+        if (name === 'edit') renderPalette();
+        document.getElementById('fbPaletteHint').textContent = name === 'pdf'
+            ? 'Drag an element onto the PDF lines: between two lines for a new line, or onto a line to put it next to what is there. Or click a line, then click an element.'
+            : 'Drag an element onto the form — between two rows, or beside a field to put them side by side. Or click it to add it after the selected field.';
+        if (name === 'pdf') { renderPdfPalette(); renderPdfRows(); } else closePdfTile(false);
         if (name === 'preview') renderPreview();
         document.querySelector('#fbPreviewBtn span').textContent = name === 'preview' ? 'Back to editing' : 'Preview as student';
         document.querySelector('#fbPreviewBtn i').className = name === 'preview' ? 'fas fa-pen' : 'fas fa-eye';
@@ -2259,6 +2778,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveForm(); }
         if (e.key === 'Escape' && fbEditingKey) closeEditor();
+        if (e.key === 'Escape' && pdTile) closePdfTile(true);
         const typing = e.target.closest && e.target.closest('input, textarea, select, [contenteditable]');
         if (typing) return;
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undoChange(); }
