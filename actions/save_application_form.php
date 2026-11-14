@@ -122,12 +122,13 @@ foreach ((array) ($payload['overrides'] ?? []) as $name => $o) {
 }
 
 // Edits to the PDF's printed content: [{ kind: 'erase'|'text'|'row'|'column', page, x, y, w, h, text, font, size, bold, cover }]
-// 'row' / 'column' insert a copy (cover) or blank space after the strip x,y,w,h; their order matters, so SortOrder keeps it
+// 'row' / 'column' insert a copy (cover) or blank space after the strip x,y,w,h; 'move' takes the line strip y..y+h out and
+// puts it at 'to'. Their order matters (each works on the page as the earlier ones left it), so SortOrder keeps it
 $edits = [];
 foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     $n = $i + 1;
     $kind = $e['kind'] ?? '';
-    if (!in_array($kind, ['erase', 'text', 'row', 'column', 'break'], true)) fail("Content edit $n has an unknown type.");
+    if (!in_array($kind, ['erase', 'text', 'row', 'column', 'break', 'move'], true)) fail("Content edit $n has an unknown type.");
     $page = (int) ($e['page'] ?? 0);
     [$ex, $ey, $ew, $eh] = array_map(fn($k) => round((float) ($e[$k] ?? -1), 6), ['x', 'y', 'w', 'h']);
     if ($page < 1 || ($pdf_page_count && $page > $pdf_page_count)) fail("Content edit $n is on a page that isn't in the selected PDF.");
@@ -137,7 +138,12 @@ foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     $font = in_array($e['font'] ?? '', ['Helvetica', 'Times', 'Courier'], true) ? $e['font'] : 'Helvetica';
     $size = isset($e['size']) && $e['size'] !== '' && $e['size'] !== null ? (float) $e['size'] : null;
     if ($size !== null && ($size < 5 || $size > 48)) fail("Text edit $n: text size must be between 5 and 48.");
-    $edits[] = [$kind, $page, $ex, $ey, $ew, $eh, $text, $font, $size, !empty($e['bold']) ? 1 : 0, !empty($e['cover']) ? 1 : 0, $n];
+    $to = null;
+    if ($kind === 'move') {
+        $to = round((float) ($e['to'] ?? -1), 6);
+        if ($to < 0 || $to > PDF_MAX_PAGE_HEIGHT || ($to > $ey + 1e-6 && $to < $ey + $eh - 1e-6)) fail("Moved line $n has no valid place to go.");
+    }
+    $edits[] = [$kind, $page, $ex, $ey, $ew, $eh, $to, $text, $font, $size, !empty($e['bold']) ? 1 : 0, !empty($e['cover']) ? 1 : 0, $n];
 }
 
 // --- SAVE ---
@@ -200,7 +206,7 @@ try {
 
     // Replace this scholarship's edits to the PDF's printed content
     $pdo->prepare("DELETE FROM scholarship_pdf_edits WHERE ScholarshipID = ?")->execute([$scholarship_id]);
-    $edit_insert = $pdo->prepare("INSERT INTO scholarship_pdf_edits (ScholarshipID, Kind, PdfPage, PdfX, PdfY, PdfW, PdfH, Content, FontFamily, FontSize, IsBold, Cover, SortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $edit_insert = $pdo->prepare("INSERT INTO scholarship_pdf_edits (ScholarshipID, Kind, PdfPage, PdfX, PdfY, PdfW, PdfH, PdfTo, Content, FontFamily, FontSize, IsBold, Cover, SortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     foreach ($edits as $e) {
         $edit_insert->execute(array_merge([$scholarship_id], $e));
     }

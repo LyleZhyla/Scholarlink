@@ -131,7 +131,7 @@ try {
     $has_fillable_fields = (bool) getPdfTemplateFields($template_filename);
 
     // Inserted rows / columns move parts of the page, so the answers must become part of the page first (flattened)
-    $layout_stmt = $pdo->prepare("SELECT COUNT(*) FROM scholarship_pdf_edits e JOIN application a ON a.ScholarshipID = e.ScholarshipID WHERE a.ApplicationID = ? AND e.Kind IN ('row', 'column', 'break')");
+    $layout_stmt = $pdo->prepare("SELECT COUNT(*) FROM scholarship_pdf_edits e JOIN application a ON a.ScholarshipID = e.ScholarshipID WHERE a.ApplicationID = ? AND e.Kind IN ('row', 'column', 'break', 'move')");
     $layout_stmt->execute([$application_id]);
     $has_inserts = (int) $layout_stmt->fetchColumn() > 0;
     if ($has_fillable_fields) {
@@ -144,7 +144,7 @@ try {
     $content_edits = array_map(fn($e) => [
         'kind' => $e['Kind'], 'page' => (int) $e['PdfPage'], 'x' => (float) $e['PdfX'], 'y' => (float) $e['PdfY'],
         'w' => (float) $e['PdfW'], 'h' => (float) $e['PdfH'], 'text' => (string) $e['Content'], 'font' => $e['FontFamily'],
-        'size' => $e['FontSize'], 'bold' => (bool) $e['IsBold'], 'cover' => (bool) $e['Cover'],
+        'size' => $e['FontSize'], 'bold' => (bool) $e['IsBold'], 'cover' => (bool) $e['Cover'], 'to' => $e['PdfTo'] === null ? null : (float) $e['PdfTo'],
     ], $edit_stmt->fetchAll(PDO::FETCH_ASSOC));
 
     if ($has_fillable_fields && empty($drawn_boxes) && empty($content_edits)) {

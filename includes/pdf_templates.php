@@ -261,7 +261,8 @@ if (!function_exists('listPdfTemplates')) {
 
     // ✨ INSERTED ROWS AND COLUMNS (PDF designer → Edit content). The same cutting as layoutPieces() in
     // includes/form_builder_view.php: pieces of the page (as fractions) that keep their place or move; 'copy' pieces
-    // repeat a strip in the new space. $inserts: one page's 'row' / 'column' edits, in order.
+    // repeat a strip in the new space. A 'move' takes the strip y..y+h out and puts it at 'to' (closing the gap it leaves).
+    // $inserts: one page's 'row' / 'column' / 'move' edits, in order.
     function pdfLayoutPieces(array $inserts): array {
         $cut = function (array $p, float $at, string $axis): array {
             [$pos, $size, $src] = $axis === 'y' ? ['dy', 'h', 'sy'] : ['dx', 'w', 'sx'];
@@ -272,6 +273,23 @@ if (!function_exists('listPdfTemplates')) {
         };
         $pieces = [['sx' => 0.0, 'sy' => 0.0, 'w' => 1.0, 'h' => 1.0, 'dx' => 0.0, 'dy' => 0.0, 'copy' => false]];
         foreach ($inserts as $ins) {
+            if ($ins['kind'] === 'move') {
+                [$a, $h, $d] = [(float) $ins['y'], (float) $ins['h'], (float) $ins['to']];
+                $top = $d <= $a ? $d : $d - $h;
+                $map = function (float $y) use ($a, $h, $d, $top): float {
+                    if ($y >= $a && $y < $a + $h) return $y - $a + $top;
+                    if ($d <= $a && $y >= $d && $y < $a) return $y + $h;
+                    if ($d >= $a + $h && $y >= $a + $h && $y < $d) return $y - $h;
+                    return $y;
+                };
+                foreach ([$a, $a + $h, $d] as $at) {
+                    $split = [];
+                    foreach ($pieces as $p) foreach ($cut($p, $at, 'y') as $part) if ($part) $split[] = $part;
+                    $pieces = $split;
+                }
+                $pieces = array_map(fn($p) => array_merge($p, ['dy' => $map($p['dy'] + $p['h'] / 2) - $p['h'] / 2]), $pieces);
+                continue;
+            }
             $out = []; $copies = [];
             [$x, $y, $w, $h, $copy] = [(float) $ins['x'], (float) $ins['y'], (float) $ins['w'], (float) $ins['h'], !empty($ins['cover'])];
             foreach ($pieces as $p) {
@@ -341,7 +359,7 @@ if (!function_exists('listPdfTemplates')) {
     // Returns the new file, $filled itself when nothing is inserted, or null on failure.
     function relayoutPdfPages(string $filled, string $blank, array $page_sizes, array $edits, string $temp_dir): ?string {
         $by_page = [];
-        foreach ($edits as $e) if (in_array($e['kind'], ['row', 'column'], true)) $by_page[(int) $e['page']][] = $e;
+        foreach ($edits as $e) if (in_array($e['kind'], ['row', 'column', 'move'], true)) $by_page[(int) $e['page']][] = $e;
         if (!$by_page && !array_filter($edits, fn($e) => $e['kind'] === 'break')) return $filled;
         try {
             $pdf = new ScholarLinkLayoutPdf('P', 'pt');
