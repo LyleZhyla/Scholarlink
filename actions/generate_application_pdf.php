@@ -179,7 +179,7 @@ try {
             $out_pages = pdfOutputPages(count($page_sizes), $content_edits);
             $stamp_sizes = array_map(fn($o) => $page_sizes[$o['page'] - 1], $out_pages);
             $drawn_boxes = pdfPlaceOnOutputPages($drawn_boxes, $out_pages);
-            $stamp_edits = pdfPlaceOnOutputPages(array_values(array_filter($content_edits, fn($e) => in_array($e['kind'], ['erase', 'text'], true))), $out_pages);
+            $stamp_edits = pdfPlaceOnOutputPages(array_values(array_filter($content_edits, fn($e) => in_array($e['kind'], ['erase', 'text', 'line'], true))), $out_pages);
         } else {
             [$stamp_sizes, $stamp_edits] = [$page_sizes, $content_edits];
         }

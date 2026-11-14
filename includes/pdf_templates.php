@@ -194,7 +194,7 @@ if (!function_exists('listPdfTemplates')) {
 
             // ✨ CONTENT EDITS: erased areas first, then new text (over the colour that was behind the old text when replacing)
             $rgb = fn($hex, array $default) => is_string($hex) && preg_match('/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i', $hex, $m) ? [hexdec($m[1]), hexdec($m[2]), hexdec($m[3])] : $default;
-            $page_edits = array_filter($edits, fn($e) => (int) $e['page'] === $index + 1 && in_array($e['kind'], ['erase', 'text'], true));
+            $page_edits = array_filter($edits, fn($e) => (int) $e['page'] === $index + 1 && in_array($e['kind'], ['erase', 'text', 'line'], true));
             usort($page_edits, fn($a, $b) => ($a['kind'] === 'erase' ? 0 : 1) <=> ($b['kind'] === 'erase' ? 0 : 1));
             foreach ($page_edits as $edit) {
                 $x = $edit['x'] * $page_w;
@@ -205,6 +205,12 @@ if (!function_exists('listPdfTemplates')) {
                 if ($edit['kind'] === 'erase' || !empty($edit['cover'])) {
                     $overlay->SetFillColor(...$rgb($edit['fill'] ?? null, [255, 255, 255]));
                     $overlay->Rect($x, $y, $w, $h, 'F');
+                }
+                // An answer line: a thin bar in its colour (at least a hairline)
+                if ($edit['kind'] === 'line') {
+                    $overlay->SetFillColor(...$rgb($edit['fill'] ?? null, [0, 0, 0]));
+                    $overlay->Rect($x, $y, $w, max(0.5, $h), 'F');
+                    continue;
                 }
                 if ($edit['kind'] !== 'text' || trim((string) $edit['text']) === '') continue;
 

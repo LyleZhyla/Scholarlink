@@ -123,18 +123,19 @@ foreach ((array) ($payload['overrides'] ?? []) as $name => $o) {
     }
 }
 
-// Edits to the PDF's printed content: [{ kind: 'erase'|'text'|'row'|'column', page, x, y, w, h, text, font, size, bold, cover }]
+// Edits to the PDF's printed content: [{ kind: 'erase'|'text'|'line'|'row'|'column'|'move'|'break', page, x, y, w, h, text, font, size, bold, cover, fill, color }]
 // 'row' / 'column' insert a copy (cover) or blank space after the strip x,y,w,h; 'move' takes the line strip y..y+h out and
 // puts it at 'to'. Their order matters (each works on the page as the earlier ones left it), so SortOrder keeps it
 $edits = [];
 foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     $n = $i + 1;
     $kind = $e['kind'] ?? '';
-    if (!in_array($kind, ['erase', 'text', 'row', 'column', 'break', 'move'], true)) fail("Content edit $n has an unknown type.");
+    if (!in_array($kind, ['erase', 'text', 'row', 'column', 'break', 'move', 'line'], true)) fail("Content edit $n has an unknown type.");
     $page = (int) ($e['page'] ?? 0);
     [$ex, $ey, $ew, $eh] = array_map(fn($k) => round((float) ($e[$k] ?? -1), 6), ['x', 'y', 'w', 'h']);
     if ($page < 1 || ($pdf_page_count && $page > $pdf_page_count)) fail("Content edit $n is on a page that isn't in the selected PDF.");
-    if ($ex < 0 || $ey < 0 || $ew < 0.002 || $eh < 0.002 || $ex + $ew > 1.0001 || $ey + $eh > PDF_MAX_PAGE_HEIGHT) fail("Content edit $n is outside the page.");
+    $min_h = $kind === 'line' ? 0.0005 : 0.002;   // an answer line is a hairline
+    if ($ex < 0 || $ey < 0 || $ew < 0.002 || $eh < $min_h || $ex + $ew > 1.0001 || $ey + $eh > PDF_MAX_PAGE_HEIGHT) fail("Content edit $n is outside the page.");
     $text = $kind === 'text' ? mb_substr(trim((string) ($e['text'] ?? '')), 0, 1000) : null;
     if ($kind === 'text' && $text === '') fail("Text edit $n is empty. Type some text or delete it.");
     $font = in_array($e['font'] ?? '', ['Helvetica', 'Times', 'Courier'], true) ? $e['font'] : 'Helvetica';
@@ -147,7 +148,7 @@ foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     }
     // The colour behind the old text (erase / cover) and of the text, as #rrggbb
     $color = fn($k) => isset($e[$k]) && is_string($e[$k]) && preg_match('/^#[0-9a-f]{6}$/i', $e[$k]) ? strtolower($e[$k]) : null;
-    $fill = in_array($kind, ['erase', 'text'], true) ? $color('fill') : null;
+    $fill = in_array($kind, ['erase', 'text', 'line'], true) ? $color('fill') : null;
     $text_color = $kind === 'text' ? $color('color') : null;
     $edits[] = [$kind, $page, $ex, $ey, $ew, $eh, $to, $text, $font, $size, !empty($e['bold']) ? 1 : 0, !empty($e['cover']) ? 1 : 0, $fill, $text_color, $n];
 }

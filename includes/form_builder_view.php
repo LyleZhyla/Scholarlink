@@ -155,6 +155,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     /* content edits: erased areas (white) and new / replaced text */
     .pd-edit { position: absolute; overflow: hidden; white-space: nowrap; color: #000; pointer-events: none; }
     .pd-edit.erase, .pd-edit.cover { background: #fff; }
+    .content-mode .pd-edit.line { outline: 3px solid rgba(100, 116, 139, 0.25); }
     .content-mode .pd-edit { pointer-events: auto; cursor: pointer; }
     .content-mode .pd-edit.erase { outline: 1.5px dashed #dc2626; outline-offset: -1px; }
     .content-mode .pd-edit.text { outline: 1.5px dashed #f59e0b; outline-offset: -1px; }
@@ -1140,6 +1141,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 const sel = content && pdSelEdit === e.key;
                 if (isInsert(e)) {
                     html += `<div class="pd-edit insert ${e.kind} ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(finalArea(e))}" title="Inserted ${e.kind}${sel ? ' — drag to move, drag the handle to resize' : ' — click to edit'}">${content ? `<span class="pd-insert-tag">＋ ${e.kind}</span>` : ''}${sel ? '<span class="pd-handle"></span>' : ''}</div>`;
+                } else if (e.kind === 'line') {
+                    html += `<div class="pd-edit line ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos({ ...e, h: Math.max(e.h, 0.0015) })};background:${e.fill || '#000'}" title="Answer line"></div>`;
                 } else if (e.kind === 'erase') {
                     html += `<div class="pd-edit erase ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(e)};background:${e.fill || '#fff'}" title="Erased area">${sel ? handles : ''}</div>`;
                 } else {
@@ -1275,6 +1278,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 ${p && p.cut.length ? `<p class="mt-3 p-2 rounded-lg bg-red-50 border border-red-100 text-xs font-bold text-red-700">⚠ Some printed text no longer fits on the right of the page. Make the inserted column narrower, or remove it.</p>` : ''}
                 <button type="button" onclick="deleteInsert('${edit.key}')" class="mt-3 w-full ${btn} bg-red-50 border-red-200 text-red-600 hover:bg-red-600 hover:text-white"><i class="fas fa-trash-can"></i> Remove this ${edit.kind}</button>`;
         }
+        if (edit && edit.kind === 'line') {
+            return `<p class="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1">Answer line · page ${edit.page}</p>
+                <p class="text-xs text-slate-500">The printed line of an answer blank. Drag to move it, drag the end to make it longer or shorter.</p>
+                <button type="button" onclick="deleteEdit('${edit.key}')" class="mt-3 w-full ${btn} bg-red-50 border-red-200 text-red-600 hover:bg-red-600 hover:text-white"><i class="fas fa-trash-can"></i> Remove the line</button>`;
+        }
         if (edit && edit.kind === 'erase') {
             return `<p class="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1">Erased area</p>
                 <p class="text-xs text-slate-500">Everything printed in this area is removed from this scholarship's PDF (page ${edit.page}). Drag to move it, drag the corner to resize.</p>
@@ -1294,7 +1302,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 ${sizeSelect(edit.size, 'setEditSize', [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32])}
                 <label class="flex items-start gap-2 mt-3 text-xs font-bold text-slate-600 cursor-pointer">
                     <input type="checkbox" ${edit.cover ? 'checked' : ''} onchange="updateEdit('cover', this.checked)" class="mt-0.5 accent-amber-600">
-                    White background (hides whatever is printed underneath)
+                    Cover what is printed underneath (in the colour behind it)
                 </label>
                 <button type="button" onclick="deleteEdit('${edit.key}')" class="mt-3 w-full ${btn} bg-red-50 border-red-200 text-red-600 hover:bg-red-600 hover:text-white"><i class="fas fa-trash-can"></i> Delete this text</button>`;
         }
@@ -1315,8 +1323,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function renderEditList() {
         document.getElementById('pdEdits').innerHTML = fbEdits.length
             ? fbEdits.map(e => `<button type="button" onclick="selectEdit('${e.key}')" class="w-full text-left px-3 py-2 rounded-lg border ${pdSelEdit === e.key ? 'border-amber-500 bg-amber-50' : 'border-transparent hover:bg-slate-50'}">
-                    <span class="block text-sm font-bold text-slate-800 truncate">${e.kind === 'move' ? 'Moved line' : isInsert(e) ? `Inserted ${e.kind}` : e.kind === 'erase' ? 'Erased area' : esc(e.text || '(empty text)')}</span>
-                    <span class="block text-[10px] font-black uppercase tracking-wider ${e.kind === 'move' ? 'text-sky-700' : isInsert(e) ? 'text-violet-700' : e.kind === 'erase' ? 'text-red-600' : 'text-amber-600'}">${e.kind === 'move' ? (e.to <= e.y ? '↑ Moved up' : '↓ Moved down') : isInsert(e) ? (e.cover ? '⧉ Copy' : '▭ Blank space') : e.kind === 'erase' ? '✕ Erase' : (e.cover ? '✎ Replaced text' : '＋ Added text')} · page ${e.page}</span>
+                    <span class="block text-sm font-bold text-slate-800 truncate">${e.kind === 'move' ? 'Moved line' : e.kind === 'line' ? 'Answer line' : isInsert(e) ? `Inserted ${e.kind}` : e.kind === 'erase' ? 'Erased area' : esc(e.text || '(empty text)')}</span>
+                    <span class="block text-[10px] font-black uppercase tracking-wider ${e.kind === 'move' ? 'text-sky-700' : isInsert(e) ? 'text-violet-700' : e.kind === 'erase' ? 'text-red-600' : 'text-amber-600'}">${e.kind === 'move' ? (e.to <= e.y ? '↑ Moved up' : '↓ Moved down') : e.kind === 'line' ? '＿ Line' : isInsert(e) ? (e.cover ? '⧉ Copy' : '▭ Blank space') : e.kind === 'erase' ? '✕ Erase' : (e.cover ? '✎ Replaced text' : '＋ Added text')} · page ${e.page}</span>
                 </button>`).join('')
             : '<p class="text-xs text-slate-400">No content edits yet.</p>';
     }
@@ -1343,6 +1351,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const edit = findEdit(pdSelEdit);
         if (!edit) return;
         edit[prop] = value;
+        if (prop === 'cover' && value) colorEdit(edit);   // covering now: take the colour behind it
         markDirty();
         renderDesignerPages();   // keep the side panel (and the cursor in the text box) as it is
         renderEditList();
@@ -1414,6 +1423,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
     function colorEdit(e) {
         if (e && e.kind === 'text' && e.cover && !e.key) trimCover(e);
+        if (e && e.kind === 'line' && !e.fill && pdPages.length) {
+            const c = pageColors(e.page, { x: e.x, y: e.y - 0.004, w: e.w, h: 0.008 });
+            e.fill = c && luma(c.fill.match(/\w\w/g).map(v => parseInt(v, 16))) < 140 ? '#ffffff' : '#000000';
+            return;
+        }
         if (!e || (e.kind !== 'erase' && e.kind !== 'text') || !pdPages.length) return;
         const needFill = (e.kind === 'erase' || e.cover) && !e.fill, needColor = e.kind === 'text' && !e.color;
         if (!needFill && !needColor) return;
@@ -2732,13 +2746,16 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <button type="button" onclick="deletePdfTile(null)" class="px-4 py-2.5 rounded-xl bg-red-50 text-red-600 text-xs font-black hover:bg-red-600 hover:text-white"><i class="fas fa-trash-can"></i> Remove from the PDF</button>
                 <button type="button" onclick="closePdfTile(true)" class="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest hover:bg-blue-700">Done</button>
             </div>`;
+        if (pdTile.msg) body = `<div class="mb-4 px-4 py-3 rounded-xl text-xs font-black ${pdTile.msg.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700'}">${pdTile.msg.ok ? '✅' : '⚠️'} ${esc(pdTile.msg.text)}</div>` + body;
         const focused = document.activeElement && document.activeElement.id === 'ptText' ? document.getElementById('ptText').value : null;
         document.getElementById('pdfTileEditorBody').innerHTML = body;
-        if (focused !== null) { const el = document.getElementById('ptText'); el.value = focused; el.focus(); }
+        // Keep what was being typed (only when the same part is still shown: another part may have no words box)
+        const el = focused !== null ? document.getElementById('ptText') : null;
+        if (el) { el.value = focused; el.focus(); }
     }
 
     function closePdfTile(apply) {
-        if (!pdTile) return;
+        if (!pdTile) { renderPdfTile(); return; }   // nothing open: just make sure the window is closed
         if (apply) applyPdfTileText();
         pdTile = null;
         renderPdfTile();
@@ -2804,22 +2821,61 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const owner = pdfUsage()[b.name];
         if (owner) owner.pdf = '';
         addQuestionAt(makeField({ type: b.check ? 'YesNo' : 'Text', label: tileText(tile).replace(/[:*]+$/, '').trim() || humanize(b.name), pdf: b.name }), row.page, row.y);
+        pdTile.msg = { ok: true, text: 'Question added. Students answer it on the application form, and the answer prints in this blank.' };
         markDirty();
         render();
-        showAlert('success', 'Question added. Students answer it on the application form, and the answer prints in this blank.');
     }
 
+    // A question whose answer prints after these words: on the same line when there is room, else on a new line under them.
+    // An answer line is printed under it, so the blank shows on the paper form too.
     function pdfTileAddBlank() {
-        const { row, tile } = pdTile, end = Math.max(...tile.labels.map(l => l.x + l.w));
+        const { row, tile } = pdTile;
+        const start = Math.min(...tile.labels.map(l => l.x)), end = Math.max(...tile.labels.map(l => l.x + l.w));
         const next = Math.min(0.95, ...row.tiles.flatMap(tileParts).filter(q => q.x > end).map(q => q.x));
-        if (next - end < 0.08) { showAlert('error', 'There is no room after these words. Add a new line with an element from the left instead.'); return; }
-        const f = addQuestionAt(makeField({ type: 'Text', label: tileText(tile).replace(/[:*]+$/, '').trim() || 'New question' }), row.page, row.y);
-        f.box = { page: row.page, x: end + 0.006, y: row.y, w: Math.min(0.35, next - end - 0.012), h: Math.max(0.012, row.h), size: null };
+        const ink = (pageColors(row.page, unionOf(tile.labels)) || {}).color;
+        // The words become the question's name, unless they are a whole sentence
+        const words = tileText(tile).replace(/[:*]+$/, '').trim();
+        const f = addQuestionAt(makeField({ type: 'Text', label: words && words.length <= 60 ? words : 'New question' }), row.page, row.y);
+        let where;
+        if (next - end >= 0.12) {
+            f.box = { page: row.page, x: end + 0.006, y: row.y, w: Math.min(0.4, next - end - 0.012), h: Math.max(0.012, row.h), size: null };
+            where = 'after these words';
+        } else {
+            const i = pdRows.findIndex(r => r.page === row.page && Math.abs(r.y - row.y) < 1e-6);
+            const at = cutUnder(i >= 0 ? i : pdRows.length - 1, 'mid');
+            const ins = addLineInsert({ kind: 'row', page: row.page, x: 0, y: Math.max(0, at - LINE_H), w: 1, h: Math.min(LINE_H, at), text: '', font: 'Helvetica', size: null, bold: false, cover: false });
+            const a = finalArea(ins);
+            f.box = { page: row.page, x: start, y: a.y + 0.003, w: Math.min(0.6, 0.95 - start), h: LINE_H - 0.006, size: null };
+            where = 'on a new line under these words (there was no room after them)';
+        }
+        addAnswerLine(f.box, ink);
         markDirty();
         pdTile = null;
+        pdSelRowAt = { page: f.box.page, y: f.box.y + f.box.h / 2 };
+        pdHlPart = null;
         render();
-        showAlert('success', `Answer blank added for “${f.label}”. Students answer it on the application form.`);
+        const done = `Answer blank added ${where}. Name its question below; students answer it on the application form and the answer prints on that line.`;
+        showAlert('success', done);
+        // Straight on to the new blank, to name its question
+        setTimeout(() => {
+            const i = pdRows.findIndex(r => r.tiles.some(t => t.blank && t.blank.key === f.key));
+            if (i < 0) { renderPdfTile(); return; }
+            const j = pdRows[i].tiles.findIndex(t => t.blank && t.blank.key === f.key);
+            selectPdfRow(i, j);
+            editPdfTile(i, j);
+            pdTile.msg = { ok: true, text: done };
+            renderPdfTile();
+            const q = document.querySelector('#pdfTileEditorBody input[oninput^="updateField"]');
+            if (q) { q.focus(); q.select(); }
+        }, 80);
     }
+
+    // The printed line of an answer blank, along the bottom of its box
+    function addAnswerLine(box, color = null) {
+        return pushEdit({ kind: 'line', page: box.page, x: box.x, y: box.y + box.h - 0.0007, w: box.w, h: 0.0012, text: '', font: 'Helvetica', size: null, bold: false, cover: false, ...(color ? { fill: color } : {}) });
+    }
+    const answerLinesOf = box => fbEdits.filter(e => e.kind === 'line' && e.page === box.page && e.x + e.w / 2 >= box.x && e.x + e.w / 2 <= box.x + box.w
+        && e.y >= box.y + box.h * 0.4 && e.y <= box.y + box.h + 0.006);
 
     // ---- removing ----
     function removeTileParts(page, tile) {
@@ -2827,7 +2883,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         fbEdits = fbEdits.filter(e => !added.includes(e.key));
         if (printed.length) pushEdit({ kind: 'erase', ...textArea(page, unionOf(printed)), text: '', font: 'Helvetica', size: null, bold: false, cover: false });
         const b = tile.blank;
-        if (b && b.kind === 'box') findField(b.key).box = null;
+        if (b && b.kind === 'box') {
+            const f = findField(b.key), lines = answerLinesOf(f.box);
+            fbEdits = fbEdits.filter(e => !lines.includes(e));
+            f.box = null;
+        }
         if (b && b.kind === 'field' && !b.sig) {
             const owner = pdfUsage()[b.name];
             if (owner) owner.pdf = '';
@@ -2915,6 +2975,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const bx = slot.x + tw + 0.004;
             f.pdf = '';
             f.box = { page: slot.page, x: bx, y: slot.y + 0.002, w: clamp(0.95 - bx, 0.06, f.type === 'YesNo' ? 0.1 : 0.35), h: Math.max(0.012, slot.h - 0.004), size: null };
+            addAnswerLine(f.box);
         }
         markDirty();
         render();
@@ -3137,7 +3198,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const had = new Set(beforeEdits.map(sig)), has = new Set(fbEdits.map(sig));
         const out = [];
         beforeEdits.filter(e => !has.has(sig(e))).forEach(e => {
-            if (e.kind === 'erase' || e.kind === 'text') out.push({ page: e.page, x: e.x, y: e.y, w: e.w, h: e.h });
+            if (e.kind === 'erase' || e.kind === 'text' || e.kind === 'line') out.push({ page: e.page, x: e.x, y: e.y, w: e.w, h: Math.max(e.h, 0.004) });
             else if (e.kind === 'move') out.push({ page: e.page, x: 0.02, y: e.y, w: 0.96, h: e.h });             // the line is still in its old place
             else if (e.kind === 'row') out.push({ page: e.page, x: 0.02, y: e.y + e.h - 0.004, w: 0.96, h: 0.008 }); // where your added line would be
             else out.push({ page: e.page, x: e.x + e.w - 0.004, y: e.y, w: 0.008, h: e.h });
@@ -3152,7 +3213,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         });
         fbEdits.forEach(e => {
             if (had.has(sig(e))) return;
-            if (e.kind === 'erase' || e.kind === 'text') out.push({ page: e.page, x: e.x, y: e.y, w: e.w, h: e.h });
+            if (e.kind === 'line') out.push({ page: e.page, x: e.x, y: e.y - 0.002, w: e.w, h: 0.004 });
+            else if (e.kind === 'erase' || e.kind === 'text') out.push({ page: e.page, x: e.x, y: e.y, w: e.w, h: e.h });
             else if (isInsert(e)) out.push({ page: e.page, ...finalArea(e) });
             else if (e.kind === 'move') out.push({ page: e.page, ...carryArea({ x: 0.02, y: moveTop(e), w: 0.96, h: e.h }, fbEdits.slice(fbEdits.indexOf(e) + 1).filter(t => isTransform(t) && t.page === e.page)) });
         });
