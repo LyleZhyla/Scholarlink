@@ -177,7 +177,8 @@ if (!function_exists('listPdfTemplates')) {
 
     // Writes answers into the boxes admins drew in the Form Builder, and applies content edits.
     // $boxes: [['page' => 1, 'x' => 0-1, 'y' => 0-1, 'w' => 0-1, 'h' => 0-1, 'size' => pt|null, 'text' => '...', 'multiline' => bool], ...]
-    // $edits: [['kind' => 'erase'|'text', 'page', 'x', 'y', 'w', 'h', 'text', 'font' => Helvetica|Times|Courier, 'size', 'bold', 'cover'], ...]
+    // $edits: [['kind' => 'erase'|'text', 'page', 'x', 'y', 'w', 'h', 'text', 'font' => Helvetica|Times|Courier, 'size', 'bold', 'cover',
+    //          'fill' => '#rrggbb' behind (default white), 'color' => '#rrggbb' of the text (default black)], ...]
     // Builds a transparent overlay with FPDF and merges it onto $pdf_path with pdftk. Returns the stamped file path, or null on failure.
     function stampPdfBoxes(string $pdf_path, array $page_sizes, array $boxes, string $temp_dir, array $edits = []): ?string {
         if ((!$boxes && !$edits) || !$page_sizes) return $pdf_path;
@@ -191,7 +192,8 @@ if (!function_exists('listPdfTemplates')) {
         foreach ($page_sizes as $index => [$page_w, $page_h]) {
             $overlay->AddPage($page_w > $page_h ? 'L' : 'P', [$page_w, $page_h]);
 
-            // ✨ CONTENT EDITS: erased areas first, then new text (with a white background when replacing)
+            // ✨ CONTENT EDITS: erased areas first, then new text (over the colour that was behind the old text when replacing)
+            $rgb = fn($hex, array $default) => is_string($hex) && preg_match('/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i', $hex, $m) ? [hexdec($m[1]), hexdec($m[2]), hexdec($m[3])] : $default;
             $page_edits = array_filter($edits, fn($e) => (int) $e['page'] === $index + 1 && in_array($e['kind'], ['erase', 'text'], true));
             usort($page_edits, fn($a, $b) => ($a['kind'] === 'erase' ? 0 : 1) <=> ($b['kind'] === 'erase' ? 0 : 1));
             foreach ($page_edits as $edit) {
@@ -201,6 +203,7 @@ if (!function_exists('listPdfTemplates')) {
                 $h = $edit['h'] * $page_h;
 
                 if ($edit['kind'] === 'erase' || !empty($edit['cover'])) {
+                    $overlay->SetFillColor(...$rgb($edit['fill'] ?? null, [255, 255, 255]));
                     $overlay->Rect($x, $y, $w, $h, 'F');
                 }
                 if ($edit['kind'] !== 'text' || trim((string) $edit['text']) === '') continue;
@@ -215,8 +218,11 @@ if (!function_exists('listPdfTemplates')) {
                     if ($overlay->GetStringWidth($text) <= $w || $size <= 5) break;
                     $size -= 0.5;
                 } while (true);
+                $overlay->SetTextColor(...$rgb($edit['color'] ?? null, [0, 0, 0]));
                 $overlay->Text($x, $y + ($h + $size * 0.7) / 2, $text);
             }
+            $overlay->SetTextColor(0, 0, 0);
+            $overlay->SetFillColor(255, 255, 255);
 
             foreach ($boxes as $box) {
                 if ((int) $box['page'] !== $index + 1 || trim((string) $box['text']) === '') continue;

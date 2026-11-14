@@ -145,6 +145,7 @@ try {
         'kind' => $e['Kind'], 'page' => (int) $e['PdfPage'], 'x' => (float) $e['PdfX'], 'y' => (float) $e['PdfY'],
         'w' => (float) $e['PdfW'], 'h' => (float) $e['PdfH'], 'text' => (string) $e['Content'], 'font' => $e['FontFamily'],
         'size' => $e['FontSize'], 'bold' => (bool) $e['IsBold'], 'cover' => (bool) $e['Cover'], 'to' => $e['PdfTo'] === null ? null : (float) $e['PdfTo'],
+        'fill' => $e['FillColor'] ?? null, 'color' => $e['TextColor'] ?? null,
     ], $edit_stmt->fetchAll(PDO::FETCH_ASSOC));
 
     if ($has_fillable_fields && empty($drawn_boxes) && empty($content_edits)) {

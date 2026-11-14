@@ -706,7 +706,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const file = fbTemplate || FB_DEFAULT_TEMPLATE;
         document.getElementById('pdTitle').textContent = (FB_PDF_TEMPLATES[file] || {}).label || file;
         setDesignerMode(key ? 'fields' : pdMode, false);
-        if (pdDocFile !== file) await loadPdfIntoDesigner(file);
+        if (pdDocFile !== file) { await loadPdfIntoDesigner(file); colorOldEdits(); }
         renderDesigner();
     }
 
@@ -1141,12 +1141,12 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 if (isInsert(e)) {
                     html += `<div class="pd-edit insert ${e.kind} ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(finalArea(e))}" title="Inserted ${e.kind}${sel ? ' — drag to move, drag the handle to resize' : ' — click to edit'}">${content ? `<span class="pd-insert-tag">＋ ${e.kind}</span>` : ''}${sel ? '<span class="pd-handle"></span>' : ''}</div>`;
                 } else if (e.kind === 'erase') {
-                    html += `<div class="pd-edit erase ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(e)}" title="Erased area">${sel ? handles : ''}</div>`;
+                    html += `<div class="pd-edit erase ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(e)};background:${e.fill || '#fff'}" title="Erased area">${sel ? handles : ''}</div>`;
                 } else {
                     const boxPx = e.h * p.hPt * p.scale;
                     const sizePt = e.size || Math.min(14, Math.max(6, e.h * p.hPt * 0.75));
                     html += `<div class="pd-edit text ${e.cover ? 'cover' : ''} ${sel ? 'sel' : ''}" data-edit="${e.key}" title="Added text"
-                        style="${pos(e)};font-family:${PD_FONTS[e.font] || PD_FONTS.Helvetica};font-size:${(sizePt * p.scale).toFixed(2)}px;font-weight:${e.bold ? 700 : 400};line-height:${boxPx.toFixed(2)}px">${esc(e.text)}${sel ? handles : ''}</div>`;
+                        style="${pos(e)};${e.cover ? `background:${e.fill || '#fff'};` : ''}color:${e.color || '#000'};font-family:${PD_FONTS[e.font] || PD_FONTS.Helvetica};font-size:${(sizePt * p.scale).toFixed(2)}px;font-weight:${e.bold ? 700 : 400};line-height:${boxPx.toFixed(2)}px">${esc(e.text)}${sel ? handles : ''}</div>`;
                 }
             });
 
@@ -1323,6 +1323,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
     // ---------- Edit content: actions ----------
     function addEdit(edit) {
+        colorEdit(edit);
         edit.key = 'e' + (++fbKeySeq);
         fbEdits.push(edit);
         markDirty();
@@ -1356,6 +1357,79 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (pdSelEdit === key) pdSelEdit = null;
         markDirty();
         renderDesigner();
+    }
+
+    // ---------- Colours ----------
+    // Text is changed / erased by covering it, so the cover takes the colour that was behind it (a green header stays
+    // green) and new words the colour the old ones had. Both are read from the page as it looks (the canvas has only the
+    // PDF itself, not the edits drawn over it).
+    const hex = ([r, g, b]) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+    const luma = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
+    function pageColors(page, r) {
+        const p = pdPages[page - 1];
+        if (!p) return null;
+        paintPage(p);
+        const c = p.canvas, W = c.width, H = p.source.height, M = 3;
+        const x0 = clamp(Math.floor(r.x * W) - M, 0, W - 1), x1 = clamp(Math.ceil((r.x + r.w) * W) + M, 0, W - 1);
+        const y0 = clamp(Math.floor(r.y * H) - M, 0, c.height - 1), y1 = clamp(Math.ceil((r.y + r.h) * H) + M, 0, c.height - 1);
+        const w = x1 - x0 + 1, h = y1 - y0 + 1;
+        if (w < 3 || h < 3) return null;
+        const data = c.getContext('2d').getImageData(x0, y0, w, h).data;
+        const at = (x, y) => { const i = (y * w + x) * 4; return [data[i], data[i + 1], data[i + 2]]; };
+        // The most common colour (in coarse steps), averaged over the pixels of that step
+        const common = list => {
+            const groups = new Map();
+            list.forEach(px => { const k = px.map(v => v >> 4).join(','); const g = groups.get(k) || []; g.push(px); groups.set(k, g); });
+            let best = null;
+            groups.forEach(g => { if (!best || g.length > best.length) best = g; });
+            return best ? [0, 1, 2].map(i => best.reduce((s, px) => s + px[i], 0) / best.length) : null;
+        };
+        const ring = [];
+        for (let x = 0; x < w; x++) for (const y of [0, 1, h - 2, h - 1]) ring.push(at(x, y));
+        for (let y = 2; y < h - 2; y++) for (const x of [0, 1, w - 2, w - 1]) ring.push(at(x, y));
+        const bg = common(ring);
+        // The ink: the strongest quarter of the pixels that stand out from the background (letter edges are blended)
+        const dist = px => Math.abs(px[0] - bg[0]) + Math.abs(px[1] - bg[1]) + Math.abs(px[2] - bg[2]);
+        const inside = [];
+        for (let y = M; y < h - M; y++) for (let x = M; x < w - M; x++) { const px = at(x, y); if (dist(px) > 120) inside.push(px); }
+        inside.sort((a, b) => dist(b) - dist(a));
+        const core = inside.slice(0, Math.max(1, Math.ceil(inside.length / 4)));
+        let ink = inside.length ? [0, 1, 2].map(i => core.reduce((s, px) => s + px[i], 0) / core.length) : (luma(bg) < 140 ? [255, 255, 255] : [0, 0, 0]);
+        // Nearly black / white is black / white
+        if (ink.every(v => v < 48)) ink = [0, 0, 0];
+        if (ink.every(v => v > 215)) ink = [255, 255, 255];
+        return { fill: hex(bg), color: hex(ink) };
+    }
+    // Fills in an edit's colours (once): the background for an erase / a cover, the text colour for text
+    // A cover over replaced words stops where other printed words start, above or below (a line's box is taller than its letters)
+    function trimCover(e) {
+        const p = pdPages[e.page - 1];
+        if (!p) return;
+        const others = p.texts.filter(t => t.x < e.x + e.w && t.x + t.w > e.x && !centreIn(t, e));
+        others.forEach(t => {
+            const top = t.y + t.h * 0.12, bottom = t.y + t.h * 0.78;   // roughly where its letters are
+            if (top > e.y + e.h * 0.5 && top < e.y + e.h) e.h = Math.max(0.004, top - e.y);
+            else if (bottom < e.y + e.h * 0.5 && bottom > e.y) { e.h -= bottom - e.y; e.y = bottom; }
+        });
+    }
+    function colorEdit(e) {
+        if (e && e.kind === 'text' && e.cover && !e.key) trimCover(e);
+        if (!e || (e.kind !== 'erase' && e.kind !== 'text') || !pdPages.length) return;
+        const needFill = (e.kind === 'erase' || e.cover) && !e.fill, needColor = e.kind === 'text' && !e.color;
+        if (!needFill && !needColor) return;
+        const c = pageColors(e.page, e);
+        if (!c) return;
+        if (needFill) e.fill = c.fill;
+        if (needColor) {
+            // New words where nothing was printed: black, or white on a dark background
+            e.color = e.cover ? c.color : (luma(c.fill.match(/\w\w/g).map(v => parseInt(v, 16))) < 140 ? '#ffffff' : '#000000');
+        }
+    }
+    // Edits saved before colours were kept: read them once the PDF is open (saved with the next Save form)
+    function colorOldEdits() {
+        const clean = !fbDirty;
+        fbEdits.forEach(colorEdit);
+        if (clean) fbLastState = fbState();
     }
 
     // Box around a piece of printed text, with a little margin
@@ -2324,7 +2398,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     };
     const tileParts = t => t.blank ? [...t.labels, t.blank] : t.labels;
     const tileText = t => t.labels.map(l => l.str).join(' ').replace(/_{2,}/g, ' ').replace(/\s+/g, ' ').trim();
-    const pushEdit = e => { e.key = 'e' + (++fbKeySeq); fbEdits.push(e); return e; };
+    const pushEdit = e => { colorEdit(e); e.key = 'e' + (++fbKeySeq); fbEdits.push(e); return e; };
     // A new line, measured on the page as it looks now, goes at the end of the list (inserts and moves apply in order)
     function addLineInsert(ins) {
         shiftAroundInsert(ins, 1);
@@ -2473,7 +2547,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     async function ensurePdfLoaded() {
         const file = fbTemplate || FB_DEFAULT_TEMPLATE;
         if (pdDocFile === file) return true;
-        if (!pdLoading || pdLoading.file !== file) pdLoading = { file, done: loadPdfIntoDesigner(file) };
+        if (!pdLoading || pdLoading.file !== file) pdLoading = { file, done: loadPdfIntoDesigner(file).then(() => { if (pdDocFile === file) colorOldEdits(); }) };
         await pdLoading.done;
         return pdDocFile === file;
     }

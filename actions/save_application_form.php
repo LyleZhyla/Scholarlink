@@ -145,7 +145,11 @@ foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
         $to = round((float) ($e['to'] ?? -1), 6);
         if ($to < 0 || $to > PDF_MAX_PAGE_HEIGHT || ($to > $ey + 1e-6 && $to < $ey + $eh - 1e-6)) fail("Moved line $n has no valid place to go.");
     }
-    $edits[] = [$kind, $page, $ex, $ey, $ew, $eh, $to, $text, $font, $size, !empty($e['bold']) ? 1 : 0, !empty($e['cover']) ? 1 : 0, $n];
+    // The colour behind the old text (erase / cover) and of the text, as #rrggbb
+    $color = fn($k) => isset($e[$k]) && is_string($e[$k]) && preg_match('/^#[0-9a-f]{6}$/i', $e[$k]) ? strtolower($e[$k]) : null;
+    $fill = in_array($kind, ['erase', 'text'], true) ? $color('fill') : null;
+    $text_color = $kind === 'text' ? $color('color') : null;
+    $edits[] = [$kind, $page, $ex, $ey, $ew, $eh, $to, $text, $font, $size, !empty($e['bold']) ? 1 : 0, !empty($e['cover']) ? 1 : 0, $fill, $text_color, $n];
 }
 
 $restored_from = (int) ($payload['restored_from'] ?? 0) ?: null;
@@ -212,7 +216,7 @@ try {
 
     // Replace this scholarship's edits to the PDF's printed content
     $pdo->prepare("DELETE FROM scholarship_pdf_edits WHERE ScholarshipID = ?")->execute([$scholarship_id]);
-    $edit_insert = $pdo->prepare("INSERT INTO scholarship_pdf_edits (ScholarshipID, Kind, PdfPage, PdfX, PdfY, PdfW, PdfH, PdfTo, Content, FontFamily, FontSize, IsBold, Cover, SortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $edit_insert = $pdo->prepare("INSERT INTO scholarship_pdf_edits (ScholarshipID, Kind, PdfPage, PdfX, PdfY, PdfW, PdfH, PdfTo, Content, FontFamily, FontSize, IsBold, Cover, FillColor, TextColor, SortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     foreach ($edits as $e) {
         $edit_insert->execute(array_merge([$scholarship_id], $e));
     }

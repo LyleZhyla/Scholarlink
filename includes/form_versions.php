@@ -47,7 +47,10 @@ function loadFormState(PDO $pdo, int $scholarship_id): array {
         'kind' => $e['Kind'], 'page' => (int) $e['PdfPage'], 'x' => (float) $e['PdfX'], 'y' => (float) $e['PdfY'], 'w' => (float) $e['PdfW'], 'h' => (float) $e['PdfH'],
         'text' => (string) ($e['Content'] ?? ''), 'font' => $e['FontFamily'], 'size' => $num($e['FontSize']),
         'bold' => (bool) $e['IsBold'], 'cover' => (bool) $e['Cover'],
-    ] + ($e['Kind'] === 'move' ? ['to' => (float) $e['PdfTo']] : []), $stmt->fetchAll(PDO::FETCH_ASSOC));
+    ] + ($e['Kind'] === 'move' ? ['to' => (float) $e['PdfTo']] : [])
+      // colours read from the page under / of the old text (older edits have none: white behind, black text)
+      + (!empty($e['FillColor']) ? ['fill' => $e['FillColor']] : []) + (!empty($e['TextColor']) ? ['color' => $e['TextColor']] : []),
+    $stmt->fetchAll(PDO::FETCH_ASSOC));
 
     // Fields of the PDF that were hidden or moved
     $overrides = [];
