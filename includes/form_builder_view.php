@@ -5,24 +5,11 @@
 require_once __DIR__ . '/form_fields.php';
 require_once __DIR__ . '/pdf_templates.php';
 
-$builder_fields = array_map(function ($f) {
-    return [
-        'id'          => (int) $f['FieldID'],
-        'label'       => $f['FieldName'],
-        'type'        => $f['FieldType'],
-        'help'        => (string) ($f['HelpText'] ?? ''),
-        'placeholder' => (string) ($f['Placeholder'] ?? ''),
-        'options'     => (string) ($f['Options'] ?? ''),
-        'required'    => (bool) $f['IsRequired'],
-        'pdf'         => (string) ($f['PDFFieldName'] ?? ''),
-        'width'       => ($f['Width'] ?? 'full') === 'half' ? 'half' : 'full',   // half: side by side with the next half field
-        // Box drawn on the PDF in the designer (page + position as fractions of the page)
-        'box'         => $f['PdfPage'] === null ? null : [
-            'page' => (int) $f['PdfPage'], 'x' => (float) $f['PdfX'], 'y' => (float) $f['PdfY'],
-            'w' => (float) $f['PdfW'], 'h' => (float) $f['PdfH'], 'size' => $f['PdfFontSize'] === null ? null : (float) $f['PdfFontSize'],
-        ],
-    ];
-}, getFormFields($pdo, $scholarship['ScholarshipID']));
+require_once __DIR__ . '/form_versions.php';
+
+// The form as saved (questions, PDF changes); includes/form_versions.php keeps the same shape for every version
+$form_state = loadFormState($pdo, (int) $scholarship['ScholarshipID']);
+$builder_fields = $form_state['fields'];
 
 $doc_stmt = $pdo->prepare("SELECT DocumentName FROM document_requirement WHERE ScholarshipID = ? AND IsActive = 1 ORDER BY RequirementID ASC");
 $doc_stmt->execute([$scholarship['ScholarshipID']]);
@@ -45,30 +32,12 @@ foreach (visiblePdfTemplates($pdo, $_SESSION['role'], (int) $_SESSION['user_id']
 }
 $chosen_template = isset($pdf_templates[$scholarship['FormTemplate'] ?? '']) ? $scholarship['FormTemplate'] : '';
 
-// Edits to the PDF's printed content (erased areas, new / replaced text) for this scholarship
-$edit_stmt = $pdo->prepare("SELECT * FROM scholarship_pdf_edits WHERE ScholarshipID = ? ORDER BY SortOrder, EditID");
-$edit_stmt->execute([$scholarship['ScholarshipID']]);
-$pdf_edits = array_map(fn($e) => [
-    'kind' => $e['Kind'], 'page' => (int) $e['PdfPage'], 'x' => (float) $e['PdfX'], 'y' => (float) $e['PdfY'], 'w' => (float) $e['PdfW'], 'h' => (float) $e['PdfH'],
-    'text' => (string) ($e['Content'] ?? ''), 'font' => $e['FontFamily'], 'size' => $e['FontSize'] === null ? null : (float) $e['FontSize'],
-    'bold' => (bool) $e['IsBold'], 'cover' => (bool) $e['Cover'],
-] + ($e['Kind'] === 'move' ? ['to' => (float) $e['PdfTo']] : []), array_filter($edit_stmt->fetchAll(PDO::FETCH_ASSOC), fn($e) => $e['Kind'] !== 'break'));
-// Where a page that grew past its bottom continues on a new printed page (worked out again in the designer, see pageBreakAt)
-$pdf_breaks = [];
-$break_stmt = $pdo->prepare("SELECT PdfPage, PdfY FROM scholarship_pdf_edits WHERE ScholarshipID = ? AND Kind = 'break'");
-$break_stmt->execute([$scholarship['ScholarshipID']]);
-foreach ($break_stmt->fetchAll(PDO::FETCH_ASSOC) as $b) $pdf_breaks[] = ['kind' => 'break', 'page' => (int) $b['PdfPage'], 'x' => 0, 'y' => (float) $b['PdfY'], 'w' => 1, 'h' => 0.002, 'text' => '', 'font' => 'Helvetica', 'size' => null, 'bold' => false, 'cover' => false];
-
+// Edits to the PDF's printed content, in order; 'break' = where a page that grew continues on a new printed page
+// (worked out again in the designer, see pageBreakAt)
+$pdf_edits = array_values(array_filter($form_state['edits'], fn($e) => $e['kind'] !== 'break'));
+$pdf_breaks = array_values(array_filter($form_state['edits'], fn($e) => $e['kind'] === 'break'));
 // Fields of the PDF this scholarship hid or moved in the PDF designer
-$pdf_overrides = [];
-$ovr_stmt = $pdo->prepare("SELECT * FROM scholarship_pdf_overrides WHERE ScholarshipID = ?");
-$ovr_stmt->execute([$scholarship['ScholarshipID']]);
-foreach ($ovr_stmt->fetchAll(PDO::FETCH_ASSOC) as $o) {
-    $pdf_overrides[$o['FieldName']] = $o['Action'] === 'hide' ? ['action' => 'hide'] : ['action' => 'move', 'box' => [
-        'page' => (int) $o['PdfPage'], 'x' => (float) $o['PdfX'], 'y' => (float) $o['PdfY'], 'w' => (float) $o['PdfW'], 'h' => (float) $o['PdfH'],
-        'size' => $o['PdfFontSize'] === null ? null : (float) $o['PdfFontSize'],
-    ]];
-}
+$pdf_overrides = $form_state['overrides'];
 $default_template = defaultPdfTemplate($scholarship['Name']);
 ?>
 
@@ -97,9 +66,29 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .fb-tile-btn:hover { background: #e2e8f0; color: #0f172a; }
     .fb-tile-btn.danger:hover { background: #fee2e2; color: #dc2626; }
     .fb-dragging .fb-tile, .fb-dragging .fb-row { transition: none; }
-    #fbDropMark { position: fixed; z-index: 9995; border-radius: 4px; background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2); pointer-events: none; }
+    #fbDropMark { position: fixed; z-index: 10000; border-radius: 4px; background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2); pointer-events: none; }
 
-    .pdf-row .fb-tile { flex: 1 1 200px; }
+    .pdf-row .fb-tile { flex: 1 1 150px; padding: 8px 2px 8px 10px; }
+    #pdfRows .fb-row { padding: 6px 6px 6px 0; gap: 4px; border-radius: 12px; }
+    #pdfRows .fb-grip { padding: 0 4px 0 6px; font-size: 13px; }
+    #pdfRows .fb-tile-title { font-size: 13px !important; }
+    #pdfRows .fb-tile-sub { font-size: 11px; }
+    #pdfRows .fb-tile-btn { width: 28px; height: 28px; font-size: 12px; }
+    #pdfRows .pdf-row.diff { box-shadow: inset 4px 0 0 #f59e0b; }
+    .pd-side-tab { flex: 1; padding: 11px 8px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; border-bottom: 3px solid transparent; }
+    .pd-side-tab.active { color: #0f172a; border-bottom-color: #dc2626; }
+    .pd-add > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; font-size: 12px; font-weight: 900; color: #0f172a; cursor: pointer; }
+    .pd-add > summary::-webkit-details-marker { display: none; }
+    .pd-add[open] > summary i.chev { transform: rotate(180deg); }
+    #pdPalette .fb-group > summary { padding: 8px 10px; font-size: 10px; }
+    #pdPalette .fb-el { padding: 7px 10px; font-size: 12px; }
+    /* what is selected in the line list, and what an earlier version changed, lit up on the PDF */
+    .pd-hl-row { position: absolute; background: rgba(37, 99, 235, 0.10); outline: 2px solid rgba(37, 99, 235, 0.55); border-radius: 3px; pointer-events: none; }
+    .pd-hl-part { position: absolute; background: rgba(37, 99, 235, 0.22); outline: 2.5px solid #2563eb; border-radius: 3px; pointer-events: none; animation: pdPulse 1.2s ease-out 1; }
+    .pd-diff { position: absolute; background: rgba(245, 158, 11, 0.22); outline: 2px dashed #d97706; border-radius: 3px; pointer-events: none; }
+    @keyframes pdPulse { from { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0.35); } to { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); } }
+    .pd-ver { padding: 12px; border-radius: 14px; background: #fff; border: 1.5px solid #e2e8f0; }
+    .pd-ver.sel { border-color: #f59e0b; background: #fffbeb; }
     .pdf-row.sel { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
     .pdf-row.added { border-style: dashed; border-color: #a78bfa; }
     .pdf-updown { display: flex; flex-direction: column; justify-content: center; gap: 2px; flex-shrink: 0; margin-left: -6px; }
@@ -219,6 +208,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             </div>
         </div>
         <div class="flex items-center gap-2 shrink-0">
+            <button type="button" onclick="openFormHistory()" title="Earlier versions of this form" class="bg-white border border-slate-200 text-slate-700 hover:border-slate-900 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"><i class="fas fa-clock-rotate-left"></i> History</button>
             <button type="button" id="fbUndoBtn" onclick="undoChange()" disabled title="Undo (Ctrl+Z)" class="bg-white border border-slate-200 text-slate-700 hover:border-slate-900 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"><i class="fas fa-rotate-left"></i> Undo</button>
             <button type="button" id="fbPreviewBtn" onclick="togglePreview()" class="bg-white border border-slate-200 text-slate-700 hover:border-slate-900 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all">
                 <i class="fas fa-eye"></i> <span>Preview as student</span>
@@ -230,6 +220,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     </header>
 
     <div class="max-w-7xl mx-auto">
+        <div id="fbVersionBar" class="hidden mb-5 px-5 py-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-sm font-bold flex flex-wrap items-center gap-3"></div>
         <div id="fbAlert" class="hidden mb-5 px-5 py-4 rounded-2xl text-sm font-bold"></div>
         <?php if ($application_count > 0): ?>
             <p class="mb-4 text-xs font-bold text-amber-700"><i class="fas fa-circle-info"></i> <?= $application_count ?> application<?= $application_count === 1 ? ' has' : 's have' ?> already been submitted — removed fields are archived so those answers are kept.</p>
@@ -359,16 +350,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             </details>
         </div>
 
-        <!-- THE PDF FORM, LINE BY LINE: every printed line as a row of parts (text + its blank) -->
-        <div class="mt-5">
-            <div class="flex flex-wrap items-end justify-between gap-3 mb-3">
-                <div>
-                    <h3 class="text-lg font-black text-slate-900">The PDF form, line by line</h3>
-                    <p class="text-xs font-medium text-slate-500 max-w-2xl"><b>✎</b> changes the printed words or what fills a blank · <b>🗑</b> removes it from the PDF · drag <b>⋮⋮</b> (or use the arrows) to move a line. To add something, drag an element from the left <b>between two lines</b> (a new line) or <b>onto a line</b> (next to what's there), or click a line and then click an element.</p>
-                </div>
-                <button type="button" onclick="openPdfDesigner()" class="shrink-0 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest hover:bg-slate-700"><i class="fas fa-eye"></i> See it on the PDF</button>
+        <!-- The PDF is edited in the PDF designer: the form line by line beside the real page, and its history -->
+        <div class="mt-5 bg-white border border-slate-200 rounded-[1.5rem] p-6 shadow-sm flex flex-col md:flex-row md:items-center gap-5">
+            <div class="w-14 h-14 shrink-0 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center text-2xl"><i class="fas fa-pen-ruler"></i></div>
+            <div class="flex-1 min-w-0">
+                <h3 class="text-lg font-black text-slate-900">Edit the PDF form</h3>
+                <p class="text-sm font-medium text-slate-500">The PDF designer shows the form line by line beside the real page. Click a line and it lights up on the PDF; change its words or blanks, move it, copy it or add new lines and questions. <b>History</b> brings back an earlier version and shows what is different.</p>
             </div>
-            <div id="pdfRows" class="space-y-2"></div>
+            <div class="flex flex-col gap-2 shrink-0">
+                <button type="button" onclick="openPdfDesigner()" class="px-5 py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest hover:bg-red-700"><i class="fas fa-pen-ruler"></i> Open the PDF designer</button>
+                <button type="button" onclick="openFormHistory()" class="px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-[11px] font-black uppercase tracking-widest hover:border-slate-900"><i class="fas fa-clock-rotate-left"></i> History</button>
+            </div>
         </div>
         </div>
 
@@ -384,7 +376,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 <div id="fbDropMark" class="hidden"></div>
 
 <!-- EDIT ONE PART OF THE PDF (its pencil on the PDF form tab) -->
-<div id="pdfTileEditor" class="hidden fixed inset-0 z-[9990] bg-slate-900/50 backdrop-blur-sm items-start justify-center p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="Edit this part of the PDF" onmousedown="if (event.target === this) closePdfTile(true)">
+<div id="pdfTileEditor" class="hidden fixed inset-0 z-[9999] bg-slate-900/50 backdrop-blur-sm items-start justify-center p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="Edit this part of the PDF" onmousedown="if (event.target === this) closePdfTile(true)">
     <div id="pdfTileEditorBody" class="w-full max-w-xl mt-16 mb-10 bg-white rounded-2xl shadow-2xl p-6"></div>
 </div>
 
@@ -409,7 +401,29 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         <button type="button" onclick="closePdfDesigner()" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-blue-600">Done</button>
     </div>
     <div class="flex-1 min-h-0 flex flex-col lg:flex-row">
+        <!-- LEFT: the form line by line (click one to see it on the PDF), and the earlier versions -->
+        <aside id="pdLeft" class="lg:w-[400px] shrink-0 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col min-h-0 max-h-[45vh] lg:max-h-none">
+            <div class="flex bg-white border-b border-slate-200 shrink-0" role="tablist">
+                <button type="button" data-pdside="lines" onclick="showDesignerSide('lines')" class="pd-side-tab active"><i class="fas fa-list"></i> Lines</button>
+                <button type="button" data-pdside="history" onclick="showDesignerSide('history')" class="pd-side-tab"><i class="fas fa-clock-rotate-left"></i> History</button>
+            </div>
+            <div id="pdSideLines" class="flex-1 min-h-0 overflow-y-auto p-3">
+                <details id="pdAddBox" class="pd-add mb-3">
+                    <summary><span><i class="fas fa-plus"></i> Add to the PDF</span><i class="fas fa-chevron-down chev"></i></summary>
+                    <p class="text-[11px] text-slate-500 px-1 pt-2">Click a line below, then an element: it goes on a new line under it. Or drag an element onto a line (next to what is there) or between two lines.</p>
+                    <div id="pdPalette" class="pt-2 space-y-2"></div>
+                </details>
+                <p class="text-[11px] font-medium text-slate-500 mb-2 px-1">Click a line or a part to light it up on the PDF. <b>✎</b> edits · <b>🗑</b> removes · <b>⋮⋮</b> or the arrows move a line.</p>
+                <div id="pdfRows" class="space-y-1.5"></div>
+            </div>
+            <div id="pdSideHistory" class="hidden flex-1 min-h-0 overflow-y-auto p-3">
+                <p class="text-[11px] font-medium text-slate-500 mb-3 px-1">Every save is kept. Open one to see it on the PDF: what is different from your form now lights up. Restore it, or go back.</p>
+                <div id="pdHistory" class="space-y-2"></div>
+            </div>
+        </aside>
         <div class="flex-1 min-h-0 flex flex-col">
+            <div id="pdVersionBar" class="hidden shrink-0 px-6 py-2.5 bg-amber-300 text-amber-950 text-xs font-black flex flex-wrap items-center gap-3"></div>
+            <div id="pdToast" class="hidden shrink-0 px-6 py-2 text-xs font-black"></div>
             <div id="pdHint" class="shrink-0 px-6 py-2.5 bg-slate-800 text-white text-xs font-bold flex items-center gap-2"></div>
             <div id="pdPages" class="flex-1 min-h-0 overflow-auto p-6 pt-8"></div>
         </div>
@@ -452,7 +466,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // Edits to the PDF's printed content: [{ kind: 'erase'|'text'|'row'|'column', page, x, y, w, h, text, font, size, bold, cover }]
     // 'row' / 'column' insert a copy of the strip x,y,w,h (cover = copy its lines and labels; otherwise blank space), see layoutPieces()
     let fbEdits = <?= json_encode(array_values($pdf_edits)) ?>;
-    const FB_SAVED_BREAKS = <?= json_encode($pdf_breaks) ?>;
+    let fbSavedBreaks = <?= json_encode($pdf_breaks) ?>;
     fbEdits.forEach(e => e.key = 'e' + (++fbKeySeq));
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -697,6 +711,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
 
     function closePdfDesigner() {
+        closePdfTile(true);
         document.getElementById('pdfDesigner').classList.add('hidden');
         document.body.style.overflow = '';
         render();
@@ -1091,9 +1106,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         renderDesigner();
     }
 
+    const designerOpen = () => !document.getElementById('pdfDesigner').classList.contains('hidden');
+    // The PDF, the side panel, and the line list; text clicked on the PDF selects its line in the list
     function renderDesigner() {
+        if (pdSelText && pdPages[pdSelText.page - 1]) {
+            const t = pdPages[pdSelText.page - 1].texts[pdSelText.i];
+            if (t) { pdSelRowAt = { page: pdSelText.page, y: t.y + t.h / 2 }; pdHlPart = null; pdScrollList = true; }
+        }
         renderDesignerPages();
         renderDesignerPanel();
+        renderPdfPalette();
+        renderPdfRows();
     }
 
     function renderDesignerPages() {
@@ -1133,7 +1156,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     const sel = pdSelText && pdSelText.page === p.num && pdSelText.i === i;
                     html += `<div class="pd-text ${sel ? 'sel' : ''}" data-i="${i}" style="${pos(t)}" title="${esc(t.str)}"></div>`;
                 });
-                p.overlay.innerHTML = html;
+                p.overlay.innerHTML = html + designerMarks(p, pos);
                 return;
             }
 
@@ -1168,8 +1191,18 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <span class="pd-label">${esc(f.label || 'Untitled question')}</span>${mine ? handles : ''}
                 </div>`;
             });
-            p.overlay.innerHTML = html;
+            p.overlay.innerHTML = html + designerMarks(p, pos);
         });
+    }
+
+    // The line / part selected in the list, and what an open earlier version changed
+    function designerMarks(p, pos) {
+        let html = '';
+        const i = pdSelIndex(), row = i >= 0 ? pdRows[i] : null;
+        if (row && row.page === p.num) html += `<div class="pd-hl-row" style="${pos({ x: 0.015, y: row.top + 0.001, w: 0.97, h: row.bot - row.top + 0.001 })}"></div>`;
+        if (pdHlPart && pdHlPart.page === p.num) html += `<div class="pd-hl-part" style="${pos({ x: pdHlPart.x - 0.003, y: pdHlPart.y + 0.001, w: pdHlPart.w + 0.006, h: pdHlPart.h * 0.85 })}"></div>`;
+        fbVersionDiff.filter(r => r.page === p.num).forEach(r => { html += `<div class="pd-diff" style="${pos({ x: r.x - 0.003, y: r.y - 0.002, w: r.w + 0.006, h: r.h + 0.004 })}" title="Different from your form"></div>`; });
+        return html;
     }
 
     function renderDesignerPanel() {
@@ -1709,7 +1742,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             : `<div class="text-center py-12 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400"><i class="fas fa-hand-pointer text-3xl mb-3 text-slate-300"></i><p class="font-black text-slate-600">No fields yet</p><p class="text-sm">Drag an element here from the left, or press <b>Scan the PDF form</b> to start from the official form.</p></div>`;
         renderPalettePdf();
         renderFieldEditor();
-        if (fbTab === 'pdf') { renderPdfPalette(); renderPdfRows(); }
+        if (designerOpen()) renderDesigner();
+        renderVersionBars();
         if (!document.getElementById('fbTabPreview').classList.contains('hidden')) renderPreview();
     }
 
@@ -2280,6 +2314,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // words and the blank after them (a fillable field, or a box drawn for a question). Changing a part adds the same
     // content edits the PDF designer makes, so printing is unchanged: replaced or added text, erased areas, inserted lines.
     let pdRows = [], pdSelRowAt = null, pdTile = null, pdLoading = null;
+    let pdHlPart = null;        // the part selected in the list, lit up on the PDF: { page, x, y, w, h }
+    let pdScrollList = false;   // bring the selected line into view in the list (it was picked on the PDF)
     const LINE_H = 0.024;   // a new line: about 19 pt
     const centreIn = (r, a) => r.x + r.w / 2 >= a.x && r.x + r.w / 2 <= a.x + a.w && r.y + r.h / 2 >= a.y && r.y + r.h / 2 <= a.y + a.h;
     const unionOf = list => {
@@ -2507,18 +2543,30 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (r.page !== page) { page = r.page; html += `<p class="pdf-page-chip">Page ${page} of ${pdPages.length}</p>`; }
             html += pdfRowHtml(r, i, i === selIndex);
         });
-        box.innerHTML = html || '<p class="text-center py-10 text-sm font-bold text-slate-400">No printed text was found on this PDF (it may be a scanned image). Use <b>See it on the PDF</b> to draw on it instead.</p>';
+        box.innerHTML = html || '<p class="text-center py-10 text-sm font-bold text-slate-400">No printed text was found on this PDF (it may be a scanned image). Use the tools above to draw on it instead.</p>';
         if (pdTile) renderPdfTile();
+        if (pdHlPart) { const r = pdRows[pdSelIndex()], t = r && r.tiles[pdHlPart.j]; pdHlPart = t ? { ...unionOf(tileParts(t)), page: r.page, j: pdHlPart.j } : null; }
+        if (designerOpen() && (pdSelRowAt || fbVersionDiff.length)) renderDesignerPages();
+        if (pdScrollList) { pdScrollList = false; const el = box.querySelector('.pdf-row.sel'); if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
     }
 
     function pdSelIndex() {
         if (!pdSelRowAt) return -1;
         return pdRows.findIndex(r => r.page === pdSelRowAt.page && pdSelRowAt.y >= r.y - 0.003 && pdSelRowAt.y <= r.y + r.h + 0.003);
     }
-    function selectPdfRow(i) {
-        const r = pdRows[i];
-        pdSelRowAt = pdSelIndex() === i ? null : { page: r.page, y: r.y + r.h / 2 };
-        document.querySelectorAll('#pdfRows .pdf-row').forEach(el => el.classList.toggle('sel', pdSelRowAt && +el.dataset.row === i));
+    function selectPdfRow(i, j = null) {
+        const r = pdRows[i], t = j === null ? null : r.tiles[j];
+        const again = pdSelIndex() === i && (j === null || (pdHlPart && pdHlPart.j === j));
+        pdSelRowAt = again ? null : { page: r.page, y: r.y + r.h / 2 };
+        pdHlPart = !again && t ? { ...unionOf(tileParts(t)), page: r.page, j } : null;
+        pdSelText = null;
+        document.querySelectorAll('#pdfRows .pdf-row').forEach(el => {
+            const on = !!pdSelRowAt && +el.dataset.row === i;
+            el.classList.toggle('sel', on);
+            el.querySelectorAll('.fb-tile').forEach((tile, k) => tile.classList.toggle('sel', on && !!pdHlPart && pdHlPart.j === k));
+        });
+        renderDesignerPages();
+        if (pdSelRowAt) scrollDesignerTo(pdHlPart ? '.pd-hl-part' : '.pd-hl-row');
     }
 
     function pdfTileSub(t) {
@@ -2535,7 +2583,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function pdfRowHtml(r, i, sel) {
         const tiles = r.tiles.map((t, j) => {
             const title = tileText(t) || (t.blank ? (t.blank.kind === 'box' ? (findField(t.blank.key) || {}).label : humanize(t.blank.name)) : '') || 'Blank';
-            return `<div class="fb-tile" onclick="selectPdfRow(${i})" ondblclick="editPdfTile(${i}, ${j})" title="${esc(title)}">
+            return `<div class="fb-tile ${pdHlPart && sel && pdHlPart.j === j ? 'sel' : ''}" onclick="selectPdfRow(${i}, ${j})" ondblclick="editPdfTile(${i}, ${j})" title="${esc(title)}">
                 <div class="min-w-0 flex-1">
                     <p class="fb-tile-title" style="font-size:14px">${esc(title)}</p>
                     <p class="fb-tile-sub">${pdfTileSub(t)}</p>
@@ -2545,7 +2593,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             </div>`;
         }).join('') || `<div class="pdf-empty-tile" onclick="selectPdfRow(${i})">New empty line — drag an element here, or click this line and then an element</div>`;
         const first = !rowAbove(i), last = !rowBelow(i);
-        return `<div class="fb-row pdf-row ${sel ? 'sel' : ''} ${r.insert ? 'added' : ''}" data-row="${i}">
+        const changed = fbVersionDiff.some(d => d.page === r.page && d.y + d.h / 2 >= r.top - 0.004 && d.y + d.h / 2 <= r.bot + 0.004);
+        return `<div class="fb-row pdf-row ${sel ? 'sel' : ''} ${r.insert ? 'added' : ''} ${changed ? 'diff' : ''}" data-row="${i}" ${changed ? 'title="Different from your form"' : ''}>
             <span class="fb-grip" draggable="true" title="Drag to move this line"><i class="fas fa-grip-vertical"></i></span>
             <span class="pdf-updown">
                 <button type="button" onclick="moveLineBy(${i}, -1)" ${first ? 'disabled' : ''} title="Move this line up"><i class="fas fa-chevron-up"></i></button>
@@ -2806,8 +2855,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function renderPdfPalette() {
         const pick = ['Text', 'Paragraph', 'Number', 'Date', 'YesNo', 'Dropdown'].filter(t => FB_TYPES[t]);
         const off = fbFields.filter(f => placeable(f) && !f.box && !f.pdf);
-        document.getElementById('fbPaletteGroups').innerHTML =
-            elementGroup('Add to the PDF', [
+        document.getElementById('pdPalette').innerHTML =
+            elementGroup('Text and questions', [
                 elementButton({ pdf: 'field', type: 'Text' }, 'fa-pen-to-square', 'Question + answer blank', 'students answer it', 'addPdfElement'),
                 ...pick.filter(t => t !== 'Text').map(t => elementButton({ pdf: 'field', type: t }, FB_TYPES[t].icon, FB_TYPES[t].label + ' question', 'with an answer blank', 'addPdfElement')),
                 elementButton({ pdf: 'text' }, 'fa-font', 'Printed text', 'words only', 'addPdfElement'),
@@ -2879,20 +2928,198 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (t) addPdfElement(json, t);
     });
 
+    // ================= HISTORY: earlier versions of the form =================
+    // Every save is kept (actions/save_application_form.php → includes/form_versions.php). Opening one loads it into the
+    // builder (nothing is saved yet) and lights up on the PDF what is different from the form you had; Restore saves it as
+    // the newest version, Back returns to your form.
+    let fbHistory = null;        // the list, once loaded
+    let fbVersionView = null;    // { number, savedAt, savedBy, backup, dirty } while an earlier version is open
+    let fbVersionDiff = [];      // [{ page, x, y, w, h }]: what the open version has that your form did not
+
+    async function openFormHistory() {
+        if (!designerOpen()) await openPdfDesigner();
+        showDesignerSide('history');
+    }
+    function showDesignerSide(name) {
+        document.querySelectorAll('[data-pdside]').forEach(b => b.classList.toggle('active', b.dataset.pdside === name));
+        document.getElementById('pdSideLines').classList.toggle('hidden', name !== 'lines');
+        document.getElementById('pdSideHistory').classList.toggle('hidden', name !== 'history');
+        if (name === 'history') renderHistory();
+    }
+
+    async function renderHistory() {
+        const box = document.getElementById('pdHistory');
+        if (!fbHistory) {
+            box.innerHTML = '<p class="text-center py-8 text-xs font-black text-slate-400"><i class="fas fa-spinner fa-spin"></i> Loading the versions…</p>';
+            try {
+                const data = await (await fetch(`../actions/get_form_versions.php?scholarship_id=${FB_SCHOLARSHIP_ID}`)).json();
+                if (!data.success) throw new Error(data.error);
+                fbHistory = data.versions;
+            } catch (err) {
+                box.innerHTML = `<p class="text-xs font-bold text-red-600">Could not load the versions: ${esc(err.message || 'network error')}</p>`;
+                return;
+            }
+        }
+        if (!fbHistory.length) { box.innerHTML = '<p class="text-xs font-bold text-slate-400 px-1">No versions yet. The first one is kept when you press Save form.</p>'; return; }
+        const newest = fbHistory[0].version;
+        box.innerHTML = fbHistory.map(v => {
+            const viewing = fbVersionView && fbVersionView.number === v.version;
+            const tpl = v.template ? (FB_PDF_TEMPLATES[v.template] ? FB_PDF_TEMPLATES[v.template].label : 'a PDF form that was deleted') : 'the automatic PDF form';
+            return `<div class="pd-ver ${viewing ? 'sel' : ''}">
+                <div class="flex items-center justify-between gap-2">
+                    <p class="text-sm font-black text-slate-900">Version ${v.version}</p>
+                    ${v.version === newest ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-wider">Saved now</span>' : ''}
+                    ${viewing ? '<span class="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-black uppercase tracking-wider">Open</span>' : ''}
+                </div>
+                <p class="text-[11px] font-bold text-slate-500">${esc(v.saved_at)}${v.saved_by ? ' · ' + esc(v.saved_by) : ''}</p>
+                <p class="text-xs font-bold text-slate-700 mt-1">${esc(v.summary || '')}</p>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mt-1">${v.questions} question${v.questions === 1 ? '' : 's'} · ${v.pdf_changes} PDF change${v.pdf_changes === 1 ? '' : 's'} · ${esc(tpl)}</p>
+                ${viewing ? '' : `<button type="button" onclick="viewFormVersion(${v.version})" class="mt-2 w-full px-3 py-2 rounded-lg bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest hover:bg-blue-600">${v.version === newest && !fbVersionView ? (fbDirty ? 'Open (drops unsaved changes)' : 'Open') : 'Open this version'}</button>`}
+            </div>`;
+        }).join('');
+    }
+
+    // The builder's form, as it is now (to come back to)
+    function workingForm() {
+        return JSON.parse(JSON.stringify({
+            fields: fbFields.map(({ key, ...f }) => f), edits: [...fbEdits.map(({ key, ...e }) => e), ...fbSavedBreaks], overrides: fbOverrides,
+            template: fbTemplate, instructions: document.getElementById('fbInstructions').value,
+        }));
+    }
+    // Puts a form (a version, or the one kept by workingForm) into the builder
+    function applyForm(state) {
+        state = JSON.parse(JSON.stringify(state));
+        fbFields = state.fields.map(f => ({ ...f, key: 'k' + (++fbKeySeq), width: f.width || 'full' }));
+        fbEdits = state.edits.filter(e => e.kind !== 'break').map(e => ({ ...e, key: 'e' + (++fbKeySeq) }));
+        fbSavedBreaks = state.edits.filter(e => e.kind === 'break');
+        fbOverrides = state.overrides && !Array.isArray(state.overrides) ? state.overrides : {};
+        fbTemplate = state.template || '';
+        document.getElementById('fbTemplate').value = fbTemplate;
+        const ins = document.getElementById('fbInstructions');
+        ins.value = state.instructions || '';
+        autoGrow(ins);
+        fbEditingKey = fbSelectedKey = pdCurrentKey = pdSelField = pdSelEdit = pdSelText = null;
+        pdTile = pdHlPart = pdSelRowAt = null;
+        // Undo starts over: it can't step across a whole other version
+        fbUndo = [];
+        fbLastState = fbState();
+        updateUndoButtons();
+    }
+    function setDirty(dirty) {
+        fbDirty = dirty;
+        document.getElementById('fbDirty').classList.toggle('hidden', !dirty);
+    }
+
+    async function viewFormVersion(number) {
+        let data;
+        try {
+            data = await (await fetch(`../actions/get_form_versions.php?scholarship_id=${FB_SCHOLARSHIP_ID}&version=${number}`)).json();
+            if (!data.success) throw new Error(data.error);
+        } catch (err) { showAlert('error', 'Could not open version ' + number + ': ' + (err.message || 'network error')); return; }
+        const st = data.state;
+        if (st.template && !FB_PDF_TEMPLATES[st.template]) {
+            alert(`Version ${number} used a PDF form that is no longer available (${st.template}), so it can't be opened.`);
+            return;
+        }
+        // What you had before opening any version is what it is compared with, and what Back returns to
+        if (!fbVersionView) fbVersionView = { backup: workingForm(), dirty: fbDirty };
+        Object.assign(fbVersionView, { number, savedAt: data.saved_at, savedBy: data.saved_by });
+        applyForm(st);
+        setDirty(true);
+        await ensurePdfLoaded();
+        document.getElementById('pdTitle').textContent = (FB_PDF_TEMPLATES[fbTemplate || FB_DEFAULT_TEMPLATE] || {}).label || fbTemplate;
+        fbVersionDiff = versionDifferences(fbVersionView.backup);
+        render();
+        renderHistory();
+        showAlert('success', `Version ${number} is open. ${fbVersionDiff.length ? 'What is different from your form is lit up in orange.' : 'Its PDF looks the same as your form.'}`);
+    }
+
+    function backToMyForm() {
+        if (!fbVersionView) return;
+        const { backup, dirty } = fbVersionView;
+        fbVersionView = null;
+        fbVersionDiff = [];
+        applyForm(backup);
+        setDirty(dirty);
+        ensurePdfLoaded().then(() => {
+            document.getElementById('pdTitle').textContent = (FB_PDF_TEMPLATES[fbTemplate || FB_DEFAULT_TEMPLATE] || {}).label || fbTemplate;
+            render();
+            if (designerOpen()) renderHistory();
+        });
+    }
+
+    function restoreVersion() {
+        if (!fbVersionView) return;
+        if (!confirm(`Restore version ${fbVersionView.number}? It is saved as the newest version (the questions too), and students see it from now on. Your current form stays in the History.`)) return;
+        saveForm();
+    }
+
+    // Where the open version differs from your form, on the PDF as the version lays it out: what it has that your form
+    // does not, and the places where your form has something it does not (there the version shows the PDF as it was)
+    function versionDifferences(before) {
+        const n4 = v => v === null || v === undefined ? null : +(+v).toFixed(4);
+        const sig = e => JSON.stringify([e.kind, e.page, n4(e.x), n4(e.y), n4(e.w), n4(e.h), n4(e.to), e.text || '', !!e.cover, e.size || null, !!e.bold]);
+        const beforeEdits = before.edits.filter(e => e.kind !== 'break');
+        const had = new Set(beforeEdits.map(sig)), has = new Set(fbEdits.map(sig));
+        const out = [];
+        beforeEdits.filter(e => !has.has(sig(e))).forEach(e => {
+            if (e.kind === 'erase' || e.kind === 'text') out.push({ page: e.page, x: e.x, y: e.y, w: e.w, h: e.h });
+            else if (e.kind === 'move') out.push({ page: e.page, x: 0.02, y: e.y, w: 0.96, h: e.h });             // the line is still in its old place
+            else if (e.kind === 'row') out.push({ page: e.page, x: 0.02, y: e.y + e.h - 0.004, w: 0.96, h: 0.008 }); // where your added line would be
+            else out.push({ page: e.page, x: e.x + e.w - 0.004, y: e.y, w: 0.008, h: e.h });
+        });
+        const boxOf = f => f.box ? [f.box.page, n4(f.box.x), n4(f.box.y), n4(f.box.w), n4(f.box.h)] : null;
+        const hasBoxes = new Set(fbFields.filter(f => f.box).map(f => JSON.stringify([f.label, boxOf(f)])));
+        before.fields.filter(f => f.box && !hasBoxes.has(JSON.stringify([f.label, boxOf(f)]))).forEach(f => out.push({ page: f.box.page, x: f.box.x, y: f.box.y, w: f.box.w, h: f.box.h }));
+        Object.entries(before.overrides || {}).forEach(([name, o]) => {
+            if (fbOverrides[name]) return;
+            const r = pdfFieldInfo(name);
+            if (r) out.push({ page: r.page, x: r.x, y: r.y, w: r.w, h: r.h });
+        });
+        fbEdits.forEach(e => {
+            if (had.has(sig(e))) return;
+            if (e.kind === 'erase' || e.kind === 'text') out.push({ page: e.page, x: e.x, y: e.y, w: e.w, h: e.h });
+            else if (isInsert(e)) out.push({ page: e.page, ...finalArea(e) });
+            else if (e.kind === 'move') out.push({ page: e.page, ...carryArea({ x: 0.02, y: moveTop(e), w: 0.96, h: e.h }, fbEdits.slice(fbEdits.indexOf(e) + 1).filter(t => isTransform(t) && t.page === e.page)) });
+        });
+        const hadBoxes = new Set(before.fields.filter(f => f.box).map(f => JSON.stringify([f.label, boxOf(f)])));
+        fbFields.filter(f => f.box && !hadBoxes.has(JSON.stringify([f.label, boxOf(f)]))).forEach(f => out.push({ page: f.box.page, x: f.box.x, y: f.box.y, w: f.box.w, h: f.box.h }));
+        Object.entries(fbOverrides).forEach(([name, o]) => {
+            if (JSON.stringify((before.overrides || {})[name] || null) === JSON.stringify(o)) return;
+            const r = o.action === 'move' ? o.box : pdfFieldInfo(name);
+            if (r) out.push({ page: r.page, x: r.x, y: r.y, w: r.w, h: r.h });
+        });
+        return out;
+    }
+
+    // The bar shown while an earlier version is open (in the builder and in the designer)
+    function renderVersionBars() {
+        const v = fbVersionView;
+        ['fbVersionBar', 'pdVersionBar'].forEach(id => {
+            const bar = document.getElementById(id);
+            bar.classList.toggle('hidden', !v);
+            if (!v) return;
+            const before = v.backup, qBefore = before.fields.filter(f => f.type !== 'Section').length, qNow = fbFields.filter(f => f.type !== 'Section').length;
+            const questions = qBefore === qNow ? '' : ` · ${Math.abs(qNow - qBefore)} question${Math.abs(qNow - qBefore) === 1 ? '' : 's'} ${qNow > qBefore ? 'more' : 'fewer'} than your form`;
+            bar.innerHTML = `<span><i class="fas fa-clock-rotate-left"></i> Version ${v.number} is open (saved ${esc(v.savedAt)}${v.savedBy ? ' by ' + esc(v.savedBy) : ''}).
+                ${fbVersionDiff.length ? `<b>${fbVersionDiff.length}</b> place${fbVersionDiff.length === 1 ? '' : 's'} on the PDF lit up in orange ${fbVersionDiff.length === 1 ? 'differs' : 'differ'} from your form` : 'Its PDF looks the same as your form'}${questions}.</span>
+                <span class="ml-auto flex gap-2">
+                    <button type="button" onclick="restoreVersion()" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest hover:bg-blue-600"><i class="fas fa-rotate-left"></i> Restore this version</button>
+                    <button type="button" onclick="backToMyForm()" class="px-4 py-2 rounded-lg bg-white/80 text-slate-900 text-[11px] font-black uppercase tracking-widest hover:bg-white">Back to my form</button>
+                </span>`;
+        });
+    }
+
     // ================= TABS =================
     function showTab(name) {
         if (name !== 'edit') closeEditor();
         document.querySelectorAll('[data-fbtab]').forEach(b => b.classList.toggle('active', b.dataset.fbtab === name));
         ['edit', 'preview', 'pdf'].forEach(t => document.getElementById({ edit: 'fbTabEdit', preview: 'fbTabPreview', pdf: 'fbTabPdf' }[t]).classList.toggle('hidden', t !== name));
-        // Form elements: questions on the Edit tab, PDF parts on the PDF form tab
+        // The Form elements belong to the Edit tab (the PDF has its own, in the PDF designer)
         fbTab = name;
-        document.getElementById('fbPalette').classList.toggle('hidden', name === 'preview');
-        document.getElementById('fbLayout').classList.toggle('lg:grid-cols-[300px_minmax(0,1fr)]', name !== 'preview');
+        document.getElementById('fbPalette').classList.toggle('hidden', name !== 'edit');
+        document.getElementById('fbLayout').classList.toggle('lg:grid-cols-[300px_minmax(0,1fr)]', name === 'edit');
         if (name === 'edit') renderPalette();
-        document.getElementById('fbPaletteHint').textContent = name === 'pdf'
-            ? 'Drag an element onto the PDF lines: between two lines for a new line, or onto a line to put it next to what is there. Or click a line, then click an element.'
-            : 'Drag an element onto the form — between two rows, or beside a field to put them side by side. Or click it to add it after the selected field.';
-        if (name === 'pdf') { renderPdfPalette(); renderPdfRows(); } else closePdfTile(false);
         if (name === 'preview') renderPreview();
         document.querySelector('#fbPreviewBtn span').textContent = name === 'preview' ? 'Back to editing' : 'Preview as student';
         document.querySelector('#fbPreviewBtn i').className = name === 'preview' ? 'fas fa-pen' : 'fas fa-eye';
@@ -2903,6 +3130,13 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
     // ================= SAVE =================
     function showAlert(type, message) {
+        if (designerOpen()) {
+            const t = document.getElementById('pdToast');
+            t.className = 'shrink-0 px-6 py-2 text-xs font-black ' + (type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-600 text-white');
+            t.textContent = (type === 'success' ? '✅ ' : '⚠️ ') + message;
+            clearTimeout(showAlert.timer);
+            showAlert.timer = setTimeout(() => t.classList.add('hidden'), 6000);
+        }
         const el = document.getElementById('fbAlert');
         el.className = 'mb-5 px-5 py-4 rounded-2xl text-sm font-bold ' + (type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700');
         el.innerHTML = (type === 'success' ? '✅ ' : '⚠️ ') + esc(message);
@@ -2912,7 +3146,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
     // Page breaks for the pages that grew: worked out from the designer when it was opened, else the saved ones are kept
     function pageBreaks() {
-        if (!pdPages.length) return FB_SAVED_BREAKS;
+        if (!pdPages.length) return fbSavedBreaks;
         pdPages.forEach(paintPage);
         return pdPages.filter(p => p.breakAt).map(p => ({ kind: 'break', page: p.num, x: 0, y: +p.breakAt.toFixed(6), w: 1, h: 0.002, text: '', font: 'Helvetica', size: null, bold: false, cover: false }));
     }
@@ -2931,6 +3165,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     overrides: fbOverrides,
                     edits: [...fbEdits.map(({ key, ...e }) => e), ...pageBreaks()],
                     instructions: document.getElementById('fbInstructions').value,
+                    restored_from: fbVersionView ? fbVersionView.number : null,
                     fields: fbFields.map(({ key, ...f }) => ({ ...f, options: getOpts(f).map(o => o.trim()).filter(Boolean).join('\n') }))
                 })
             });
@@ -2938,12 +3173,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (!data.success) throw new Error(data.error || 'Could not save the form.');
 
             data.ids.forEach((id, i) => { fbFields[i].id = id; });
+            const restored = fbVersionView ? fbVersionView.number : null;
+            fbVersionView = null;
+            fbVersionDiff = [];
+            fbHistory = null;
             fbDirty = false;
             document.getElementById('fbDirty').classList.add('hidden');
             document.getElementById('fbSavedAt').textContent = data.saved_at;
             fbEditingKey = null;
             render();
-            showAlert('success', 'Application form saved. Students now see this version.' + (data.archived ? ` ${data.archived} removed question(s) were archived to keep past answers.` : ''));
+            showAlert('success', (restored ? `Version ${restored} restored and saved as version ${data.form_version}.` : `Application form saved${data.form_version ? ` (version ${data.form_version})` : ''}.`) + ' Students now see this version.' + (data.archived ? ` ${data.archived} removed question(s) were archived to keep past answers.` : ''));
+            if (designerOpen() && document.getElementById('pdSideHistory').offsetParent) renderHistory();
         } catch (err) {
             showAlert('error', err.message);
         } finally {

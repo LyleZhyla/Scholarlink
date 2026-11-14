@@ -8,9 +8,11 @@ require_once '../includes/application_authority.php';
 require_once '../includes/form_fields.php';
 require_once '../includes/pdf_templates.php';
 require_once '../includes/scholarship_config_versions.php';
+require_once '../includes/form_versions.php';
 
 // ✨ SAVES A SCHOLARSHIP'S APPLICATION FORM FROM THE FORM BUILDER
-// Body (JSON): { scholarship_id, instructions, fields: [{ id|null, label, type, help, placeholder, options, required, pdf }] }
+// Body (JSON): { scholarship_id, instructions, template, fields: [...], overrides: {...}, edits: [...], restored_from? }
+// Every save is also kept as a version of the form (includes/form_versions.php); restored_from = the version it brings back
 
 function fail(string $message, int $code = 400): void {
     http_response_code($code);
@@ -146,10 +148,14 @@ foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     $edits[] = [$kind, $page, $ex, $ey, $ew, $eh, $to, $text, $font, $size, !empty($e['bold']) ? 1 : 0, !empty($e['cover']) ? 1 : 0, $n];
 }
 
+$restored_from = (int) ($payload['restored_from'] ?? 0) ?: null;
+
 // --- SAVE ---
 try {
     $pdo->beginTransaction();
     freezeUnversionedApplications($pdo, $scholarship_id, (int) $_SESSION['user_id']);
+    // The form as it was saved before version history began becomes version 1, so it can still be brought back
+    startFormHistory($pdo, $scholarship_id);
 
     $existing_ids = $pdo->prepare("SELECT FieldID FROM scholarship_custom_fields WHERE ScholarshipID = ? AND IsActive = 1");
     $existing_ids->execute([$scholarship_id]);
@@ -223,6 +229,7 @@ try {
         ]);
 
     $configuration_version_id = currentScholarshipConfigurationVersion($pdo, $scholarship_id, (int) $_SESSION['user_id'], 'Application form updated');
+    $form_version = saveFormVersion($pdo, $scholarship_id, (int) $_SESSION['user_id'], null, $restored_from);
 
     $pdo->commit();
 
@@ -231,7 +238,7 @@ try {
     $saved_at->execute([$scholarship_id]);
     $version_stmt = $pdo->prepare('SELECT VersionNumber FROM scholarship_configuration_versions WHERE ConfigurationVersionID = ?');
     $version_stmt->execute([$configuration_version_id]);
-    echo json_encode(['success' => true, 'ids' => $saved, 'archived' => $archived, 'configuration_version' => (int) $version_stmt->fetchColumn(), 'saved_at' => trim($saved_at->fetchColumn())]);
+    echo json_encode(['success' => true, 'ids' => $saved, 'archived' => $archived, 'configuration_version' => (int) $version_stmt->fetchColumn(), 'form_version' => $form_version, 'saved_at' => trim($saved_at->fetchColumn())]);
 } catch (PDOException $e) {
     $pdo->rollBack();
     fail('Database error: ' . $e->getMessage(), 500);
