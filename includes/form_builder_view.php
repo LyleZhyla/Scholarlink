@@ -90,6 +90,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     html.dark #pdGapMenu { background: #0f172a; border-color: #334155; }
     html.dark .pdf-gap-item { color: #e2e8f0; }
     html.dark .pdf-gap-item:hover { background: #1e293b; }
+    .pt-fmt { padding: 8px 12px; border-radius: 10px; border: 1px solid #e2e8f0; background: #f8fafc; font-size: 12px; font-weight: 800; color: #334155; }
+    .pt-fmt.on { background: #0f172a; border-color: #0f172a; color: #fff; }
     .pd-side-tab { flex: 1; padding: 11px 8px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; border-bottom: 3px solid transparent; }
     .pd-side-tab.active { color: #0f172a; border-bottom-color: #dc2626; }
     .pd-add > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; font-size: 12px; font-weight: 900; color: #0f172a; cursor: pointer; }
@@ -841,6 +843,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                         size: Math.round(fontHeight / viewport.scale * 2) / 2,
                         font: /courier|mono/.test(family) ? 'Courier' : (/times|georgia|garamond|cambria|book ?antiqua/.test(family) || (/serif/.test(family) && !/sans/.test(family)) ? 'Times' : 'Helvetica'),
                         bold: /bold|black|heavy/.test(fontName.toLowerCase()),
+                        italic: /italic|oblique/.test(fontName.toLowerCase()),
                     };
                 });
 
@@ -874,13 +877,20 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function applyMove(pieces, m) {
         let cut = pieces;
         [m.y, m.y + m.h, m.to].forEach(at => { cut = cut.flatMap(p => cutY(p, at).filter(Boolean)); });
-        return cut.map(p => ({ ...p, dy: mapMove(p.dy + p.h / 2, m) - p.h / 2 }));
+        return cut.map(p => ({ ...p, dy: mapMove(p.dy + tallOf(p) / 2, m) - tallOf(p) / 2 }));
     }
+    // A piece shows the page's sx, sy, w, h at dx, dy; a stretched piece (dh) is drawn dh tall: blank space is the page's line
+    // just above it, stretched, so a box's sides or a table's columns carry on through it instead of breaking off
+    const STRETCH_SOURCE = 0.0008;
+    const tallOf = p => p.dh ?? p.h;
     function cutY(p, y) {
+        const tall = tallOf(p);
         if (y <= p.dy + 1e-9) return [null, p];
-        if (y >= p.dy + p.h - 1e-9) return [p, null];
-        const k = y - p.dy;
-        return [{ ...p, h: k }, { ...p, sy: p.sy + k, dy: y, h: p.h - k }];
+        if (y >= p.dy + tall - 1e-9) return [p, null];
+        const k = y - p.dy, r = p.h / tall;
+        const a = { ...p, h: k * r }, b = { ...p, sy: p.sy + k * r, dy: y, h: (tall - k) * r };
+        if (p.dh !== undefined) { a.dh = k; b.dh = tall - k; }
+        return [a, b];
     }
     function cutX(p, x) {
         if (x <= p.dx + 1e-9) return [null, p];
@@ -895,6 +905,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 if (ins.cover) {
                     const from = cutY(p, ins.y)[1], strip = from && cutY(from, ins.y + ins.h)[0];
                     if (strip) copies.push({ ...strip, dy: strip.dy + ins.h, copy: true });
+                } else {
+                    // Blank space: the line just above it, stretched to fill it
+                    const line = ins.y + ins.h, E = STRETCH_SOURCE;
+                    const from = cutY(p, line - E)[1], strip = from && cutY(from, line)[0];
+                    if (strip) copies.push({ ...strip, dy: line + (strip.dy - (line - E)) / E * ins.h, dh: tallOf(strip) / E * ins.h, copy: true });
                 }
                 const [above, below] = cutY(p, ins.y + ins.h);
                 if (above) out.push(above);
@@ -926,7 +941,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function paintPage(p) {
         const pieces = layoutPieces(p.num);
         // Content pushed past the bottom is not lost: the page is shown taller, and printing continues it on a new page
-        p.maxY = Math.max(1, ...pieces.map(c => c.dy + c.h));
+        p.maxY = Math.max(1, ...pieces.map(c => c.dy + tallOf(c)));
         if (p.maxY < 1.002) p.maxY = 1;
         const W = p.source.width, H = p.source.height;
         const tall = Math.round(H * p.maxY);
@@ -934,7 +949,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const ctx = p.canvas.getContext('2d');
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, W, tall);
-        pieces.forEach(c => ctx.drawImage(p.source, c.sx * W, c.sy * H, c.w * W, c.h * H, c.dx * W, c.dy * H, c.w * W, c.h * H));
+        pieces.forEach(c => ctx.drawImage(p.source, c.sx * W, c.sy * H, c.w * W, c.h * H, c.dx * W, c.dy * H, c.w * W, tallOf(c) * H));
         // By its middle: a line's box reaches a little above its letters, which may already be in the piece above
         const place = r => {
             const mx = r.x + Math.min(r.w, 0.004) / 2, my = r.y + r.h / 2;
@@ -1165,7 +1180,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     const boxPx = e.h * p.hPt * p.scale;
                     const sizePt = e.size || Math.min(14, Math.max(6, e.h * p.hPt * 0.75));
                     html += `<div class="pd-edit text ${e.cover ? 'cover' : ''} ${sel ? 'sel' : ''}" data-edit="${e.key}" title="Added text"
-                        style="${pos(e)};${e.cover ? `background:${e.fill || '#fff'};` : ''}color:${e.color || '#000'};font-family:${PD_FONTS[e.font] || PD_FONTS.Helvetica};font-size:${(sizePt * p.scale).toFixed(2)}px;font-weight:${e.bold ? 700 : 400};line-height:${boxPx.toFixed(2)}px">${esc(e.text)}${sel ? handles : ''}</div>`;
+                        style="${pos(e)};${e.cover ? `background:${e.fill || '#fff'};` : ''}color:${e.color || '#000'};font-family:${PD_FONTS[e.font] || PD_FONTS.Helvetica};font-size:${(sizePt * p.scale).toFixed(2)}px;font-weight:${e.bold ? 700 : 400};font-style:${e.italic ? 'italic' : 'normal'};line-height:${boxPx.toFixed(2)}px">${esc(e.text)}${sel ? handles : ''}</div>`;
                 }
             });
 
@@ -1314,6 +1329,12 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <label class="flex items-center justify-center gap-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-black cursor-pointer">
                         <input type="checkbox" ${edit.bold ? 'checked' : ''} onchange="updateEdit('bold', this.checked)" class="accent-amber-600"> Bold
                     </label>
+                    <label class="flex items-center justify-center gap-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-black cursor-pointer py-2">
+                        <input type="checkbox" ${edit.italic ? 'checked' : ''} onchange="updateEdit('italic', this.checked)" class="accent-amber-600"> <i>Italic</i>
+                    </label>
+                    <label class="flex items-center justify-center gap-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-black cursor-pointer">
+                        Colour <input type="color" value="${esc(edit.color || '#000000')}" oninput="updateEdit('color', this.value)" class="w-8 h-6 cursor-pointer bg-transparent">
+                    </label>
                 </div>
                 ${sizeSelect(edit.size, 'setEditSize', [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32])}
                 <label class="flex items-start gap-2 mt-3 text-xs font-bold text-slate-600 cursor-pointer">
@@ -1421,7 +1442,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const core = inside.slice(0, Math.max(1, Math.ceil(inside.length / 4)));
         let ink = inside.length ? [0, 1, 2].map(i => core.reduce((s, px) => s + px[i], 0) / core.length) : (luma(bg) < 140 ? [255, 255, 255] : [0, 0, 0]);
         // Nearly black / white is black / white
-        if (ink.every(v => v < 48)) ink = [0, 0, 0];
+        if (ink.every(v => v < 72)) ink = [0, 0, 0];
         if (ink.every(v => v > 215)) ink = [255, 255, 255];
         return { fill: hex(bg), color: hex(ink) };
     }
@@ -2500,7 +2521,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // Where one line ends and the next begins, in the white space between them on the page image
     // Nothing printed across the pixel row, except the side borders of a table: dark without a break from well above to
     // well below it (about 5 pt each way), which the letters of two packed lines never are
-    function whiteRow(p, py) {
+    // borders = false: completely clear (a cut there splits no box or shape)
+    function whiteRow(p, py, borders = true) {
         const c = p.canvas, W = c.width, G = Math.max(4, Math.round(W / 150));
         if (py < 0 || py >= c.height) return true;
         const y0 = Math.max(0, py - G), rows = Math.min(c.height, py + G + 1) - y0;
@@ -2510,7 +2532,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const vertical = x => { for (let r = 0; r < rows; r++) if (!dark(x, r) && !dark(x - 1, r) && !dark(x + 1, r)) return false; return true; };
         let stray = 0;
         for (let x = Math.round(W * 0.03); x < W * 0.97; x++) {
-            if (!dark(x, py - y0) || vertical(x)) continue;
+            if (!dark(x, py - y0) || (borders && vertical(x))) continue;
             if (++stray > 1) return false;
         }
         return true;
@@ -2541,8 +2563,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             ...Object.values(fbOverrides).filter(o => o.box && o.box.page === page).map(o => o.box),
             ...fbEdits.filter(e => e.page === page && e.kind === 'text')].map(r => [r.y, r.y + r.h]);
         const clear = py => !blanks.some(([a, b]) => (py + 0.5) / H > a && (py + 0.5) / H < b);
-        for (const strict of [true, false]) {
-            const ok = py => py >= from && py < to && whiteRow(p, py) && (!strict || clear(py));
+        // Best: completely clear of print and answers; then crossing only side borders (between two rows of a table)
+        for (const [strict, borders] of [[true, false], [true, true], [false, false], [false, true]]) {
+            const ok = py => py >= from && py < to && whiteRow(p, py, borders) && (!strict || clear(py));
             let best = null;
             for (let py = to - 1; py >= from; py--) {
                 if (!ok(py)) continue;
@@ -2589,8 +2612,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const edits = fbEdits.filter(e => e.page === p.num);
             const covered = r => edits.some(e => (e.kind === 'erase' || (e.kind === 'text' && e.cover)) && centreIn(r, e));
             const items = [];
-            p.texts.forEach(t => splitPrinted(t).forEach(c => { if (!covered(c)) items.push({ kind: 'text', ...c, size: t.size, font: t.font, bold: t.bold, copied: !!t.copied }); }));
-            edits.filter(e => e.kind === 'text' && e.text.trim()).forEach(e => items.push({ kind: 'edit', key: e.key, x: e.x, y: e.y, w: e.w, h: e.h, str: e.text.trim(), size: e.size, font: e.font, bold: e.bold }));
+            p.texts.forEach(t => splitPrinted(t).forEach(c => { if (!covered(c)) items.push({ kind: 'text', ...c, size: t.size, font: t.font, bold: t.bold, italic: !!t.italic, copied: !!t.copied }); }));
+            edits.filter(e => e.kind === 'text' && e.text.trim()).forEach(e => items.push({ kind: 'edit', key: e.key, x: e.x, y: e.y, w: e.w, h: e.h, str: e.text.trim(), size: e.size, font: e.font, bold: e.bold, italic: !!e.italic }));
             p.fields.forEach(fl => { if (!fbOverrides[fl.name]) items.push({ kind: 'field', name: fl.name, check: fl.checkbox, sig: fl.sig, x: fl.x, y: fl.y, w: fl.w, h: fl.h }); });
             Object.entries(fbOverrides).forEach(([name, ov]) => {
                 if (ov.action === 'move' && ov.box.page === p.num) items.push({ kind: 'field', name, moved: true, check: !!(pdfFieldInfo(name) || {}).checkbox, x: ov.box.x, y: ov.box.y, w: ov.box.w, h: ov.box.h });
@@ -2767,7 +2790,20 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function editPdfTile(i, j) {
         const row = pdRows[i];
         pdSelRowAt = { page: row.page, y: row.y + row.h / 2 };
-        pdTile = { row, tile: row.tiles[j], text: tileText(row.tiles[j]) };
+        const tile = row.tiles[j], first = tile.labels.find(l => l.kind !== 'edit') || tile.labels[0];
+        let fmt = null;
+        if (first) {
+            const own = first.kind === 'edit' ? findEdit(first.key) : null;
+            fmt = {
+                font: (own || first).font || 'Helvetica', size: Math.round(((own && own.size) || first.size || 10) * 2) / 2,
+                bold: !!(own || first).bold, italic: !!(own || first).italic,
+                color: (own && own.color) || (pageColors(row.page, unionOf(tile.labels)) || {}).color || '#000000',
+            };
+        }
+        pdTile = { row, tile, text: tileText(tile), fmt0: fmt && { ...fmt }, fmt, created: null };
+        // An added text being edited: what it was, to go back to while trying things
+        const own = tile.labels.length === 1 && tile.labels[0].kind === 'edit' ? findEdit(tile.labels[0].key) : null;
+        if (own) pdTile.own = { key: own.key, before: { text: own.text, font: own.font, size: own.size, bold: own.bold, italic: !!own.italic, color: own.color, w: own.w, h: own.h, y: own.y } };
         renderPdfTile();
         const input = document.getElementById('ptText');
         if (input) { input.focus(); input.select(); }
@@ -2785,10 +2821,33 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <div><p class="${label}">Page ${row.page} · ${row.insert ? 'a line you added' : 'printed line'}</p><h3 class="text-xl font-black text-slate-900">Edit this part of the PDF</h3></div>
                 <button type="button" onclick="closePdfTile(true)" class="w-9 h-9 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-900" title="Close"><i class="fas fa-xmark"></i></button>
             </div>`;
-        if (tile.labels.length) body += `<label class="block ${label}">Printed words
-                <input id="ptText" type="text" value="${esc(pdTile.text)}" class="${input} normal-case tracking-normal" onkeydown="if (event.key === 'Enter') closePdfTile(true)">
+        if (tile.labels.length) {
+            const f = pdTile.fmt, sizes = [...new Set([6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, f.size])].sort((a, b) => a - b);
+            const toggle = (prop, label, mark) => `<button type="button" id="pt-${prop}" onclick="pdfTileToggle('${prop}')" aria-pressed="${f[prop]}" class="pt-fmt ${f[prop] ? 'on' : ''}">${mark} ${label}</button>`;
+            body += `<label class="block ${label}">Printed words
+                <input id="ptText" type="text" value="${esc(pdTile.typed ?? pdTile.text)}" oninput="pdfTileLive()" class="${input} normal-case tracking-normal" onkeydown="if (event.key === 'Enter') closePdfTile(true)">
             </label>
-            <p class="text-[11px] text-slate-400 mt-1">Leave it empty to remove these words from the PDF.</p>`;
+            <p class="text-[11px] text-slate-400 mt-1">Leave it empty to remove these words from the PDF. Changes show on the PDF as you make them.</p>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
+                <label class="block ${label}">Font
+                    <select id="ptFont" onchange="pdfTileLive()" class="${input} normal-case tracking-normal cursor-pointer">${Object.keys(PD_FONTS).map(k => `<option value="${k}" ${f.font === k ? 'selected' : ''} style="font-family:${PD_FONTS[k]}">${k === 'Times' ? 'Times (serif)' : k === 'Courier' ? 'Courier (typewriter)' : k}</option>`).join('')}</select>
+                </label>
+                <label class="block ${label}">Size
+                    <select id="ptSize" onchange="pdfTileLive()" class="${input} normal-case tracking-normal cursor-pointer">${sizes.map(n => `<option value="${n}" ${f.size === n ? 'selected' : ''}>${n} pt</option>`).join('')}</select>
+                </label>
+                <label class="block ${label} col-span-2 sm:col-span-1">Colour
+                    <span class="mt-1 flex items-center gap-2 p-1.5 bg-slate-50 border border-slate-200 rounded-xl">
+                        <input id="ptColor" type="color" value="${esc(f.color)}" oninput="pdfTileLive()" class="w-10 h-8 rounded-lg cursor-pointer bg-transparent">
+                        <span id="ptColorText" class="text-xs font-bold text-slate-600 normal-case tracking-normal">${esc(f.color)}</span>
+                    </span>
+                </label>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 mt-2">
+                ${toggle('bold', 'Bold', '<b>B</b>')}${toggle('italic', 'Italic', '<i>I</i>')}
+                <button type="button" onclick="pdfTileResetFormat()" class="ml-auto text-[11px] font-black text-slate-500 hover:text-slate-900" title="Back to how the words looked">↺ As it was</button>
+            </div>
+            <p id="ptFit" class="hidden mt-2 text-[11px] font-bold text-amber-700"></p>`;
+        }
         if (b && b.kind === 'field' && !b.sig) {
             const owner = used[b.name];
             body += `<label class="block mt-4 ${label}">${b.check ? 'This checkbox' : 'This blank'} is filled with
@@ -2811,7 +2870,10 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         }
         body += `<div class="flex flex-wrap items-center justify-between gap-2 mt-6 pt-4 border-t border-slate-100">
                 <button type="button" onclick="deletePdfTile(null)" class="px-4 py-2.5 rounded-xl bg-red-50 text-red-600 text-xs font-black hover:bg-red-600 hover:text-white"><i class="fas fa-trash-can"></i> Remove from the PDF</button>
-                <button type="button" onclick="closePdfTile(true)" class="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest hover:bg-blue-700">Done</button>
+                <span class="flex gap-2">
+                    <button type="button" onclick="cancelPdfTile()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-200">Cancel</button>
+                    <button type="button" onclick="closePdfTile(true)" class="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest hover:bg-blue-700">Done</button>
+                </span>
             </div>`;
         if (pdTile.msg) body = `<div class="mb-4 px-4 py-3 rounded-xl text-xs font-black ${pdTile.msg.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700'}">${pdTile.msg.ok ? '✅' : '⚠️'} ${esc(pdTile.msg.text)}</div>` + body;
         const focused = document.activeElement && document.activeElement.id === 'ptText' ? document.getElementById('ptText').value : null;
@@ -2821,6 +2883,18 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (el) { el.value = focused; el.focus(); }
     }
 
+    // Takes back what the window showed on the PDF while trying things
+    function revertPdfTile() {
+        if (!pdTile) return;
+        if (pdTile.created) { fbEdits = fbEdits.filter(e => e.key !== pdTile.created); pdTile.created = null; }
+        if (pdTile.own) { const e = findEdit(pdTile.own.key); if (e) Object.assign(e, pdTile.own.before); }
+    }
+    function cancelPdfTile() {
+        revertPdfTile();
+        pdTile = null;
+        renderPdfTile();
+        render();
+    }
     function closePdfTile(apply) {
         if (!pdTile) { renderPdfTile(); return; }   // nothing open: just make sure the window is closed
         if (apply) applyPdfTileText();
@@ -2829,37 +2903,96 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         render();
     }
 
-    // New wording for a part: one replaced-text edit over the old words (or an erase when it is emptied)
-    function applyPdfTileText() {
+    // ---- the part editor's words and their look (font, size, bold, italic, colour) ----
+    // The window can apply again and again (it shows on the PDF as you type): each time it first takes back what it put
+    // on the PDF, then puts the words as they are now. Printed words get one replacing text (over the colour behind them);
+    // words added earlier are just changed.
+    function readTileFormat() {
+        if (!pdTile || !pdTile.fmt) return;
+        const val = id => document.getElementById(id);
+        if (val('ptFont')) pdTile.fmt.font = val('ptFont').value;
+        if (val('ptSize')) pdTile.fmt.size = Number(val('ptSize').value);
+        if (val('ptColor')) { pdTile.fmt.color = val('ptColor').value; val('ptColorText').textContent = pdTile.fmt.color; }
+    }
+    function pdfTileToggle(prop) {
+        pdTile.fmt[prop] = !pdTile.fmt[prop];
+        const b = document.getElementById('pt-' + prop);
+        b.classList.toggle('on', pdTile.fmt[prop]);
+        b.setAttribute('aria-pressed', pdTile.fmt[prop]);
+        pdfTileLive();
+    }
+    function pdfTileResetFormat() {
+        pdTile.fmt = { ...pdTile.fmt0 };
+        const input = document.getElementById('ptText'), text = input ? input.value : null;
+        renderPdfTile();
+        if (text !== null) document.getElementById('ptText').value = text;
+        pdfTileLive();
+    }
+    function pdfTileLive() {
+        applyPdfTileText(false);
+        if (designerOpen()) renderDesignerPages();
+    }
+
+    // How wide words are on the page (fraction of its width), in a font / size / style
+    function textWidthOnPage(page, text, fmt) {
+        const p = pdPages[page - 1];
+        const ctx = textWidthOnPage.ctx || (textWidthOnPage.ctx = document.createElement('canvas').getContext('2d'));
+        ctx.font = `${fmt.italic ? 'italic ' : ''}${fmt.bold ? 'bold ' : ''}${fmt.size}px ${PD_FONTS[fmt.font] || PD_FONTS.Helvetica}`;
+        return ctx.measureText(text).width / (p.hPt * p.source.width / p.source.height);
+    }
+
+    function applyPdfTileText(final = true) {
         const input = document.getElementById('ptText');
         if (!input || !pdTile) return;
-        const { row, tile } = pdTile, text = input.value.trim();
-        if (text === pdTile.text) return;
-        const bare = v => v.replace(/[:*]+$/, '').trim();
-        const q = tile.blank && tile.blank.kind === 'box' ? findField(tile.blank.key) : null;
-        if (q && text && (q.label === bare(pdTile.text) || q.label === 'New question')) q.label = bare(text);
-        const added = tile.labels.filter(l => l.kind === 'edit'), printed = tile.labels.filter(l => l.kind !== 'edit');
-        if (!printed.length && added.length === 1) {
-            const e = findEdit(added[0].key);
-            if (text) { e.w = clamp(Math.max(e.w, e.w * text.length / Math.max(1, e.text.length)), 0.01, 1 - e.x); e.text = text; }
-            else fbEdits = fbEdits.filter(x => x !== e);
-            markDirty();
+        readTileFormat();
+        pdTile.typed = input.value;
+        const { row, tile } = pdTile, text = input.value.trim(), fmt = pdTile.fmt, f0 = pdTile.fmt0;
+        const unchanged = text === pdTile.text && ['font', 'size', 'bold', 'italic', 'color'].every(k => fmt[k] === f0[k]);
+        const fit = document.getElementById('ptFit');
+        if (fit) fit.classList.add('hidden');
+        // take back what this window put on the PDF so far
+        if (pdTile.created) { fbEdits = fbEdits.filter(e => e.key !== pdTile.created); pdTile.created = null; }
+        if (pdTile.own) {
+            const e = findEdit(pdTile.own.key);
+            if (!e) return;
+            Object.assign(e, pdTile.own.before);
+            if (unchanged) { if (final) markDirty(); return; }
+            if (!text) {
+                if (final) { fbEdits = fbEdits.filter(x => x !== e); markDirty(); }
+                else e.text = '';   // hidden while the box is empty
+                return;
+            }
+            const grow = fmt.size / (pdTile.own.before.size || fmt.size);
+            const h = Math.max(e.h, e.h * grow);
+            Object.assign(e, { text, font: fmt.font, size: fmt.size, bold: fmt.bold, italic: fmt.italic, color: fmt.color,
+                y: e.y - (h - e.h) / 2, h, w: clamp(Math.max(e.w * 0.5, textWidthOnPage(row.page, text, fmt) + 0.006), 0.01, 1 - e.x) });
+            if (e.cover) trimCover(e);   // a bigger cover still stops at the words around it
+            if (final) { syncQuestionLabel(text); markDirty(); }
             return;
         }
-        fbEdits = fbEdits.filter(e => !added.some(a => a.key === e.key));
-        const area = textArea(row.page, unionOf(tile.labels)), first = printed[0] || tile.labels[0];
-        if (!text) pushEdit({ kind: 'erase', ...area, text: '', font: 'Helvetica', size: null, bold: false, cover: false });
-        else {
-            // Longer wording gets room to the right, up to whatever comes next on the line
-            // up to whatever comes next on the line; wording that still doesn't fit is printed smaller
+        if (unchanged) return;
+        if (final) syncQuestionLabel(text);
+        const area = textArea(row.page, unionOf(tile.labels)), first = tile.labels.find(l => l.kind !== 'edit') || tile.labels[0];
+        if (!text) {
+            pdTile.created = pushEdit({ kind: 'erase', ...area, text: '', font: 'Helvetica', size: null, bold: false, cover: false }).key;
+        } else {
+            // Bigger letters get a taller box (kept around the same middle); longer wording gets room to the right, up to
+            // whatever comes next on the line (wording that still doesn't fit prints smaller)
+            const grow = fmt.size / (first.size || fmt.size);
+            if (grow > 1) { const h = area.h * grow; area.y = Math.max(0, area.y - (h - area.h) / 2); area.h = h; }
             const next = Math.min(1, ...row.tiles.flatMap(tileParts).filter(q => q.x > area.x + area.w - 0.002 && !tile.labels.includes(q)).map(q => q.x));
-            const needed = area.w * text.length / Math.max(1, pdTile.text.length) + 0.004, room = Math.max(area.w, next - area.x - 0.003);
-            let size = clamp(first.size || 10, 5, 48);
-            if (needed > room) size = Math.max(5, Math.floor(size * room / needed * 2) / 2);
+            const needed = textWidthOnPage(row.page, text, fmt) + 0.006, room = Math.max(area.w, next - area.x - 0.003);
             area.w = clamp(Math.min(needed, room), area.w, 1 - area.x);
-            pushEdit({ kind: 'text', ...area, text, font: first.font || 'Helvetica', size, bold: !!first.bold, cover: true });
+            if (needed > room && fit) { fit.textContent = '⚠ Too long for its spot at this size: it prints a little smaller to fit. Shorter words or a smaller size avoid that.'; fit.classList.remove('hidden'); }
+            pdTile.created = pushEdit({ kind: 'text', ...area, text, font: fmt.font, size: fmt.size, bold: fmt.bold, italic: fmt.italic, color: fmt.color, cover: true }).key;
         }
-        markDirty();
+        if (final) markDirty();
+    }
+    // Renaming the printed label of a question's blank renames the question too (when they matched)
+    function syncQuestionLabel(text) {
+        const bare = v => v.replace(/[:*]+$/, '').trim(), tile = pdTile.tile;
+        const q = tile.blank && tile.blank.kind === 'box' ? findField(tile.blank.key) : null;
+        if (q && text && (q.label === bare(pdTile.text) || q.label === 'New question')) q.label = bare(text);
     }
 
     function pdfTileFill(key) {
@@ -2964,6 +3097,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function deletePdfTile(i, j) {
         const { row, tile } = i === null ? pdTile : { row: pdRows[i], tile: pdRows[i].tiles[j] };
         const what = tileText(tile) || 'this blank';
+        if (i === null) revertPdfTile();
         const note = tile.blank && tile.blank.kind === 'box' ? '\n\nThe question stays on the application form; its answer just will not print.' : '';
         if (!confirm(`Remove “${what}” from the PDF?${note}`)) return;
         removeTileParts(row.page, tile);
@@ -3260,7 +3394,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // does not, and the places where your form has something it does not (there the version shows the PDF as it was)
     function versionDifferences(before) {
         const n4 = v => v === null || v === undefined ? null : +(+v).toFixed(4);
-        const sig = e => JSON.stringify([e.kind, e.page, n4(e.x), n4(e.y), n4(e.w), n4(e.h), n4(e.to), e.text || '', !!e.cover, e.size || null, !!e.bold]);
+        const sig = e => JSON.stringify([e.kind, e.page, n4(e.x), n4(e.y), n4(e.w), n4(e.h), n4(e.to), e.text || '', !!e.cover, e.size || null, !!e.bold, !!e.italic, e.font || '', e.color || '']);
         const beforeEdits = before.edits.filter(e => e.kind !== 'break');
         const had = new Set(beforeEdits.map(sig)), has = new Set(fbEdits.map(sig));
         const out = [];

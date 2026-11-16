@@ -178,7 +178,7 @@ if (!function_exists('listPdfTemplates')) {
     // Writes answers into the boxes admins drew in the Form Builder, and applies content edits.
     // $boxes: [['page' => 1, 'x' => 0-1, 'y' => 0-1, 'w' => 0-1, 'h' => 0-1, 'size' => pt|null, 'text' => '...', 'multiline' => bool], ...]
     // $edits: [['kind' => 'erase'|'text', 'page', 'x', 'y', 'w', 'h', 'text', 'font' => Helvetica|Times|Courier, 'size', 'bold', 'cover',
-    //          'fill' => '#rrggbb' behind (default white), 'color' => '#rrggbb' of the text (default black)], ...]
+    //          'italic', 'fill' => '#rrggbb' behind (default white), 'color' => '#rrggbb' of the text (default black)], ...]
     // Builds a transparent overlay with FPDF and merges it onto $pdf_path with pdftk. Returns the stamped file path, or null on failure.
     function stampPdfBoxes(string $pdf_path, array $page_sizes, array $boxes, string $temp_dir, array $edits = []): ?string {
         if ((!$boxes && !$edits) || !$page_sizes) return $pdf_path;
@@ -215,7 +215,7 @@ if (!function_exists('listPdfTemplates')) {
                 if ($edit['kind'] !== 'text' || trim((string) $edit['text']) === '') continue;
 
                 $family = in_array($edit['font'] ?? '', ['Helvetica', 'Times', 'Courier'], true) ? $edit['font'] : 'Helvetica';
-                $style = !empty($edit['bold']) ? 'B' : '';
+                $style = (!empty($edit['bold']) ? 'B' : '') . (!empty($edit['italic']) ? 'I' : '');
                 $text = iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', preg_replace('/\s+/', ' ', trim($edit['text'])));
                 $size = $edit['size'] ? (float) $edit['size'] : min(14, max(6, $h * 0.75));
                 // Keep the chosen size unless the text would spill out of its box
@@ -275,13 +275,25 @@ if (!function_exists('listPdfTemplates')) {
     // includes/form_builder_view.php: pieces of the page (as fractions) that keep their place or move; 'copy' pieces
     // repeat a strip in the new space. A 'move' takes the strip y..y+h out and puts it at 'to' (closing the gap it leaves).
     // $inserts: one page's 'row' / 'column' / 'move' edits, in order.
+    // A piece shows the page's sx, sy, w, h at dx, dy; a stretched piece ('dh') is drawn dh tall (blank space is the page's
+    // line just above it, stretched, so a box's sides or a table's columns carry on through it instead of breaking off).
     function pdfLayoutPieces(array $inserts): array {
         $cut = function (array $p, float $at, string $axis): array {
-            [$pos, $size, $src] = $axis === 'y' ? ['dy', 'h', 'sy'] : ['dx', 'w', 'sx'];
-            if ($at <= $p[$pos] + 1e-9) return [null, $p];
-            if ($at >= $p[$pos] + $p[$size] - 1e-9) return [$p, null];
-            $k = $at - $p[$pos];
-            return [array_merge($p, [$size => $k]), array_merge($p, [$src => $p[$src] + $k, $pos => $at, $size => $p[$size] - $k])];
+            if ($axis === 'y') {
+                $tall = $p['dh'] ?? $p['h'];
+                if ($at <= $p['dy'] + 1e-9) return [null, $p];
+                if ($at >= $p['dy'] + $tall - 1e-9) return [$p, null];
+                $k = $at - $p['dy'];
+                $r = $p['h'] / $tall;
+                $a = array_merge($p, ['h' => $k * $r]);
+                $b = array_merge($p, ['sy' => $p['sy'] + $k * $r, 'dy' => $at, 'h' => ($tall - $k) * $r]);
+                if (isset($p['dh'])) { $a['dh'] = $k; $b['dh'] = $tall - $k; }
+                return [$a, $b];
+            }
+            if ($at <= $p['dx'] + 1e-9) return [null, $p];
+            if ($at >= $p['dx'] + $p['w'] - 1e-9) return [$p, null];
+            $k = $at - $p['dx'];
+            return [array_merge($p, ['w' => $k]), array_merge($p, ['sx' => $p['sx'] + $k, 'dx' => $at, 'w' => $p['w'] - $k])];
         };
         $pieces = [['sx' => 0.0, 'sy' => 0.0, 'w' => 1.0, 'h' => 1.0, 'dx' => 0.0, 'dy' => 0.0, 'copy' => false]];
         foreach ($inserts as $ins) {
@@ -299,7 +311,7 @@ if (!function_exists('listPdfTemplates')) {
                     foreach ($pieces as $p) foreach ($cut($p, $at, 'y') as $part) if ($part) $split[] = $part;
                     $pieces = $split;
                 }
-                $pieces = array_map(fn($p) => array_merge($p, ['dy' => $map($p['dy'] + $p['h'] / 2) - $p['h'] / 2]), $pieces);
+                $pieces = array_map(fn($p) => array_merge($p, ['dy' => $map($p['dy'] + ($p['dh'] ?? $p['h']) / 2) - ($p['dh'] ?? $p['h']) / 2]), $pieces);
                 continue;
             }
             $out = []; $copies = [];
@@ -310,6 +322,12 @@ if (!function_exists('listPdfTemplates')) {
                         $from = $cut($p, $y, 'y')[1];
                         $strip = $from ? $cut($from, $y + $h, 'y')[0] : null;
                         if ($strip) $copies[] = array_merge($strip, ['dy' => $strip['dy'] + $h, 'copy' => true]);
+                    } else {
+                        // Blank space: the line just above it, stretched to fill it
+                        $line = $y + $h; $e = 0.0008;   // the source line: about half a point
+                        $from = $cut($p, $line - $e, 'y')[1];
+                        $strip = $from ? $cut($from, $line, 'y')[0] : null;
+                        if ($strip) $copies[] = array_merge($strip, ['dy' => $line + ($strip['dy'] - ($line - $e)) / $e * $h, 'dh' => ($strip['dh'] ?? $strip['h']) / $e * $h, 'copy' => true]);
                     }
                     [$above, $below] = $cut($p, $y + $h, 'y');
                     if ($above) $out[] = $above;
@@ -390,12 +408,14 @@ if (!function_exists('listPdfTemplates')) {
                 $top = max(0.0, $o['from'] - $o['shift']);
                 $bottom = min(1.0, $o['to'] - $o['shift']);
                 foreach (pdfLayoutPieces($by_page[$i] ?? []) as $c) {
+                    $tall = $c['dh'] ?? $c['h'];
+                    $scale = $c['h'] > 0 ? $tall / $c['h'] : 1.0;   // 1, or how much a stretched piece is stretched
                     $y1 = max($c['dy'], $o['from']) - $o['shift'];
-                    $y2 = min($c['dy'] + $c['h'], $o['to']) - $o['shift'];
+                    $y2 = min($c['dy'] + $tall, $o['to']) - $o['shift'];
                     $y1 = max($y1, $top); $y2 = min($y2, $bottom);
                     if ($c['dx'] >= 1 || $y2 <= $y1) continue;
                     $pdf->clipRect($c['dx'] * $w, $y1 * $h, $c['w'] * $w, ($y2 - $y1) * $h);
-                    $pdf->useTemplate($template($c['copy'] ? $blank : $filled, $i), ($c['dx'] - $c['sx']) * $w, ($c['dy'] - $o['shift'] - $c['sy']) * $h, $w, $h);
+                    $pdf->useTemplate($template($c['copy'] ? $blank : $filled, $i), ($c['dx'] - $c['sx']) * $w, ($c['dy'] - $o['shift'] - $c['sy'] * $scale) * $h, $w, $h * $scale);
                     $pdf->endClip();
                 }
             }
