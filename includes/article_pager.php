@@ -1,28 +1,37 @@
 <script>
-// Search, filters and "Show 5 / 10 / 25 / 50" for long lists of cards (<article>) in the evaluation pages.
-// A card joins a filter with data-filter-NAME="value"; the filter appears when it has at least two values.
+// Search, filters and "Show 5 / 10 / 25 / 50" for long lists: cards (<article>) or table rows.
+// A list is every <article> in <main>, or, on pages with several lists, each element marked data-pager="name" (its items:
+// its <article> children, or data-pager-items="tbody > tr"; data-pager-search sets the search box's hint).
+// An item joins a filter with data-filter-NAME="value"; the filter appears when it has at least two values.
 // The choices survive the page reload after saving a card, so a filtered queue can be worked through.
 (function () {
-    const items = Array.from(document.querySelectorAll('main article'));
+    const boxes = Array.from(document.querySelectorAll('[data-pager]'));
+    const lists = boxes.length
+        ? boxes.map(box => ({ box, name: box.dataset.pager, hint: box.dataset.pagerSearch, items: Array.from(box.querySelectorAll(box.dataset.pagerItems || ':scope > article')) }))
+        : [{ box: null, name: '', hint: '', items: Array.from(document.querySelectorAll('main article')) }];
+    lists.forEach(setUp);
+
+    function setUp({ box, name: listName, hint, items }) {
     if (items.length <= 5) return;
-    const LABELS = { stage: 'All stages', status: 'All application statuses', course: 'All courses', review: 'All review statuses', result: 'All AI results', document: 'All documents', resolution: 'All resolutions', category: 'All categories', scholarship: 'All scholarships', waitlist: 'All waitlist states', slots: 'All slot states' };
-    const SIZES = [5, 10, 25, 50];
-    const STATE_KEY = 'scholarlink_list_' + location.pathname, SIZE_KEY = 'scholarlink_list_size';
+    const LABELS = { stage: 'All stages', status: 'All application statuses', course: 'All courses', review: 'All review statuses', result: 'All AI results', document: 'All documents', resolution: 'All resolutions', category: 'All categories', scholarship: 'All scholarships', waitlist: 'All waitlist states', slots: 'All slot states', outcome: 'All results', rpo: 'RPO: met or missed', rto: 'RTO: met or missed', backup: 'All backups', type: 'All backup types', tested: 'Tested or not', availability: 'Any availability' };
+    // Only the sizes that make sense for this many items, then "all of them"
+    const SIZES = [5, 10, 25, 50].filter(n => n < items.length).concat(items.length);
+    const STATE_KEY = 'scholarlink_list_' + location.pathname + (listName ? '_' + listName : ''), SIZE_KEY = 'scholarlink_list_size';
     const read = (store, key) => { try { return store.getItem(key); } catch (e) { return null; } };
     const write = (store, key, value) => { try { store.setItem(key, value); } catch (e) {} };
 
     let saved = {};
     try { saved = JSON.parse(read(sessionStorage, STATE_KEY)) || {}; } catch (e) {}
-    let per = parseInt(read(localStorage, SIZE_KEY), 10);
-    if (!SIZES.includes(per)) per = 10;
+    let per = parseInt(read(localStorage, SIZE_KEY), 10) || 10;
+    if (!SIZES.includes(per)) per = per >= items.length ? items.length : Math.max(...SIZES.filter(n => n <= per).concat(SIZES[0]));
     let page = saved.page || 1, matches = items;
 
     const CONTROL = 'bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500';
-    const list = items[0].parentElement;
+    const list = box || items[0].parentElement;
     const bar = document.createElement('div');
     bar.className = 'flex flex-wrap items-center gap-2.5 mb-4';
     const search = document.createElement('input');
-    search.type = 'search'; search.placeholder = 'Search name, student no. or scholarship...'; search.setAttribute('aria-label', 'Search this list');
+    search.type = 'search'; search.placeholder = hint || 'Search name, student no. or scholarship...'; search.setAttribute('aria-label', 'Search this list');
     search.className = CONTROL + ' basis-full min-w-0 font-medium';
     search.value = saved.search || '';
     bar.appendChild(search);
@@ -46,7 +55,7 @@
 
     const size = document.createElement('select');
     size.className = CONTROL + ' cursor-pointer'; size.setAttribute('aria-label', 'Cards per page');
-    SIZES.forEach(n => size.add(new Option('Show ' + n, n)));
+    SIZES.forEach(n => size.add(new Option(n === items.length ? 'Show all ' + n : 'Show ' + n, n)));
     size.value = String(per);
     bar.appendChild(size);
 
@@ -69,7 +78,7 @@
         const b = document.createElement('button');
         b.type = 'button'; b.textContent = label; b.disabled = disabled;
         b.className = 'min-w-9 h-9 px-3 rounded-lg text-xs font-black ' + (active ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40');
-        b.onclick = () => { page = target; render(); window.scrollTo(0, 0); };
+        b.onclick = () => { page = target; render(); bar.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
         return b;
     }
     function applyFilters() {
@@ -101,5 +110,6 @@
     reset.addEventListener('click', () => { search.value = ''; filters.forEach(f => f.select.value = ''); changed(); });
     applyFilters();
     render();
+    }
 })();
 </script>
