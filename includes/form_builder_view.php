@@ -176,6 +176,12 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .content-mode .pd-edit { pointer-events: auto; cursor: pointer; }
     #pdPages .pd-edit:not(.insert) { pointer-events: auto; cursor: move; }   /* added words / lines / erased areas: drag them with any tool */
     #pdPages .pd-box { cursor: move; }
+    /* the handle of an added line / column: drag it with any tool (the rest of the space stays free to draw or click in) */
+    .pd-ins-grip { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); z-index: 6; pointer-events: auto; cursor: grab; display: flex; align-items: center; justify-content: center;
+        min-width: 16px; height: 18px; max-height: 100%; padding: 0 3px; border-radius: 5px; background: #7c3aed; color: #fff; font-size: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.25); opacity: 0.85; }
+    .pd-ins-grip:hover { opacity: 1; }
+    .pd-edit.insert.column .pd-ins-grip { left: 50%; top: 2px; transform: translateX(-50%); }
+    .content-mode .pd-edit.insert .pd-insert-tag { left: 22px; }
     .content-mode .pd-edit.erase { outline: 1.5px dashed #dc2626; outline-offset: -1px; }
     .content-mode .pd-edit.text { outline: 1.5px dashed #f59e0b; outline-offset: -1px; }
     .content-mode .pd-edit.sel { outline: 2.5px solid #d97706; overflow: visible; z-index: 4; cursor: move; }
@@ -1173,7 +1179,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             fbEdits.filter(e => e.page === p.num && e.kind !== 'move').forEach(e => {
                 const sel = content && pdSelEdit === e.key;
                 if (isInsert(e)) {
-                    html += `<div class="pd-edit insert ${e.kind} ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(finalArea(e))}" title="Inserted ${e.kind}${sel ? ' — drag to move, drag the handle to resize' : ' — click to edit'}">${content ? `<span class="pd-insert-tag">＋ ${e.kind}</span>` : ''}${sel ? '<span class="pd-handle"></span>' : ''}</div>`;
+                    html += `<div class="pd-edit insert ${e.kind} ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(finalArea(e))}" title="Inserted ${e.kind}${sel ? ' — drag to move, drag the handle to resize' : ' — click to edit'}"><span class="pd-ins-grip" title="Drag to move this ${e.kind === 'row' ? 'line' : 'column'}"><i class="fas fa-grip-${e.kind === 'row' ? 'vertical' : 'lines'}"></i></span>${content ? `<span class="pd-insert-tag">＋ ${e.kind}</span>` : ''}${sel ? '<span class="pd-handle"></span>' : ''}</div>`;
                 } else if (e.kind === 'line') {
                     html += `<div class="pd-edit line ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos({ ...e, h: Math.max(e.h, 0.0015) })};background:${e.fill || '#000'}" title="Answer line"></div>`;
                 } else if (e.kind === 'erase') {
@@ -1691,6 +1697,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         overlay.addEventListener('pointerdown', e => {
             if (e.button !== 0) return;
             const point = toFraction(e);
+
+            // ----- An added line / column: drag it by its handle, with any tool -----
+            const grip = e.target.closest('.pd-ins-grip');
+            const insEl = grip && grip.closest('.pd-edit');
+            const ins = insEl && findEdit(insEl.dataset.edit);
+            if (ins && isInsert(ins)) {
+                pdSelEdit = pdMode === 'content' ? ins.key : pdSelEdit;
+                pdDrag = { mode: 'insert-move', start: point, orig: { ...ins }, ref: ins, moved: false };
+                capture(e);
+                return;
+            }
 
             // ----- Something added to the PDF (words, an answer line, an erased area): press and drag it, with any tool -----
             const grabbed = !e.target.closest('.pd-del') && e.target.closest('.pd-edit:not(.insert)');
