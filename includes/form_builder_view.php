@@ -174,6 +174,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .pd-edit.erase, .pd-edit.cover { background: #fff; }
     .content-mode .pd-edit.line { outline: 3px solid rgba(100, 116, 139, 0.25); }
     .content-mode .pd-edit { pointer-events: auto; cursor: pointer; }
+    #pdPages .pd-edit:not(.insert) { pointer-events: auto; cursor: move; }   /* added words / lines / erased areas: drag them with any tool */
+    #pdPages .pd-box { cursor: move; }
     .content-mode .pd-edit.erase { outline: 1.5px dashed #dc2626; outline-offset: -1px; }
     .content-mode .pd-edit.text { outline: 1.5px dashed #f59e0b; outline-offset: -1px; }
     .content-mode .pd-edit.sel { outline: 2.5px solid #d97706; overflow: visible; z-index: 4; cursor: move; }
@@ -748,8 +750,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
     // One toolbar: "Answer boxes" is the fields mode, every other tool edits the printed content
     const PD_HINTS = {
-        boxes: 'Drag on the form to draw a box where an answer prints. Click a dashed field to choose what fills it.',
-        select: 'Click any printed text to change or delete it, also inside rows you inserted. Click an inserted row to move or resize it.',
+        boxes: 'Drag on the form to draw a box where an answer prints. Click a dashed field to choose what fills it. Drag anything you added to move it.',
+        select: 'Click any printed text to change or delete it, also inside rows you inserted. Drag anything you added to move it; click an inserted row to move or resize it.',
         addtext: 'Click where the new text should go, then type it in the panel on the right.',
         erase: 'Drag over anything (text, lines, a logo) to white it out.',
         row: 'Drag across the row you want to copy. The copy goes right under it and everything below moves down.',
@@ -1690,6 +1692,21 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (e.button !== 0) return;
             const point = toFraction(e);
 
+            // ----- Something added to the PDF (words, an answer line, an erased area): press and drag it, with any tool -----
+            const grabbed = !e.target.closest('.pd-del') && e.target.closest('.pd-edit:not(.insert)');
+            const grabbedEdit = grabbed && findEdit(grabbed.dataset.edit);
+            if (grabbedEdit) {
+                const wasSelected = pdMode === 'content' && pdSelEdit === grabbedEdit.key;
+                // Its settings are under "Change text", so that tool is picked
+                if (pdMode !== 'content') setDesignerMode('content', false);
+                if (pdTool !== 'select') setContentTool('select', false);
+                if (!wasSelected) { pdSelEdit = grabbedEdit.key; pdSelText = null; renderDesigner(); }
+                pdDrag = { mode: wasSelected && e.target.closest('.pd-handle') ? 'resize' : 'move', start: point, orig: { ...grabbedEdit }, ref: grabbedEdit,
+                    selector: `.pd-edit[data-edit="${grabbedEdit.key}"]`, moved: false };
+                capture(e);
+                return;
+            }
+
             // ----- Edit content mode -----
             if (pdMode === 'content') {
                 if (e.target.closest('.pd-del')) { deleteEdit(pdSelEdit); return; }
@@ -1730,15 +1747,19 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
             const boxEl = e.target.closest('.pd-box');
             if (boxEl && boxEl.dataset.field !== undefined) {
-                // A moved PDF field: select it, or drag it when already selected
-                if (pdSelField !== boxEl.dataset.field) { selectPdfField(boxEl.dataset.field); return; }
-                const box = fbOverrides[pdSelField].box;
-                pdDrag = { mode: e.target.closest('.pd-handle') ? 'resize' : 'move', start: point, orig: { ...box }, ref: box, el: boxEl, moved: false };
+                // A moved PDF field: drag it (it is selected on the way)
+                const name = boxEl.dataset.field, wasSelected = pdSelField === name;
+                if (!wasSelected) selectPdfField(name);
+                const box = fbOverrides[name].box;
+                pdDrag = { mode: wasSelected && e.target.closest('.pd-handle') ? 'resize' : 'move', start: point, orig: { ...box }, ref: box,
+                    selector: `.pd-box[data-field="${CSS.escape(name)}"]`, moved: false };
             } else if (boxEl) {
-                // A question's drawn box
-                if (pdSelField || boxEl.dataset.key !== pdCurrentKey) { selectDesignerQuestion(boxEl.dataset.key); return; }
-                const box = findField(pdCurrentKey).box;
-                pdDrag = { mode: e.target.closest('.pd-handle') ? 'resize' : 'move', start: point, orig: { ...box }, ref: box, el: boxEl, moved: false };
+                // A question's answer box: drag it (it is selected on the way); its printed answer line goes with it
+                const key = boxEl.dataset.key, wasSelected = !pdSelField && key === pdCurrentKey;
+                if (!wasSelected) selectDesignerQuestion(key);
+                const box = findField(key).box;
+                pdDrag = { mode: wasSelected && e.target.closest('.pd-handle') ? 'resize' : 'move', start: point, orig: { ...box }, ref: box,
+                    selector: `.pd-box[data-key="${key}"]`, riders: answerLinesOf(box).map(l => ({ l, ox: l.x - box.x, oy: l.y - box.y })), moved: false };
             } else {
                 const fieldEl = e.target.closest('.pd-field');
                 pdDrag = { mode: 'draw', start: point, page: page.num, field: fieldEl ? fieldEl.dataset.field : null, moved: false };
@@ -1780,9 +1801,18 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 box.y = clamp(b.y + dy, 0, page.maxY - b.h);
             } else {
                 box.w = clamp(b.w + dx, 0.01, 1 - b.x);
-                box.h = clamp(b.h + dy, 0.006, page.maxY - b.y);
+                box.h = clamp(b.h + dy, box.kind === 'line' ? 0.0012 : 0.006, page.maxY - b.y);
             }
-            Object.assign(pdDrag.el.style, { left: box.x * 100 + '%', top: box.y / page.maxY * 100 + '%', width: box.w * 100 + '%', height: box.h / page.maxY * 100 + '%' });
+            if (pdDrag.riders && pdDrag.riders.length) {
+                pdDrag.riders.forEach(({ l, ox, oy }) => {
+                    if (pdDrag.mode === 'move') { l.x = box.x + ox; l.y = box.y + oy; }
+                    else { l.x = box.x; l.w = box.w; l.y = box.y + box.h - 0.0007; }
+                });
+                renderDesignerPages();
+                return;
+            }
+            const el = pdDrag.el && pdDrag.el.isConnected ? pdDrag.el : (pdDrag.el = pdDrag.selector ? overlay.querySelector(pdDrag.selector) : pdDrag.el);
+            if (el) Object.assign(el.style, { left: box.x * 100 + '%', top: box.y / page.maxY * 100 + '%', width: box.w * 100 + '%', height: (box.kind === 'line' ? Math.max(box.h, 0.0015) : box.h) / page.maxY * 100 + '%' });
         });
 
         overlay.addEventListener('pointerup', e => {
