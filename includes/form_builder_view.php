@@ -75,6 +75,21 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     #pdfRows .fb-tile-sub { font-size: 11px; }
     #pdfRows .fb-tile-btn { width: 28px; height: 28px; font-size: 12px; }
     #pdfRows .pdf-row.diff { box-shadow: inset 4px 0 0 #f59e0b; }
+    /* the gap under each line: a ＋ shows on hover, to add something there */
+    .pdf-gap { position: relative; height: 14px; }
+    .pdf-gap-line { position: absolute; left: 30px; right: 12px; top: 50%; height: 2px; margin-top: -1px; border-radius: 2px; background: #2563eb; opacity: 0; transition: opacity 0.12s; }
+    .pdf-gap-btn { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 999px; background: #2563eb; color: #fff; font-size: 11px; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4); opacity: 0; transform: scale(0.7); transition: opacity 0.12s, transform 0.12s; z-index: 2; }
+    .pdf-gap:hover .pdf-gap-line, .pdf-gap.open .pdf-gap-line, .pdf-gap:hover .pdf-gap-btn, .pdf-gap.open .pdf-gap-btn, .pdf-gap-btn:focus { opacity: 1; transform: scale(1); }
+    #pdGapMenu { position: fixed; z-index: 10001; width: 260px; max-height: 70vh; overflow-y: auto; padding: 6px; border-radius: 14px; background: #fff; border: 1px solid #e2e8f0; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.25); }
+    .pdf-gap-title { padding: 8px 10px 4px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #94a3b8; }
+    .pdf-gap-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 10px; text-align: left; font-size: 13px; color: #0f172a; }
+    .pdf-gap-item:hover, .pdf-gap-item:focus { background: #eff6ff; outline: none; }
+    .pdf-gap-item i { width: 18px; text-align: center; color: #2563eb; }
+    .pdf-gap-item b { display: block; font-weight: 800; }
+    .pdf-gap-item small { display: block; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; }
+    html.dark #pdGapMenu { background: #0f172a; border-color: #334155; }
+    html.dark .pdf-gap-item { color: #e2e8f0; }
+    html.dark .pdf-gap-item:hover { background: #1e293b; }
     .pd-side-tab { flex: 1; padding: 11px 8px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; border-bottom: 3px solid transparent; }
     .pd-side-tab.active { color: #0f172a; border-bottom-color: #dc2626; }
     .pd-add > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; font-size: 12px; font-weight: 900; color: #0f172a; cursor: pointer; }
@@ -375,6 +390,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     <div id="fieldEditorBody" class="w-full max-w-2xl mt-10 mb-10"></div>
 </div>
 <div id="fbDropMark" class="hidden"></div>
+<div id="pdGapMenu" class="hidden" role="menu" aria-label="Add to the PDF here"></div>
 
 <!-- EDIT ONE PART OF THE PDF (its pencil on the PDF form tab) -->
 <div id="pdfTileEditor" class="hidden fixed inset-0 z-[9999] bg-slate-900/50 backdrop-blur-sm items-start justify-center p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="Edit this part of the PDF" onmousedown="if (event.target === this) closePdfTile(true)">
@@ -411,11 +427,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             <div id="pdSideLines" class="flex-1 min-h-0 overflow-y-auto p-3">
                 <details id="pdAddBox" class="pd-add mb-3">
                     <summary><span><i class="fas fa-plus"></i> Add to the PDF</span><i class="fas fa-chevron-down chev"></i></summary>
-                    <p class="text-[11px] text-slate-500 px-1 pt-2">Click a line below, then an element: it goes on a new line under it. Or drag an element onto a line (next to what is there) or between two lines.</p>
+                    <p class="text-[11px] text-slate-500 px-1 pt-2">Click a line below, then an element: it goes on a new line under it. Or drag an element onto a line (next to what is there) or between two lines. Quicker: hover between two lines and press ＋.</p>
                     <div id="pdPalette" class="pt-2 space-y-2"></div>
                 </details>
-                <p class="text-[11px] font-medium text-slate-500 mb-2 px-1">Click a line or a part to light it up on the PDF. <b>✎</b> edits · <b>🗑</b> removes · <b>＋</b> adds blank space under a line · <b>⋮⋮</b> or the arrows move a line.</p>
-                <div id="pdfRows" class="space-y-1.5"></div>
+                <p class="text-[11px] font-medium text-slate-500 mb-2 px-1">Click a line or a part to light it up on the PDF. <b>✎</b> edits · <b>🗑</b> removes · hover <b>between two lines</b> and press <b>＋</b> to add something there · <b>⋮⋮</b> or the arrows move a line.</p>
+                <div id="pdfRows"></div>
             </div>
             <div id="pdSideHistory" class="hidden flex-1 min-h-0 overflow-y-auto p-3">
                 <p class="text-[11px] font-medium text-slate-500 mb-3 px-1">Every save is kept. Open one to see it on the PDF: what is different from your form now lights up. Restore it, or go back.</p>
@@ -2629,7 +2645,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         let html = '', page = 0;
         pdRows.forEach((r, i) => {
             if (r.page !== page) { page = r.page; html += `<p class="pdf-page-chip">Page ${page} of ${pdPages.length}</p>`; }
-            html += pdfRowHtml(r, i, i === selIndex);
+            html += pdfRowHtml(r, i, i === selIndex) + pdfGapHtml(i);
         });
         box.innerHTML = html || '<p class="text-center py-10 text-sm font-bold text-slate-400">No printed text was found on this PDF (it may be a scanned image). Use the tools above to draw on it instead.</p>';
         if (pdTile) renderPdfTile();
@@ -2680,7 +2696,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <button type="button" class="fb-tile-btn" onclick="event.stopPropagation(); editPdfTile(${i}, ${j})" title="Edit"><i class="fas fa-pen"></i></button>
                 <button type="button" class="fb-tile-btn danger" onclick="event.stopPropagation(); deletePdfTile(${i}, ${j})" title="Remove from the PDF"><i class="fas fa-trash-can"></i></button>
             </div>`;
-        }).join('') || `<div class="pdf-empty-tile" onclick="selectPdfRow(${i})">New empty line — drag an element here, or click this line and then an element</div>`;
+        }).join('') || `<div class="pdf-empty-tile" onclick="selectPdfRow(${i})">Blank space — hover just under it and press ＋, or drag an element here</div>`;
         const first = !rowAbove(i), last = !rowBelow(i);
         const changed = fbVersionDiff.some(d => d.page === r.page && d.y + d.h / 2 >= r.top - 0.004 && d.y + d.h / 2 <= r.bot + 0.004);
         return `<div class="fb-row pdf-row ${sel ? 'sel' : ''} ${r.insert ? 'added' : ''} ${changed ? 'diff' : ''}" data-row="${i}" ${changed ? 'title="Different from your form"' : ''}>
@@ -2691,18 +2707,61 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             </span>
             <div class="flex-1 min-w-0 flex flex-wrap gap-2">${tiles}</div>
             <div class="pdf-row-actions">
-                <button type="button" class="fb-tile-btn" onclick="addEmptyLine(${i})" title="Add blank space (an empty line) right below this line"><i class="fas fa-plus"></i></button>
                 ${r.tiles.length ? `<button type="button" class="fb-tile-btn" onclick="duplicatePdfRow(${i})" title="Add a copy of this line right below it (for one more table row)"><i class="fas fa-clone"></i></button>` : ''}
                 <button type="button" class="fb-tile-btn danger" onclick="deletePdfRow(${i})" title="${r.insert ? 'Remove this added line' : 'Erase this whole line from the PDF'}"><i class="fas fa-${r.insert ? 'xmark' : 'eraser'}"></i></button>
             </div>
         </div>`;
     }
 
-    // Blank space under a line (its ＋): an empty line, which can hold text or questions later
-    function addEmptyLine(i) {
-        addPdfElement(JSON.stringify({ pdf: 'empty' }), { mode: 'after', row: i });
-        showAlert('success', 'Blank space added under that line. Drag an element onto it, or click it and then an element, to fill it.');
+    // ---- adding between two lines: hover the gap under a line, press its ＋, pick what to add ----
+    function pdfGapHtml(i) {
+        const below = rowBelow(i);
+        return `<div class="pdf-gap" data-gap="${i}">
+            <span class="pdf-gap-line"></span>
+            <button type="button" class="pdf-gap-btn" onclick="openGapMenu(event, ${i})" title="Add something ${below ? 'between these two lines' : 'under this line'}"><i class="fas fa-plus"></i></button>
+        </div>`;
     }
+    let pdGapAt = null;
+    function openGapMenu(e, i) {
+        e.stopPropagation();
+        pdGapAt = i;
+        const pick = ['Text', 'Paragraph', 'Number', 'Date', 'YesNo', 'Dropdown'].filter(t => FB_TYPES[t]);
+        const off = fbFields.filter(f => placeable(f) && !f.box && !f.pdf);
+        const item = (spec, icon, label, sub) => `<button type="button" class="pdf-gap-item" onclick='gapAdd(${esc(JSON.stringify(JSON.stringify(spec)))})'>
+            <i class="fas ${icon}"></i><span><b>${esc(label)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
+        const menu = document.getElementById('pdGapMenu');
+        menu.innerHTML = `<p class="pdf-gap-title">Add here</p>`
+            + item({ pdf: 'empty' }, 'fa-arrows-up-down', 'Blank space', 'an empty line to fill later')
+            + item({ pdf: 'text' }, 'fa-font', 'Printed text', 'words only')
+            + item({ pdf: 'heading' }, 'fa-heading', 'Heading', 'bold words')
+            + item({ pdf: 'field', type: 'Text' }, 'fa-pen-to-square', 'Question + answer blank', 'students answer it')
+            + pick.filter(t => t !== 'Text').map(t => item({ pdf: 'field', type: t }, FB_TYPES[t].icon, FB_TYPES[t].label + ' question', 'with an answer blank')).join('')
+            + (off.length ? `<p class="pdf-gap-title">Questions not on the PDF yet</p>` + off.slice(0, 8).map(f => item({ pdf: 'place', key: f.key }, typeIcon(f.type), f.label || 'Untitled question', typeLabel(f.type))).join('') : '');
+        menu.classList.remove('hidden');
+        // Next to the ＋, kept on screen
+        const r = e.currentTarget.getBoundingClientRect(), mw = menu.offsetWidth, mh = menu.offsetHeight;
+        menu.style.left = clamp(r.left + r.width / 2 - mw / 2, 8, window.innerWidth - mw - 8) + 'px';
+        menu.style.top = (r.bottom + 6 + mh > window.innerHeight - 8 ? Math.max(8, r.top - 6 - mh) : r.bottom + 6) + 'px';
+        document.querySelectorAll('.pdf-gap.open').forEach(g => g.classList.remove('open'));
+        const gap = document.querySelector(`.pdf-gap[data-gap="${i}"]`);
+        if (gap) gap.classList.add('open');
+    }
+    function closeGapMenu() {
+        pdGapAt = null;
+        document.getElementById('pdGapMenu').classList.add('hidden');
+        document.querySelectorAll('.pdf-gap.open').forEach(g => g.classList.remove('open'));
+    }
+    function gapAdd(json) {
+        const i = pdGapAt;
+        closeGapMenu();
+        if (i === null || !pdRows[i]) return;
+        addPdfElement(json, { mode: 'after', row: i });
+        if (JSON.parse(json).pdf === 'empty') showAlert('success', 'Blank space added. Hover it and press ＋, or drag an element onto it, to fill it.');
+    }
+    // Any click outside closes it (pointerdown, caught first: the PDF pages stop mouse events)
+    document.addEventListener('pointerdown', e => {
+        if (pdGapAt !== null && !e.target.closest('#pdGapMenu, .pdf-gap-btn')) closeGapMenu();
+    }, true);
 
     // ---- the parts' pencil ----
     function editPdfTile(i, j) {
@@ -3341,6 +3400,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveForm(); }
         if (e.key === 'Escape' && fbEditingKey) closeEditor();
         if (e.key === 'Escape' && pdTile) closePdfTile(true);
+        if (e.key === 'Escape' && pdGapAt !== null) closeGapMenu();
         const typing = e.target.closest && e.target.closest('input, textarea, select, [contenteditable]');
         if (typing) return;
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undoChange(); }
