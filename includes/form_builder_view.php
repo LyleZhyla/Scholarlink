@@ -414,7 +414,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <p class="text-[11px] text-slate-500 px-1 pt-2">Click a line below, then an element: it goes on a new line under it. Or drag an element onto a line (next to what is there) or between two lines.</p>
                     <div id="pdPalette" class="pt-2 space-y-2"></div>
                 </details>
-                <p class="text-[11px] font-medium text-slate-500 mb-2 px-1">Click a line or a part to light it up on the PDF. <b>✎</b> edits · <b>🗑</b> removes · <b>⋮⋮</b> or the arrows move a line.</p>
+                <p class="text-[11px] font-medium text-slate-500 mb-2 px-1">Click a line or a part to light it up on the PDF. <b>✎</b> edits · <b>🗑</b> removes · <b>＋</b> adds blank space under a line · <b>⋮⋮</b> or the arrows move a line.</p>
                 <div id="pdfRows" class="space-y-1.5"></div>
             </div>
             <div id="pdSideHistory" class="hidden flex-1 min-h-0 overflow-y-auto p-3">
@@ -2644,7 +2644,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
     function selectPdfRow(i, j = null) {
         const r = pdRows[i], t = j === null ? null : r.tiles[j];
-        const again = pdSelIndex() === i && (j === null || (pdHlPart && pdHlPart.j === j));
+        // A second click unselects, except on an empty line (it is about to be filled)
+        const again = !r.empty && pdSelIndex() === i && (j === null || (pdHlPart && pdHlPart.j === j));
         pdSelRowAt = again ? null : { page: r.page, y: r.y + r.h / 2 };
         pdHlPart = !again && t ? { ...unionOf(tileParts(t)), page: r.page, j } : null;
         pdSelText = null;
@@ -2690,10 +2691,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             </span>
             <div class="flex-1 min-w-0 flex flex-wrap gap-2">${tiles}</div>
             <div class="pdf-row-actions">
+                <button type="button" class="fb-tile-btn" onclick="addEmptyLine(${i})" title="Add blank space (an empty line) right below this line"><i class="fas fa-plus"></i></button>
                 ${r.tiles.length ? `<button type="button" class="fb-tile-btn" onclick="duplicatePdfRow(${i})" title="Add a copy of this line right below it (for one more table row)"><i class="fas fa-clone"></i></button>` : ''}
                 <button type="button" class="fb-tile-btn danger" onclick="deletePdfRow(${i})" title="${r.insert ? 'Remove this added line' : 'Erase this whole line from the PDF'}"><i class="fas fa-${r.insert ? 'xmark' : 'eraser'}"></i></button>
             </div>
         </div>`;
+    }
+
+    // Blank space under a line (its ＋): an empty line, which can hold text or questions later
+    function addEmptyLine(i) {
+        addPdfElement(JSON.stringify({ pdf: 'empty' }), { mode: 'after', row: i });
+        showAlert('success', 'Blank space added under that line. Drag an element onto it, or click it and then an element, to fill it.');
     }
 
     // ---- the parts' pencil ----
@@ -2996,7 +3004,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 ...pick.filter(t => t !== 'Text').map(t => elementButton({ pdf: 'field', type: t }, FB_TYPES[t].icon, FB_TYPES[t].label + ' question', 'with an answer blank', 'addPdfElement')),
                 elementButton({ pdf: 'text' }, 'fa-font', 'Printed text', 'words only', 'addPdfElement'),
                 elementButton({ pdf: 'heading' }, 'fa-heading', 'Heading', 'bold words', 'addPdfElement'),
-                elementButton({ pdf: 'empty' }, 'fa-arrows-up-down', 'Empty line', 'space to fill later', 'addPdfElement'),
+                elementButton({ pdf: 'empty' }, 'fa-arrows-up-down', 'Blank space (empty line)', 'room to fill later', 'addPdfElement'),
             ].join(''), true)
             + elementGroup(`Questions not on the PDF yet (${off.length})`, off.map(f => elementButton({ pdf: 'place', key: f.key }, typeIcon(f.type), f.label || 'Untitled question', typeLabel(f.type), 'addPdfElement')).join('')
                 || '<p class="text-[11px] text-slate-400 px-1">Every question prints somewhere on the PDF. 🎉</p>', off.length > 0)
