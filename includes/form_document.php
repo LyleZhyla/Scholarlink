@@ -24,11 +24,26 @@ function formDocumentsReady(PDO $pdo): bool {
 
 function loadFormDocument(PDO $pdo, int $scholarship_id): ?array {
     if (!formDocumentsReady($pdo)) return null;
-    $stmt = $pdo->prepare('SELECT BodyHtml, HeaderHtml, FooterHtml, PaperSize, HeaderHeightMm, FooterHeightMm FROM application_form_documents WHERE ScholarshipID = ?');
-    $stmt->execute([$scholarship_id]);
+    try {
+        $stmt = $pdo->prepare('SELECT BodyHtml, HeaderHtml, FooterHtml, PaperSize, HeaderHeightMm, FooterHeightMm, LayoutJson FROM application_form_documents WHERE ScholarshipID = ?');
+        $stmt->execute([$scholarship_id]);
+    } catch (PDOException $e) {   // before the margins were kept
+        $stmt = $pdo->prepare('SELECT BodyHtml, HeaderHtml, FooterHtml, PaperSize, HeaderHeightMm, FooterHeightMm FROM application_form_documents WHERE ScholarshipID = ?');
+        $stmt->execute([$scholarship_id]);
+    }
     $d = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $d ? ['body' => (string) $d['BodyHtml'], 'header' => (string) ($d['HeaderHtml'] ?? ''), 'footer' => (string) ($d['FooterHtml'] ?? ''),
-        'paper' => $d['PaperSize'], 'header_mm' => (float) $d['HeaderHeightMm'], 'footer_mm' => (float) $d['FooterHeightMm']] : null;
+    if (!$d) return null;
+    $doc = ['body' => (string) $d['BodyHtml'], 'header' => (string) ($d['HeaderHtml'] ?? ''), 'footer' => (string) ($d['FooterHtml'] ?? ''),
+        'paper' => $d['PaperSize'], 'header_mm' => (float) $d['HeaderHeightMm'], 'footer_mm' => (float) $d['FooterHeightMm']];
+    $layout = cleanFormDocumentLayout(json_decode((string) ($d['LayoutJson'] ?? ''), true));
+    if ($layout) $doc['layout'] = $layout;
+    return $doc;
+}
+
+// Page margins in mm (top, right, bottom, left) and whether the header runs to the paper's left and right edges
+function cleanFormDocumentLayout($layout): ?array {
+    if (!is_array($layout) || !isset($layout['margins']) || !is_array($layout['margins']) || count($layout['margins']) !== 4) return null;
+    return ['margins' => array_map(fn($v) => round(max(0, min(60, (float) $v)), 1), array_values($layout['margins'])), 'bleed' => !empty($layout['bleed'])];
 }
 
 // ---------- cleaning what the editor sends (only formatting survives: no scripts, links or outside files) ----------
@@ -39,7 +54,7 @@ function sanitizeFormDocumentHtml(string $html): string {
     $drop = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'select', 'textarea', 'link', 'meta', 'svg', 'math', 'template', 'noscript', 'video', 'audio', 'canvas'];
     $attrs = ['style', 'class', 'colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'border', 'cellpadding', 'cellspacing', 'src', 'alt', 'start', 'type', 'data-field-id', 'data-qi', 'data-sys', 'data-label', 'data-pdf-field'];
     $styles = ['color', 'background-color', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'text-align', 'vertical-align', 'line-height',
-        'width', 'height', 'min-width', 'max-width', 'min-height', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color', 'border-width', 'border-style',
+        'width', 'height', 'min-width', 'max-width', 'min-height', 'display', 'border-radius', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color', 'border-width', 'border-style',
         'border-collapse', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
         'letter-spacing', 'text-indent', 'list-style-type', 'white-space', 'page-break-before', 'page-break-after', 'break-before', 'break-after', 'float'];
 
@@ -79,6 +94,7 @@ function sanitizeFormDocumentHtml(string $html): string {
                         [$prop, $val] = array_map('trim', explode(':', $decl, 2));
                         $prop = strtolower($prop);
                         if (!in_array($prop, $styles, true) || preg_match('/url\s*\(|expression|javascript|behavior|@import|\\\\/i', $val)) continue;
+                        if ($prop === 'display' && !in_array(strtolower($val), ['inline-block', 'block'], true)) continue;
                         $kept[] = $prop . ': ' . $val;
                     }
                     $kept ? $child->setAttribute('style', implode('; ', $kept)) : $child->removeAttribute('style');
@@ -181,15 +197,21 @@ function formDocumentHtml(array $d, array $values, array $system, array $labels,
     $hasHeader = trim(strip_tags($d['header'], '<img><table>')) !== '';
     $hasFooter = trim(strip_tags($d['footer'], '<img><table>')) !== '';
     // Measured on screen; the PDF's letters run a little taller, so a little more room
-    $hh = $hasHeader ? max(8, min(130, (float) ($d['header_mm'] ?? 20) * 1.15 + 3)) : 0;
-    $fh = $hasFooter ? max(6, min(90, (float) ($d['footer_mm'] ?? 12) * 1.15 + 2)) : 0;
-    $top = 15 + $hh + ($hasHeader ? 4 : 0);
-    $bottom = 15 + $fh + ($hasFooter ? 3 : 0);
-    $css = "@page { size: {$pw}mm {$ph}mm; margin: {$top}mm 15mm {$bottom}mm 15mm; }
+    $grow = isset($d['layout']) ? fn($v) => $v : fn($v) => $v * 1.15 + 3;
+    $hh = $hasHeader ? max(8, min(130, $grow((float) ($d['header_mm'] ?? 20)))) : 0;
+    $fh = $hasFooter ? max(6, min(90, $grow((float) ($d['footer_mm'] ?? 12)))) : 0;
+    [$mt, $mr, $mb, $ml] = $d['layout']['margins'] ?? [15, 15, 15, 15];
+    $bleed = !empty($d['layout']['bleed']);
+    $gap = isset($d['layout']) ? 0 : 4;   // between the header / footer and the page (a copied PDF has its own spacing, measured from where they are)
+    $top = $mt + $hh + ($hasHeader ? $gap : 0);
+    $bottom = $mb + $fh + ($hasFooter ? $gap : 0);
+    $hl = $bleed ? -$ml : 0;
+    $hr = $bleed ? -$mr : 0;
+    $css = "@page { size: {$pw}mm {$ph}mm; margin: {$top}mm {$mr}mm {$bottom}mm {$ml}mm; }
         body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.25; color: #000; margin: 0; }
         p { margin: 0 0 6pt 0; } h1 { font-size: 20pt; margin: 0 0 8pt; } h2 { font-size: 16pt; margin: 0 0 6pt; } h3 { font-size: 13pt; margin: 0 0 6pt; }
         h4, h5, h6 { font-size: 11pt; margin: 0 0 4pt; } ul, ol { margin: 0 0 6pt 0; padding-left: 18pt; }
-        table { border-collapse: collapse; table-layout: fixed; max-width: 100%; } td, th { padding: 2pt 4pt; vertical-align: top; word-wrap: break-word; }
+        table { border-collapse: collapse; max-width: 100%; } td, th { padding: 2pt 4pt; vertical-align: top; word-wrap: break-word; }
         table[border=\"1\"] td, table[border=\"1\"] th { border: 0.75pt solid #000; }
         img { max-width: 100%; } .page-break { page-break-after: always; height: 0; }
         .sl-answer { border-bottom: 0.6pt solid #000; padding: 0 2pt; font-family: Helvetica, Arial, sans-serif; font-size: 0.85em; }
@@ -197,8 +219,8 @@ function formDocumentHtml(array $d, array $values, array $system, array $labels,
         hr { border: 0; border-top: 0.75pt solid #888; margin: 3pt 0; }
         .sl-sample { color: #2563eb; border-bottom-style: dashed; }
         .sl-page:after { content: counter(page); } .sl-pages:after { content: counter(pages); }
-        #sl-header { position: fixed; left: 0; right: 0; top: -" . ($hh + 4) . "mm; height: {$hh}mm; }
-        #sl-footer { position: fixed; left: 0; right: 0; bottom: -" . ($fh + 3) . "mm; height: {$fh}mm; }";
+        #sl-header { position: fixed; left: {$hl}mm; right: {$hr}mm; top: -" . ($hh + $gap) . "mm; height: {$hh}mm; }
+        #sl-footer { position: fixed; left: 0; right: 0; bottom: -" . ($fh + $gap) . "mm; height: {$fh}mm; }";
     $fill = fn($h) => formDocumentColumnWidths(formDocumentFill($h, $values, $system, $labels, $sample));
     return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' . $css . '</style></head><body>'
         . ($hasHeader ? '<div id="sl-header">' . $fill($d['header']) . '</div>' : '')

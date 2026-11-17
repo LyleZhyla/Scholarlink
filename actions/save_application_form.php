@@ -171,6 +171,7 @@ if (isset($payload['document']) && is_array($payload['document']) && formDocumen
         'paper' => isset(FORM_DOCUMENT_PAPERS[$d['paper'] ?? '']) ? $d['paper'] : 'A4',
         'header_mm' => max(0, min(120, round((float) ($d['header_mm'] ?? 20), 1))),
         'footer_mm' => max(0, min(80, round((float) ($d['footer_mm'] ?? 12), 1))),
+        'layout' => cleanFormDocumentLayout($d['layout'] ?? null),
     ];
     if (strlen($document['body'] . $document['header'] . $document['footer']) > FORM_DOCUMENT_MAX_BYTES) fail('The document is too big (its pictures make it bigger). Use smaller pictures.');
 }
@@ -246,9 +247,10 @@ try {
     // The Word-style document: its answer spots point at the questions just saved
     if ($document) {
         foreach (['body', 'header', 'footer'] as $part) $document[$part] = formDocumentLinkFields($document[$part], $saved);
-        $pdo->prepare('INSERT INTO application_form_documents (ScholarshipID, BodyHtml, HeaderHtml, FooterHtml, PaperSize, HeaderHeightMm, FooterHeightMm) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE BodyHtml = VALUES(BodyHtml), HeaderHtml = VALUES(HeaderHtml), FooterHtml = VALUES(FooterHtml), PaperSize = VALUES(PaperSize), HeaderHeightMm = VALUES(HeaderHeightMm), FooterHeightMm = VALUES(FooterHeightMm)')
-            ->execute([$scholarship_id, $document['body'], $document['header'] ?: null, $document['footer'] ?: null, $document['paper'], $document['header_mm'], $document['footer_mm']]);
+        $pdo->prepare('INSERT INTO application_form_documents (ScholarshipID, BodyHtml, HeaderHtml, FooterHtml, PaperSize, HeaderHeightMm, FooterHeightMm, LayoutJson) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE BodyHtml = VALUES(BodyHtml), HeaderHtml = VALUES(HeaderHtml), FooterHtml = VALUES(FooterHtml), PaperSize = VALUES(PaperSize), HeaderHeightMm = VALUES(HeaderHeightMm), FooterHeightMm = VALUES(FooterHeightMm), LayoutJson = VALUES(LayoutJson)')
+            ->execute([$scholarship_id, $document['body'], $document['header'] ?: null, $document['footer'] ?: null, $document['paper'], $document['header_mm'], $document['footer_mm'],
+                $document['layout'] ? json_encode($document['layout']) : null]);
     }
     if (formDocumentsReady($pdo)) $pdo->prepare('UPDATE scholarship SET FormMode = ? WHERE ScholarshipID = ?')->execute([$form_mode, $scholarship_id]);
 

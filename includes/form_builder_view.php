@@ -4051,8 +4051,10 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         fbDoc.body = docEditors.body.getContent();
         fbDoc.footer = docEditors.footer.getContent();
         const zone = id => document.getElementById(id).closest('.doc-zone');
-        fbDoc.header_mm = Math.round(pxToMm(zone('docHeader').offsetHeight) * 10) / 10;
-        fbDoc.footer_mm = Math.round(pxToMm(zone('docFooter').offsetHeight) * 10) / 10;
+        if (!fbDoc.layout) {
+            fbDoc.header_mm = Math.round(pxToMm(zone('docHeader').offsetHeight) * 10) / 10;
+            fbDoc.footer_mm = Math.round(pxToMm(zone('docFooter').offsetHeight) * 10) / 10;
+        }
     }
     let docChangeTimer = null;
     function docChanged() {
@@ -4071,7 +4073,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         fbDoc.paper = paper;
         document.getElementById('docPaper').value = paper;
         const [w, h] = DOC_PAPERS[paper] || DOC_PAPERS.A4;
-        Object.assign(document.getElementById('docPage').style, { width: mmToPx(w) + 'px', minHeight: mmToPx(h) + 'px' });
+        const m = fbDoc.layout ? fbDoc.layout.margins : [15, 15, 15, 15];
+        Object.assign(document.getElementById('docPage').style, { width: mmToPx(w) + 'px', minHeight: mmToPx(h) + 'px', padding: m.map(v => v + 'mm').join(' ') });
+        const head = document.getElementById('docHeader').closest('.doc-zone');
+        Object.assign(head.style, fbDoc.layout && fbDoc.layout.bleed ? { marginLeft: -m[3] + 'mm', marginRight: -m[1] + 'mm' } : { marginLeft: '', marginRight: '' });
+        document.getElementById('docBody').style.margin = fbDoc.layout ? '1mm 0' : '';
         renderFormMode();
     }
 
@@ -4088,7 +4094,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         readDocEditors();
         if (!fbDoc) return null;
         return { body: docMapFields(fbDoc.body, false), header: docMapFields(fbDoc.header, false), footer: docMapFields(fbDoc.footer, false),
-            paper: fbDoc.paper || 'A4', header_mm: fbDoc.header_mm || 20, footer_mm: fbDoc.footer_mm || 8 };
+            paper: fbDoc.paper || 'A4', header_mm: fbDoc.header_mm || 20, footer_mm: fbDoc.footer_mm || 8, layout: fbDoc.layout || null };
     }
 
     // A PDF of the document as it is now, answer spots shown by name
@@ -4141,13 +4147,13 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
 
     // ---- what is printed where, from the page image ----
+    // Coloured bands (a letterhead), pictures (a seal, a logo) and drawn lines (rules, box sides, answer lines)
     function pageInk(p) {
         paintPage(p);
         const c = p.canvas, W = c.width, H = p.source.height, HC = c.height;
         const data = c.getContext('2d').getImageData(0, 0, W, HC).data;
         const px = (x, y) => { const i = (y * W + x) * 4; return [data[i], data[i + 1], data[i + 2]]; };
         const near = (a, b, t) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < t;
-        // Coloured bands (a letterhead): rows of pixels mostly one colour that is not white
         const rowBg = [], bands = [], gapPx = Math.round(0.012 * H);
         for (let y = 0; y < HC; y++) {
             const counts = new Map();
@@ -4158,22 +4164,72 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const last = bands[bands.length - 1];
             if (last && y - last.y1 <= gapPx && near(last.c, best.c, 90)) last.y1 = y; else bands.push({ y0: y, y1: y, c: best.c });
         }
-        const bandList = bands.filter(b => (b.y1 - b.y0) / H > 0.025).map(b => ({ y: b.y0 / H, h: (b.y1 - b.y0 + 1) / H, color: hex(b.c), c: b.c }));
+        const bandList = bands.filter(b => (b.y1 - b.y0) / H > 0.025).map(b => {
+            const y = Math.round((b.y0 + b.y1) / 2);
+            let x0 = 0, x1 = W - 1;
+            while (x0 < W - 1 && !near(px(x0, y), b.c, 90)) x0++;
+            while (x1 > 0 && !near(px(x1, y), b.c, 90)) x1--;
+            return { y: b.y0 / H, h: (b.y1 - b.y0 + 1) / H, x: x0 / W, w: (x1 - x0 + 1) / W, color: hex(b.c), c: b.c };
+        });
         bandList.forEach(b => { for (let y = Math.round(b.y * H); y < Math.round((b.y + b.h) * H) && y < HC; y++) rowBg[y] = b.c; });
-        // Ink that is not text: pictures and lines
+        // ink that is not text, on a grid
         const G = Math.max(2, Math.round(W / 420)), gw = Math.ceil(W / G), gh = Math.ceil(HC / G);
         const skip = [...p.texts, ...p.fields].map(r => ({ x0: (r.x - 0.002) * W, x1: (r.x + r.w + 0.002) * W, y0: (r.y - 0.002) * H, y1: (r.y + r.h + 0.002) * H }));
-        const ink = new Uint8Array(gw * gh);
-        for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
-            const cx = gx * G + G / 2, cy = gy * G + G / 2;
-            if (skip.some(r => cx >= r.x0 && cx <= r.x1 && cy >= r.y0 && cy <= r.y1)) continue;
-            for (let dy = 0; dy < G && !ink[gy * gw + gx]; dy++) for (let dx = 0; dx < G; dx++) {
-                const x = gx * G + dx, y = gy * G + dy;
-                if (x >= W || y >= HC) continue;
-                if (!near(px(x, y), rowBg[y], 150)) { ink[gy * gw + gx] = 1; break; }
+        const inkGrid = (skipList, tol = 150) => {
+            const g = new Uint8Array(gw * gh);
+            for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+                const cx = gx * G + G / 2, cy = gy * G + G / 2;
+                if (skipList.some(r => cx >= r.x0 && cx <= r.x1 && cy >= r.y0 && cy <= r.y1)) continue;
+                for (let dy = 0; dy < G && !g[gy * gw + gx]; dy++) for (let dx = 0; dx < G; dx++) {
+                    const x = gx * G + dx, y = gy * G + dy;
+                    if (x >= W || y >= HC) continue;
+                    if (!near(px(x, y), rowBg[y], tol)) { g[gy * gw + gx] = 1; break; }
+                }
+            }
+            return g;
+        };
+        const ink = inkGrid(skip);
+        // Lines are looked for with only each printed word's own letters hidden (a word's box runs on through its
+        // trailing spaces, and a table's borders touch it), and kept only where the pixels run on without a break
+        const lineInk = inkGrid([...p.texts.flatMap(t => [...t.str.matchAll(/\S+(?: \S+)*/g)].map(m => ({ x: t.x + m.index * t.w / t.str.length, w: m[0].length * t.w / t.str.length, y: t.y, h: t.h }))).map(r => ({ x0: (r.x - 0.001) * W, x1: (r.x + r.w + 0.001) * W, y0: r.y * H + 1, y1: (r.y + r.h) * H - 1 })),
+            ...p.fields.map(r => ({ x0: (r.x - 0.002) * W, x1: (r.x + r.w + 0.002) * W, y0: (r.y - 0.002) * H, y1: (r.y + r.h + 0.002) * H }))], 90);
+        const inkPx = (x, y) => x >= 0 && y >= 0 && x < W && y < HC && !near(px(x, y), rowBg[y], 90);   // faint grey lines too
+        // the longest unbroken stretch of ink along a pixel row (or column) and the next (a faint line between the two), gaps of 2 px allowed
+        const stretch = (from, to, at) => {
+            let best = [0, 0], start = -1, miss = 0, end = -1;
+            for (let k = from; k <= to + 1; k++) {
+                if (k <= to && at(k)) { if (start < 0) start = k; end = k; miss = 0; }
+                else if (start >= 0 && ++miss > 2) { if (end - start > best[1] - best[0]) best = [start, end]; start = -1; miss = 0; }
+            }
+            if (start >= 0 && end - start > best[1] - best[0]) best = [start, end];
+            return best;
+        };
+        const lineH = [], lineV = [];
+        {
+            const hrB = new Uint16Array(gw * gh), vrB = new Uint16Array(gw * gh);
+            for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw;) { if (!lineInk[gy * gw + gx]) { gx++; continue; } let e = gx; while (e < gw && lineInk[gy * gw + e]) e++; for (let k = gx; k < e; k++) hrB[gy * gw + k] = e - gx; gx = e; }
+            for (let gx = 0; gx < gw; gx++) for (let gy = 0; gy < gh;) { if (!lineInk[gy * gw + gx]) { gy++; continue; } let e = gy; while (e < gh && lineInk[e * gw + gx]) e++; for (let k = gy; k < e; k++) vrB[k * gw + gx] = e - gy; gy = e; }
+            for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+                const i = gy * gw + gx;
+                if (lineInk[i] && hrB[i] >= 0.05 * gw && (gx === 0 || !lineInk[i - 1])) {
+                    let thin = 0; for (let k = gx; k < gx + hrB[i]; k++) if (vrB[gy * gw + k] <= 3) thin++;
+                    if (thin / hrB[i] >= 0.6) {
+                        let best = [0, 0], by = 0;
+                        for (let y = gy * G; y < gy * G + G; y++) { const st = stretch(gx * G, Math.min(W - 1, (gx + hrB[i]) * G), x => inkPx(x, y) || inkPx(x, y + 1)); if (st[1] - st[0] > best[1] - best[0]) { best = st; by = y; } }
+                        if (best[1] - best[0] >= 0.05 * W) lineH.push({ x: best[0] / W, y: by / H, w: (best[1] - best[0] + 1) / W });
+                    }
+                }
+                if (lineInk[i] && vrB[i] >= 0.012 * gh && (gy === 0 || !lineInk[i - gw])) {
+                    let thin = 0; for (let k = gy; k < gy + vrB[i]; k++) if (hrB[k * gw + gx] <= 3) thin++;
+                    if (thin / vrB[i] >= 0.6) {
+                        let best = [0, 0], bx = 0;
+                        for (let x = gx * G; x < gx * G + G; x++) { const st = stretch(gy * G, Math.min(HC - 1, (gy + vrB[i]) * G), y => inkPx(x, y) || inkPx(x + 1, y)); if (st[1] - st[0] > best[1] - best[0]) { best = st; bx = x; } }
+                        if (best[1] - best[0] >= 0.012 * H) lineV.push({ x: bx / W, y: best[0] / H, h: (best[1] - best[0] + 1) / H });
+                    }
+                }
             }
         }
-        // Long thin runs are lines (rules, box sides), set apart so a picture touching one is still found on its own
+        // long thin runs are lines, set apart (a picture touching one is still found on its own)
         const hr = new Uint16Array(gw * gh), vr = new Uint16Array(gw * gh);
         for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw;) {
             if (!ink[gy * gw + gx]) { gx++; continue; }
@@ -4187,20 +4243,23 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             for (let k = gy; k < e; k++) vr[k * gw + gx] = e - gy;
             gy = e;
         }
-        const lines = [];
+        const orig = ink.slice(), hLines = [], vLines = [];
         for (let i = 0; i < ink.length; i++) {
-            if (!ink[i]) continue;
-            const horizontal = hr[i] >= 0.12 * gw && vr[i] <= 3, vertical = vr[i] >= 0.04 * gh && hr[i] <= 3;
-            if (!horizontal && !vertical) continue;
-            if (horizontal) {
-                const gx = i % gw, gy = (i - gx) / gw;
-                if (gx === 0 || !ink[i - 1]) lines.push({ x: gx * G / W, y: gy * G / H, w: hr[i] * G / W, h: G / H });
-            }
-            ink[i] = 0;
+            if (!orig[i]) continue;
+            const gx = i % gw, gy = (i - gx) / gw;
+            const horizontal = hr[i] >= 0.05 * gw && vr[i] <= 3, vertical = vr[i] >= 0.012 * gh && hr[i] <= 3;
+            if (horizontal && (gx === 0 || !orig[i - 1])) hLines.push({ x: gx * G / W, y: gy * G / H, w: hr[i] * G / W });
+            if (vertical && (gy === 0 || !orig[i - gw])) vLines.push({ x: gx * G / W, y: gy * G / H, h: vr[i] * G / H });
+            if (horizontal || vertical) ink[i] = 0;
         }
-        // one rule drawn a few pixels thick is one line
-        lines.sort((a, b) => a.y - b.y || a.x - b.x);
-        for (let k = lines.length - 1; k > 0; k--) if (Math.abs(lines[k].y - lines[k - 1].y) < 3 * G / H && Math.abs(lines[k].x - lines[k - 1].x) < 0.01) lines.splice(k, 1);
+        // a line drawn a few pixels thick is one line
+        const merge = (list, a, b) => {
+            list.sort((p1, p2) => p1[a] - p2[a] || p1[b] - p2[b]);
+            return list.filter((l, k) => !list.slice(Math.max(0, k - 6), k).some(m => Math.abs(m[a] - l[a]) < 4 * G / (a === 'y' ? H : W) && Math.abs(m[b] - l[b]) < 0.01));
+        };
+        const within = (l, m, a, b, len) => Math.abs(m[a] - l[a]) < 4 * G / (a === 'y' ? H : W) && l[b] >= m[b] - 0.004 && l[b] + l[len] <= m[b] + m[len] + 0.004;
+        const hl = merge([...lineH, ...hLines.filter(l => !lineH.some(m => within(l, m, 'y', 'x', 'w')))], 'y', 'x');
+        const vl = merge([...lineV, ...vLines.filter(l => !lineV.some(m => within(l, m, 'x', 'y', 'h')))], 'x', 'y');
         const seen = new Uint8Array(gw * gh), images = [];
         for (let i = 0; i < ink.length; i++) {
             if (!ink[i] || seen[i]) continue;
@@ -4216,15 +4275,27 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 });
             }
             const r = { x: x0 * G / W, y: y0 * G / H, w: (x1 - x0 + 1) * G / W, h: (y1 - y0 + 1) * G / H };
-            const fill = n / ((x1 - x0 + 1) * (y1 - y0 + 1));
-            if (r.w > 0.035 && r.h > 0.025 && fill > 0.18) images.push(r);
+            if (r.w > 0.035 && r.h > 0.025 && n / ((x1 - x0 + 1) * (y1 - y0 + 1)) > 0.18) images.push(r);
         }
-        return { bands: bandList, images, lines, rowBg, H, W };
+        // boxes: two horizontal lines joined by vertical lines at both ends (rounded corners leave a small gap)
+        const boxes = [];
+        hl.forEach(t => {
+            const below = hl.filter(b => b.y > t.y + 0.012 && b.y - t.y < 0.35 && Math.abs(b.x - t.x) < 0.015 && Math.abs((b.x + b.w) - (t.x + t.w)) < 0.015).sort((a, b) => a.y - b.y);
+            for (const b of below) {
+                const side = x => vl.find(v => Math.abs(v.x - x) < 0.012 && v.y <= t.y + 0.02 && v.y + v.h >= b.y - 0.02 && v.h > (b.y - t.y) * 0.5);
+                const l = side(t.x), r = side(t.x + t.w);
+                if (l && r) {
+                    if (!boxes.some(o => Math.abs(o.x - t.x) < 0.01 && Math.abs(o.y - t.y) < 0.01))
+                        boxes.push({ x: Math.min(t.x, b.x), y: t.y, w: Math.max(t.w, b.w), h: b.y - t.y, rounded: l.y > t.y + 0.004 });
+                    break;
+                }
+            }
+        });
+        return { bands: bandList, images, hLines: hl, vLines: vl, boxes, rowBg, H, W };
     }
 
-    // The side borders of a table's cells across a line: thin vertical lines running from above its letters to below them
-    // (a letter's stroke never does), as fractions of the width
-    function verticalLinesAt(p, top, bot) {
+    // The side borders of a table's cells across a line (thin vertical lines, not in its words), as fractions of the width
+    function verticalLinesAt(p, top, bot, row = null) {
         const c = p.canvas, W = c.width, H = p.source.height;
         const y0 = Math.max(0, Math.floor((top - 0.004) * H)), y1 = Math.min(c.height - 1, Math.ceil((bot + 0.004) * H)), rows = y1 - y0 + 1;
         if (rows < 4) return [];
@@ -4238,7 +4309,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const last = runs[runs.length - 1];
             if (last && x - last.x1 <= 1) last.x1 = x; else runs.push({ x0: x, x1: x });
         }
-        return runs.filter(r => r.x1 - r.x0 <= Math.max(4, W / 250)).map(r => (r.x0 + r.x1) / 2 / W);
+        const words = row ? row.tiles.flatMap(t => t.labels) : [];
+        return runs.filter(r => r.x1 - r.x0 <= Math.max(4, W / 250)).map(r => (r.x0 + r.x1) / 2 / W)
+            .filter(x => !words.some(l => x > l.x + 0.002 && x < l.x + l.w - 0.002));
     }
 
     async function cutPicture(pageNum, r) {
@@ -4249,194 +4322,346 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return c.toDataURL('image/png');
     }
 
+    // ---- the copy ----
+    // Every piece is put where it was: each line's top comes from the PDF (its space above is the difference from where the
+    // one before ended), widths and indents in mm, blanks as wide as on the PDF, boxes and table rows as tall.
     async function pdfToDocument() {
-        const p0 = pdPages[0], pageWpt = p0.hPt * p0.source.width / p0.source.height, pageHpt = p0.hPt, mmW = pageWpt * 25.4 / 72;
+        const p0 = pdPages[0], pageWpt = p0.hPt * p0.source.width / p0.source.height, pageHpt = p0.hPt;
+        const mmW = pageWpt * 25.4 / 72, mmH = pageHpt * 25.4 / 72, ptMm = 25.4 / 72;
         const paper = Math.abs(pageHpt - 1008) < 12 ? 'Legal' : Math.abs(pageHpt - 842) < 12 && Math.abs(pageWpt - 595) < 12 ? 'A4' : 'Letter';
-        const used = pdfUsage(), tplAuto = activeTemplate().auto;
-        const parts = { header: '', body: '', footer: '' };
-        let headerMm = 0, footerMm = 0;
+        const mm = v => Math.round(v * 10) / 10;
+        const rowLeft = r => Math.min(...r.tiles.flatMap(tileParts).map(q => q.x)), rowRight = r => Math.max(...r.tiles.flatMap(tileParts).map(q => q.x + q.w));
+        const sizeOf = r => Math.max(...r.tiles.flatMap(t => t.labels).map(l => l.size || 10), 8);
         const colourOf = new Map();
         const inkColour = (page, t) => {
             const key = page + ':' + t.labels.map(l => l.x.toFixed(4) + l.y.toFixed(4)).join();
             if (!colourOf.has(key)) colourOf.set(key, t.labels.length ? ((pageColors(page, unionOf(t.labels)) || {}).color || '#000000') : '#000000');
             return colourOf.get(key);
         };
-        const pagePtWide = pageWpt;
-        // A part's words (each piece in its own font / size / weight) and its blank
+        const gapSpan = w => w > 2.5 ? `<span style="display: inline-block; width: ${mm(w)}mm;">&nbsp;</span>` : ' ';
+        const answerStyle = (b, room = Infinity, bare = false) => `display: inline-block; width: ${mm(Math.max(6, Math.min(b.w * mmW, room)))}mm;${bare ? ' border-bottom: 0;' : ''} font-family: arial, helvetica, sans-serif; font-size: 8pt; line-height: 1;`;
+        const wordsMm = t => t.labels.reduce((sum, l) => sum + textWidthOnPage(1, l.str, { font: l.font || 'Times', size: l.size || 10, bold: !!l.bold, italic: !!l.italic }) * mmW * 1.06 + 0.9, 0);
+        // A part's words (each piece in its font / size / weight / colour), the space before its blank, and the blank
         const partHtml = (page, t, opts = {}) => {
             const colour = inkColour(page, t), b = t.blank;
+            // the room left for the blank in its slot (opts.slot: the slot's width in mm)
+            const room = opts.slot ? opts.slot - wordsMm(t) - 2 : Infinity;
             const words = tileText(t).replace(/[:*]+$/, '').replace(/^\(\s*\)\s*/, '').trim();
+            const name = b && b.kind === 'field' ? (pdfUsage()[b.name] ? pdfBlankLabel(b.name) : (words && words.length <= 40 ? words : pdfBlankLabel(b.name))) : '';
             const spot = b && b.kind === 'field' && !b.sig
-                ? `<span class="sl-field${b.check ? ' sl-check' : ''}" contenteditable="false" data-pdf-field="${esc(b.name)}" data-label="${esc(b.check ? (words || 'Tick') : (pdfUsage()[b.name] ? pdfBlankLabel(b.name) : (words && words.length <= 40 ? words : pdfBlankLabel(b.name))))}">[${esc(b.check ? '✓' : (pdfUsage()[b.name] ? pdfBlankLabel(b.name) : (words && words.length <= 40 ? words : pdfBlankLabel(b.name))))}]</span>` : null;
-            let inBrackets = false, html = '', prev = null;
-            t.labels.forEach(l => {
-                const touching = prev && Math.abs((l.y + l.h / 2) - (prev.y + prev.h / 2)) < Math.max(l.h, prev.h) * 0.6 && l.x - (prev.x + prev.w) < (l.size || 10) * 0.12 / pagePtWide && l.x >= prev.x;
+                ? `<span class="sl-field${b.check ? ' sl-check' : ''}" contenteditable="false" data-pdf-field="${esc(b.name)}" data-label="${esc(b.check ? (words || 'Tick') : name)}" style="${b.check ? `display: inline-block; width: ${mm(Math.max(3, b.w * mmW))}mm; text-align: center;` : answerStyle(b, room, opts.bare)}">[${esc(b.check ? '✓' : name)}]</span>` : null;
+            if (opts.pageNumbers && /^\s*\d+\s+of\s+\d+\s*$/.test(tileText(t)) && !b)
+                return docSpan({ sys: 'page_number', label: DOC_SYS.page_number }) + ' of ' + docSpan({ sys: 'page_count', label: DOC_SYS.page_count });
+            let inBrackets = false, html = '', prev = null, spotEnd = -1;
+            t.labels.forEach((l, k) => {
+                const prevEnd = prev ? Math.max(prev.x + prev.w, spotEnd) : 0;
+                const touching = prev && Math.abs((l.y + l.h / 2) - (prev.y + prev.h / 2)) < Math.max(l.h, prev.h) * 0.6 && l.x - prevEnd < (l.size || 10) * 0.12 / pageWpt && l.x >= prev.x;
                 let text = esc(l.str);
                 if (spot && b.check && !inBrackets && /\(\s*\)/.test(text)) { text = text.replace(/\(\s*\)/, '(' + spot + ')'); inBrackets = true; }
-                else if (spot && b.check && !inBrackets && /\(\s*$/.test(text)) { text += spot; inBrackets = true; }   // "(" and ")" printed apart
-                if (opts.pageNumbers) text = text.replace(/\b(\d+)\s+of\s+(\d+)\b/, () => docSpan({ sys: 'page_number', label: DOC_SYS.page_number }) + ' of ' + docSpan({ sys: 'page_count', label: DOC_SYS.page_count }));
+                else if (spot && b.check && !inBrackets && /\(\s*$/.test(text)) {
+                    // the tick fills the room between ( and the ) after it
+                    const close = t.labels[k + 1], room = close && close.x > l.x + l.w ? (close.x - (l.x + l.w)) * mmW - 0.4 : null;
+                    text += room ? spot.replace(/width: [\d.]+mm/, `width: ${mm(Math.max(2, room))}mm`) : spot;
+                    inBrackets = true; spotEnd = room ? close.x : b.x + b.w;
+                }
                 const st = [`font-family: ${DOC_FONTS[l.font] || DOC_FONTS.Times}`, `font-size: ${Math.round((l.size || 10) * 2) / 2}pt`];
                 if (colour !== '#000000') st.push(`color: ${colour}`);
                 let piece = `<span style="${st.join('; ')}">${text}</span>`;
                 if (l.bold) piece = `<strong>${piece}</strong>`;
                 if (l.italic) piece = `<em>${piece}</em>`;
-                html += (prev && !touching ? ' ' : '') + piece;
+                html += (prev && !touching ? gapSpan((l.x - prevEnd) * mmW - 1.2) : '') + piece;
                 prev = l;
+                if (spotEnd > 0 && !/\(\s*$/.test(l.str)) spotEnd = -1;
             });
             if (b && !inBrackets) {
+                const before = prev ? gapSpan(Math.min((b.x - (prev.x + prev.w)) * mmW - 1, room - Math.min(b.w * mmW, room) - 1)) : '';
                 let piece;
-                if (b.kind === 'box') { const f = findField(b.key); piece = f ? docSpan({ qk: f.key, label: f.label }) : ''; }
-                else if (b.kind === 'line') piece = '_'.repeat(Math.max(4, Math.min(60, Math.round(b.w * pageWpt / 5.8))));
-                else if (b.sig) piece = '_'.repeat(Math.max(8, Math.min(60, Math.round(b.w * pageWpt / 5.8))));
+                if (b.kind === 'box') { const f = findField(b.key); piece = f ? docSpan({ qk: f.key, label: f.label }).replace('contenteditable="false"', `contenteditable="false" style="${answerStyle(b, room, opts.bare)}"`) : ''; }
+                else if (b.kind === 'line' || b.sig) piece = `<span style="display: inline-block; width: ${mm(Math.max(6, Math.min(b.w * mmW, room)))}mm; border-bottom: 0.75pt solid #000000;">&nbsp;</span>`;
                 else piece = b.check ? '(' + spot + ')' : spot;
-                html += (html ? ' ' : '') + piece;
+                html += before + piece;
             }
-            // "1 of 1" in the footer: the page number and the number of pages
-            if (opts.pageNumbers && /^\s*\d+\s+of\s+\d+\s*$/.test(tileText(t)) && !b)
-                return docSpan({ sys: 'page_number', label: DOC_SYS.page_number }) + ' of ' + docSpan({ sys: 'page_count', label: DOC_SYS.page_count });
             return html;
         };
-        const rowLeft = r => Math.min(...r.tiles.flatMap(tileParts).map(q => q.x)), rowRight = r => Math.max(...r.tiles.flatMap(tileParts).map(q => q.x + q.w));
 
+        const parts = { header: '', body: '', footer: '' };
+        let layout = null, headerMm = 0, footerMm = 0;
         for (const p of pdPages) {
             const ink = pageInk(p);
             const rows = pdRows.filter(r => r.page === p.num && r.tiles.length);
-            // Printed ____ answer lines (not fields) join their line as blanks
-            p.texts.filter(t => /_{3,}/.test(t.str) && !/[A-Za-z0-9]/.test(t.str)).forEach(t => {
-                const r = rows.find(r => t.y + t.h / 2 >= r.top - 0.004 && t.y + t.h / 2 <= r.bot + 0.006);
-                if (r && !r.tiles.some(x => x.blank && x.blank.x < t.x + t.w && x.blank.x + x.blank.w > t.x)) r.tiles.push({ labels: [], blank: { kind: 'line', x: t.x, y: t.y, w: t.w, h: t.h } });
+            // printed ____ answer lines (not fields) join their line as blanks: on their own, or after a label
+            // ("Place of Birth: ______"), with the pieces that touch joined into one
+            const unders = [];
+            p.texts.filter(t => t.str.includes('_')).forEach(t => {
+                const font = { font: t.font || 'Times', size: t.size || 10, bold: !!t.bold, italic: !!t.italic };
+                const whole = textWidthOnPage(p.num, t.str, font) || 1, scale = t.w / whole;
+                for (const m of t.str.matchAll(/_+/g))
+                    unders.push({ x: t.x + textWidthOnPage(p.num, t.str.slice(0, m.index), font) * scale, w: textWidthOnPage(p.num, m[0], font) * scale, y: t.y, h: t.h, n: m[0].length });
+            });
+            unders.sort((a, b) => a.y - b.y || a.x - b.x);
+            const joined = [];
+            unders.forEach(u => {
+                const last = joined.find(j => Math.abs(j.y - u.y) < 0.006 && u.x - (j.x + j.w) < 0.008 && u.x >= j.x);
+                if (last) { last.w = Math.max(last.w, u.x + u.w - last.x); last.n += u.n; } else joined.push({ ...u });
+            });
+            joined.filter(t => t.n >= 3).forEach(t => {
+                const c = t.y + t.h / 2;
+                const r = rows.filter(r => c >= r.top - 0.004 && c <= r.bot + 0.006).sort((a, b) => Math.abs((a.top + a.bot) / 2 - c) - Math.abs((b.top + b.bot) / 2 - c))[0];
+                if (!r) {   // a line of its own (once: the page scan may have seen it already)
+                    const y = t.y + t.h * 0.85;
+                    if (!ink.hLines.some(l => Math.abs(l.y - y) < 0.008 && Math.min(l.x + l.w, t.x + t.w) - Math.max(l.x, t.x) > t.w * 0.5)) ink.hLines.push({ x: t.x, y, w: t.w });
+                    return;
+                }
+                // the part not already a blank (a field over the start of the line leaves its end)
+                let segs = [[t.x, t.x + t.w]];
+                r.tiles.filter(x => x.blank).forEach(x => { segs = segs.flatMap(([a, b]) => x.blank.x >= b || x.blank.x + x.blank.w <= a ? [[a, b]] : [[a, x.blank.x], [x.blank.x + x.blank.w, b]]); });
+                segs.filter(([a, b]) => b - a >= (segs.length === 1 && a === t.x && b === t.x + t.w ? 0.015 : 0.04))
+                    // a short bit between two answers is the same underline (they are drawn on it)
+                    .filter(([a, b]) => b - a >= 0.05 || !r.tiles.some(x => x.blank && (Math.abs(x.blank.x + x.blank.w - a) < 0.012 || Math.abs(x.blank.x - b) < 0.012)))
+                    .forEach(([a, b]) => r.tiles.push({ labels: [], blank: { kind: 'line', x: a, y: t.y, w: b - a, h: t.h } }));
             });
             rows.forEach(r => r.tiles.sort((a, b) => tileParts(a)[0].x - tileParts(b)[0].x));
-            const left = Math.min(...rows.map(rowLeft).filter(isFinite), 0.2), right = Math.max(...rows.map(rowRight).filter(isFinite), 0.8);
-            const width = Math.max(0.3, right - left);
-            const mm = f => Math.round(f * mmW * 10) / 10;
+            const band = p.num === 1 ? ink.bands.find(b => b.y < 0.2) : null;
+            const inBand = r => band && (r.top + r.bot) / 2 >= band.y && (r.top + r.bot) / 2 <= band.y + band.h;
+            const footerTop = 0.925, inFooter = y => p.num === 1 && y > footerTop;
 
-            // Header: the coloured band at the top of the first page; footer: the lines at the bottom of the first page
-            const topBand = p.num === 1 ? ink.bands.find(b => b.y < 0.2) : null;
-            const inHeader = r => topBand && r.top >= topBand.y - 0.01 && r.bot <= topBand.y + topBand.h + 0.01;
-            const inFooter = r => p.num === 1 && r.top > 0.925;
-            // Ruled tables: lines crossed by the same 3+ vertical borders, with their words between the outer ones
+            // ruled tables: lines crossed by the same 3+ border lines (between their words), and lines next to them that they cross
+            // a table's column lines across a line: the lines (grey too) the page scan found crossing it, or else dark strokes seen there
+            const colsAt = (r, mid, words) => {
+                const found = ink.vLines.filter(v => v.y <= mid && v.y + v.h >= mid).map(v => v.x + 0.5 / ink.W);
+                const xs = (found.length >= 3 ? found : [...verticalLinesAt(p, mid + 0.001, mid - 0.001, words ? r : null), ...found])
+                    .filter(x => !words || !r.tiles.flatMap(t => t.labels).some(l => x > l.x + 0.002 && x < l.x + l.w - 0.002)).sort((a, b) => a - b);
+                return xs.filter((x, k) => k === 0 || x - xs[k - 1] > 0.006);
+            };
             const ruled = rows.map(r => {
-                const xs = verticalLinesAt(p, r.top, r.bot);
+                const mid = (r.top + r.bot) / 2, xs = colsAt(r, mid, true);
                 if (xs.length < 3) return null;
                 const inside = r.tiles.every(t => { const c = tileParts(t)[0].x + 0.002; return c >= xs[0] - 0.01 && c <= xs[xs.length - 1]; });
                 return inside ? xs : null;
             });
             const sameCols = (a, b) => a && b && a.length === b.length && a.every((x, k) => Math.abs(x - b[k]) < 0.008);
-            // A line next to a table, whose borders sit close to its words, joins it when the table's column lines cross it
             for (let changed = true; changed;) {
                 changed = false;
                 rows.forEach((r, k) => {
                     if (ruled[k]) return;
                     const cols = ruled[k - 1] && Math.abs(rows[k - 1].bot - r.top) < 0.03 ? ruled[k - 1] : ruled[k + 1] && Math.abs(r.bot - rows[k + 1].top) < 0.03 ? ruled[k + 1] : null;
                     if (!cols) return;
-                    const mid = (r.top + r.bot) / 2, xs = verticalLinesAt(p, mid + 0.001, mid - 0.001);   // (it widens what it is given by 0.004 each way: ±0.003 around the middle)
+                    const mid = (r.top + r.bot) / 2, xs = colsAt(r, mid, false);
                     if (cols.every(x => xs.some(v => Math.abs(v - x) < 0.008))) { ruled[k] = cols; changed = true; }
                 });
             }
-            const used2 = new Set();
-            let lastBot = topBand ? topBand.y + topBand.h : 0.05, html = '';
-            // Only the PDF's own spacing between lines (not the editor's usual space after a paragraph)
-            const gapStyle = top => { const gap = (top - lastBot) * pageHpt - 3; return 'margin: 0; ' + (gap > 3 ? `margin-top: ${Math.min(40, Math.round(gap))}pt; ` : ''); };
+
+            // pieces of the page, each with where it is
+            const pieces = [];
+            const usedLines = new Set(), usedRows = new Set();
+            // the letterhead (the header): the band, its pictures and its words
             const pictures = [];
             for (const im of ink.images) pictures.push({ ...im, src: await cutPicture(p.num, im) });
-            const picHtml = (im, extra = '') => `<img src="${im.src}" alt="" width="${Math.round(im.w * mmW * 96 / 25.4)}" style="${extra}">`;
-            const placedPics = new Set();
-
-            // the letterhead
-            if (topBand) {
-                const hRows = rows.filter(inHeader), hPics = pictures.filter(im => im.y < topBand.y + topBand.h && im.y + im.h > topBand.y);
-                hPics.forEach(im => placedPics.add(im));
+            if (band) {
+                const hRows = rows.filter(inBand), hPics = pictures.filter(im => im.y < band.y + band.h && im.y + im.h > band.y);
+                hRows.forEach(r => usedRows.add(r));
+                const bleed = band.x < 0.03 && band.x + band.w > 0.97;
+                const origin = bleed ? 0 : band.x;
                 const textLeft = Math.min(...hRows.map(rowLeft)), textRight = Math.max(...hRows.map(rowRight));
                 const cells = [];
-                hPics.filter(im => im.x + im.w <= textLeft + 0.02).forEach(im => cells.push(`<td style="width: ${Math.round(im.w * 100)}%; vertical-align: middle;">${picHtml(im)}</td>`));
-                const lines = hRows.map(r => {
-                    const cx = (rowLeft(r) + rowRight(r)) / 2, mid = (textLeft + textRight) / 2;
-                    const align = Math.abs(cx - mid) < 0.03 && rowRight(r) - rowLeft(r) < (textRight - textLeft) * 0.95 ? 'center' : 'left';
-                    return `<p style="margin: 0; text-align: ${align};">${r.tiles.map(t => partHtml(p.num, t)).join(' &nbsp; ')}</p>`;
-                }).join('');
-                cells.push(`<td style="vertical-align: middle;">${lines}</td>`);
-                hPics.filter(im => im.x >= textRight - 0.02).forEach(im => cells.push(`<td style="width: ${Math.round(im.w * 100)}%; vertical-align: middle;">${picHtml(im)}</td>`));
-                parts.header += `<table style="border-collapse: collapse; width: 100%; background-color: ${topBand.color};"><tbody><tr>${cells.join('')}</tr></tbody></table>`;
-                headerMm = mm(topBand.h) + 2;
-                hRows.forEach(r => used2.add(r));
+                let edge = origin;
+                hPics.filter(im => im.x + im.w <= textLeft + 0.02).sort((a, b) => a.x - b.x).forEach(im => {
+                    im.used = true;
+                    const above = Math.max(0, band.y - im.y), overflow = Math.max(0, im.y + im.h - (band.y + band.h));
+                    cells.push(`<td style="width: ${mm(im.w * mmW)}mm; padding: 0 0 0 ${mm((im.x - edge) * mmW)}mm; vertical-align: top;"><img src="${im.src}" alt="" width="${Math.round(im.w * mmW * 96 / 25.4)}" style="margin-top: ${mm((im.y - band.y) * mmH)}mm; margin-bottom: -${mm((above + overflow) * mmH)}mm;"></td>`);
+                    edge = im.x + im.w;
+                });
+                let cursor = band.y, inner = '';
+                hRows.forEach(r => {
+                    const s0 = sizeOf(r), lh = s0 * 1.18, top = (r.top + r.bot) / 2 * mmH - lh * ptMm / 2;
+                    inner += `<p style="margin: 0; margin-top: ${mm(top - cursor * mmH)}mm; margin-left: ${mm((rowLeft(r) - Math.max(edge, textLeft - 0.002)) * mmW)}mm; line-height: ${mm(lh)}pt; white-space: nowrap;">${r.tiles.map(t => partHtml(p.num, t)).join(' ')}</p>`;
+                    cursor = (top + lh * ptMm) / mmH;
+                });
+                const pad = Math.max(0, textLeft - edge);
+                cells.push(`<td style="width: ${mm(Math.max(10, ((bleed ? 1 : band.x + band.w) - edge - pad) * mmW))}mm; height: ${mm(band.h * mmH)}mm; padding: 0 0 0 ${mm(pad * mmW)}mm; vertical-align: top;">${inner}</td>`);
+                parts.header += `<table style="border-collapse: collapse; width: 100%; background-color: ${band.color};"><tbody><tr>${cells.join('')}</tr></tbody></table>`;
+                headerMm = mm(band.h * mmH);
+                layout = layout || { bleed, top: band.y };
+                ink.hLines.forEach(l => { if (l.y >= band.y - 0.004 && l.y <= band.y + band.h + 0.004) usedLines.add(l); });
             }
 
-            // the page in order: pictures, lines (alone, side by side, as a paragraph), ruled tables
-            const items = [];
-            rows.forEach((r, k) => { if (!used2.has(r)) items.push({ y: r.top, row: r, k }); });
-            pictures.filter(im => !placedPics.has(im)).forEach(im => items.push({ y: im.y, pic: im }));
-            ink.lines.filter(l => !rows.some(r => l.y >= r.top - 0.012 && l.y <= r.bot + 0.006) && !(topBand && l.y < topBand.y + topBand.h) && !(ruled.some(Boolean) && rows.some((r, k) => ruled[k] && Math.abs(l.y - r.top) < 0.03)))
-                .forEach(l => items.push({ y: l.y, line: l }));
-            items.sort((a, b) => a.y - b.y);
-            let footerHtml = '';
-            for (let n = 0; n < items.length; n++) {
-                const it = items[n];
-                if (it.pic) {
-                    const float = it.pic.x > 0.55 ? 'float: right; margin-left: 4mm;' : it.pic.x + it.pic.w < 0.45 ? 'float: left; margin-right: 4mm;' : '';
-                    html += float ? `<p style="margin: 0;">${picHtml(it.pic, float)}</p>` : `<p style="${gapStyle(it.y)}text-align: center;">${picHtml(it.pic)}</p>`;
-                    if (!float) lastBot = it.pic.y + it.pic.h;
-                    continue;
-                }
-                if (it.line) {
-                    if (it.line.y > 0.9 && p.num === 1) continue;
-                    if (it.line.w > 0.5) {
-                        // a rule across the page (one, when it is drawn double)
-                        if (!/<hr[^>]*>$/.test(html)) html += `<hr style="${gapStyle(it.line.y)}border: 0; border-top: 1px solid #888888;">`;
-                    } else {
-                        const indent = Math.max(0, it.line.x - left), room = Math.max(0.05, width - indent);
-                        html += `<p style="${gapStyle(it.line.y)}margin-left: ${mm(indent)}mm;">${'_'.repeat(Math.max(6, Math.round(Math.min(it.line.w, room) * pageWpt / 5.8)))}</p>`;
-                    }
-                    lastBot = it.line.y + 0.004;
-                    continue;
-                }
-                const r = it.row, k = it.k, footer = inFooter(r);
-                let piece = '';
-                if (ruled[k]) {
-                    // a ruled table: this line and the next with the same columns
-                    const group = [r];
-                    while (items[n + 1] && items[n + 1].row && sameCols(ruled[items[n + 1].k], ruled[k])) { n++; group.push(items[n].row); }
-                    const xs = ruled[k], cols = xs.slice(1).map((x, c) => ({ x0: xs[c], x1: x }));
-                    const tw = xs[xs.length - 1] - xs[0];
-                    piece = `<table border="1" style="${gapStyle(r.top)}border-collapse: collapse; width: ${Math.min(100, Math.round(tw / width * 100))}%;"><tbody>`
-                        + group.map(g => '<tr>' + cols.map(c => `<td style="width: ${Math.round((c.x1 - c.x0) / tw * 100)}%;">${g.tiles.filter(t => { const x = tileParts(t)[0].x + 0.003; return x >= c.x0 - 0.005 && x < c.x1; }).map(t => partHtml(p.num, t, { pageNumbers: footer })).join(' ') || '&nbsp;'}</td>`).join('') + '</tr>').join('')
-                        + '</tbody></table>';
-                    lastBot = group[group.length - 1].bot;
-                } else if (r.tiles.length > 1) {
-                    // several labels on one line: side-by-side columns (a borderless table)
-                    const L0 = rowLeft(r), cells = [];
-                    if (L0 - left > 0.02) cells.push(`<td style="width: ${Math.round((L0 - left) / width * 100)}%;">&nbsp;</td>`);
-                    r.tiles.forEach((t, j) => {
-                        const x = tileParts(t)[0].x, next = r.tiles[j + 1] ? tileParts(r.tiles[j + 1])[0].x : right;
-                        cells.push(`<td style="width: ${Math.max(4, Math.round((next - x) / width * 100))}%; padding: 0 2pt;">${partHtml(p.num, t, { pageNumbers: footer })}</td>`);
-                    });
-                    piece = `<table style="${gapStyle(r.top)}border-collapse: collapse; width: 100%;"><tbody><tr>${cells.join('')}</tr></tbody></table>`;
-                    lastBot = r.bot;
-                } else {
-                    // one label: a line, or the start of a paragraph that runs over the next lines
-                    const gi = pdRows.indexOf(r), block = gi >= 0 ? paragraphRows(gi) : [gi];
-                    let group = [r];
-                    if (block.length > 1 && block[0] === gi) {
-                        group = block.map(b => pdRows[b]);
-                        while (items[n + 1] && items[n + 1].row && group.includes(items[n + 1].row)) n++;
-                    }
-                    const L0 = rowLeft(r), R0 = Math.max(...group.map(rowRight)), cx = (L0 + R0) / 2;
-                    const align = group.length === 1 && Math.abs(cx - (left + right) / 2) < 0.035 && R0 - L0 < width * 0.85 ? 'center'
-                        : group.length === 1 && L0 > 0.5 && R0 > right - 0.03 ? 'right' : 'left';
-                    const indent = align === 'left' ? `margin-left: ${mm(Math.max(0, L0 - left))}mm; ` : '';
-                    piece = `<p style="${gapStyle(r.top)}${indent}text-align: ${align === 'left' && group.length > 1 ? 'justify' : align};">${group.map(g => partHtml(p.num, g.tiles[0], { pageNumbers: footer })).join(' ')}</p>`;
-                    lastBot = group[group.length - 1].bot;
-                }
-                if (footer) footerHtml += piece.replace(/margin-top: \d+pt; /, '');   // (no gaps inside the footer)
-                else html += piece;
+            // boxes (not tables): the words inside them go with them
+            const tableTops = rows.filter((r, k) => ruled[k]).map(r => r.top);
+            const boxes = ink.boxes.filter(bx => !(band && bx.y < band.y + band.h) && !tableTops.some(t => t >= bx.y - 0.02 && t <= bx.y + bx.h));
+            boxes.forEach(bx => {
+                ink.hLines.forEach(l => { if (Math.abs(l.y - bx.y) < 0.006 || Math.abs(l.y - (bx.y + bx.h)) < 0.006) usedLines.add(l); });
+                const inside = q => q.x + q.w / 2 >= bx.x && q.x + q.w / 2 <= bx.x + bx.w && q.y + q.h / 2 >= bx.y && q.y + q.h / 2 <= bx.y + bx.h;
+                bx.rows = [];
+                rows.forEach(r => {
+                    if (usedRows.has(r)) return;
+                    const mine = r.tiles.filter(t => tileParts(t).every(inside));
+                    if (!mine.length) return;
+                    if (mine.length === r.tiles.length) { bx.rows.push(r); usedRows.add(r); }
+                    else { r.tiles = r.tiles.filter(t => !mine.includes(t)); bx.rows.push({ ...r, tiles: mine, top: Math.min(...mine.flatMap(tileParts).map(q => q.y)), bot: Math.max(...mine.flatMap(tileParts).map(q => q.y + q.h * 0.8)) }); }
+                });
+                // a box beside other lines floats there (a photo box); one alone takes its place in the flow
+                bx.float = rows.some(r => !usedRows.has(r) && r.bot > bx.y && r.top < bx.y + bx.h && rowRight(r) < bx.x);
+                pieces.push({ kind: 'box', top: bx.y, h: bx.h, box: bx, footer: inFooter(bx.y) });
+            });
+            // ruled tables (their rows exactly as tall as the PDF's, from its horizontal border lines)
+            for (let k = 0; k < rows.length; k++) {
+                if (!ruled[k] || usedRows.has(rows[k])) continue;
+                const group = [rows[k]];
+                while (rows[k + 1] && sameCols(ruled[k + 1], ruled[k]) && !usedRows.has(rows[k + 1])) group.push(rows[++k]);
+                group.forEach(r => usedRows.add(r));
+                const xs = ruled[k], gTop = group[0].top, gBot = group[group.length - 1].bot;
+                let ys = ink.hLines.filter(l => l.y >= gTop - 0.025 && l.y <= gBot + 0.025 && l.x <= xs[0] + 0.01 && l.x + l.w >= xs[xs.length - 1] - 0.01).map(l => l.y).sort((a, b) => a - b);
+                ys = ys.filter((y, i) => i === 0 || y - ys[i - 1] > 0.004);
+                ink.hLines.forEach(l => { if (ys.some(y => Math.abs(l.y - y) < 0.004)) usedLines.add(l); });
+                if (ys.length < 2) ys = [gTop - 0.003, ...group.map((r, i) => group[i + 1] ? (r.bot + group[i + 1].top) / 2 : r.bot + 0.003)];
+                pieces.push({ kind: 'table', top: ys[0], h: ys[ys.length - 1] - ys[0], xs, ys, group, footer: inFooter(gTop) });
             }
-            if (p.num === 1 && footerHtml) {
-                parts.footer = footerHtml;
-                footerMm = mm(1 - Math.min(...rows.filter(inFooter).map(r => r.top))) + 2;
-            } else if (footerHtml) html += footerHtml;
-            parts.body += (p.num > 1 ? '<div class="page-break"></div>' : '') + html;
+            // standalone drawn lines (signature lines, "for:" lines): those on one level make one row
+            const loose = ink.hLines.filter(l => !usedLines.has(l) && l.w < 0.85 && !rows.some(r => r.tiles.some(t => t.blank && t.blank.kind !== 'line'
+                && l.x < t.blank.x + t.blank.w && l.x + l.w > t.blank.x && l.y >= t.blank.y - 0.004 && l.y <= t.blank.y + t.blank.h + 0.008)));
+            loose.sort((a, b) => a.y - b.y || a.x - b.x).forEach(l => {
+                const same = pieces.find(q => q.kind === 'lines' && Math.abs(q.top + q.h - l.y) < 0.004);
+                if (same) same.lines.push(l); else pieces.push({ kind: 'lines', top: l.y - 0.012, h: 0.012, lines: [l], footer: inFooter(l.y) });
+            });
+            // rules across the page
+            ink.hLines.filter(l => !usedLines.has(l) && l.w >= 0.85).forEach(l => pieces.push({ kind: 'rule', top: l.y - 0.002, h: 0.004, line: l, footer: inFooter(l.y) }));
+            // pictures not in the letterhead
+            pictures.filter(im => !im.used).forEach(im => pieces.push({ kind: 'pic', top: im.y, h: im.h, pic: im, footer: inFooter(im.y) }));
+            // the lines of words
+            for (let k = 0; k < rows.length; k++) {
+                const r = rows[k];
+                if (usedRows.has(r) || !r.tiles.length) continue;
+                const gi = pdRows.indexOf(r), block = gi >= 0 && r.tiles.length === 1 ? paragraphRows(gi) : [gi];
+                const group = block.length > 1 && block[0] === gi ? block.map(b => pdRows[b]).filter(g => !usedRows.has(g)) : [r];
+                group.forEach(g => usedRows.add(g));
+                pieces.push({ kind: group.length > 1 ? 'para' : (r.tiles.length > 1 ? 'cols' : 'line'), top: r.top, h: group[group.length - 1].bot - r.top, group, footer: inFooter(r.top) });
+            }
+            pieces.sort((a, b) => a.top - b.top);
+
+            // the page's margins come from what is on it
+            const lefts = pieces.map(q => q.kind === 'table' ? q.xs[0] : q.kind === 'box' ? q.box.x : q.kind === 'lines' ? Math.min(...q.lines.map(l => l.x)) : q.kind === 'pic' ? q.pic.x : q.kind === 'rule' ? q.line.x : rowLeft(q.group[0]));
+            const rights = pieces.map(q => q.kind === 'table' ? q.xs[q.xs.length - 1] : q.kind === 'box' ? q.box.x + q.box.w : q.kind === 'lines' ? Math.max(...q.lines.map(l => l.x + l.w)) : q.kind === 'pic' ? q.pic.x + q.pic.w : q.kind === 'rule' ? q.line.x + q.line.w : Math.max(...q.group.map(rowRight)));
+            const left = Math.max(0.02, Math.min(...lefts)), right = Math.min(0.99, Math.max(...rights));
+            const footPieces = pieces.filter(q => q.footer), footTop = footPieces.length ? Math.min(...footPieces.map(q => q.top)) : null;
+            const lastBottom = Math.max(...pieces.map(q => q.top + q.h));
+            if (p.num === 1) {
+                const top = layout ? layout.top : Math.min(...pieces.map(q => q.top));
+                layout = { margins: [mm(top * mmH), mm((1 - right) * mmW), mm(Math.max(3, (1 - lastBottom) * mmH - 1)), mm(left * mmW)], bleed: !!(layout && layout.bleed), top };
+            }
+            const widthMm = (right - left) * mmW;
+
+            // writing the pieces in order; each one's space above = where it is minus where the one before ended
+            const write = (list, start) => {
+                let cursor = start * mmH, html = '';
+                const gap = topMm => { const g = mm(topMm - cursor); return `margin: 0; margin-top: ${Math.max(-4, g)}mm; `; };
+                list.forEach(q => {
+                    if (q.kind === 'rule') { html += `<hr style="${gap(q.line.y * mmH)}border: 0; border-top: 0.75pt solid #888888;">`; cursor = q.line.y * mmH + 0.3; return; }
+                    if (q.kind === 'pic') {
+                        const img = `<img src="${q.pic.src}" alt="" width="${Math.round(q.pic.w * mmW * 96 / 25.4)}">`;
+                        html += `<p style="${gap(q.top * mmH)}margin-left: ${mm((q.pic.x - left) * mmW)}mm; line-height: 0;">${img}</p>`;
+                        cursor = (q.top + q.h) * mmH;
+                        return;
+                    }
+                    if (q.kind === 'lines') {
+                        // cells only as tall as the line (no padding, no room for letters)
+                        let x = left, cells = '';
+                        const bare = 'padding: 0; font-size: 1pt; line-height: 1pt;';
+                        q.lines.sort((a, b) => a.x - b.x).forEach(l => {
+                            if (l.x - x > 0.005) cells += `<td style="width: ${mm((l.x - x) * mmW)}mm; ${bare}"></td>`;
+                            cells += `<td style="width: ${mm(l.w * mmW)}mm; border-bottom: 0.75pt solid #000000; height: 3mm; ${bare}"></td>`;
+                            x = l.x + l.w;
+                        });
+                        if (right - x > 0.005) cells += `<td style="${bare}"></td>`;
+                        const top = (q.top + q.h) * mmH - 3;
+                        html += `<table style="${gap(top)}border-collapse: collapse; width: 100%;"><tbody><tr>${cells}</tr></tbody></table>`;
+                        cursor = top + 3;
+                        return;
+                    }
+                    if (q.kind === 'table') {
+                        const cols = q.xs.slice(1).map((x, c) => ({ x0: q.xs[c], x1: x }));
+                        // the borders' colour: the darkest pixel across the first column line, halfway down
+                        const edge = (() => {
+                            const c = p.canvas, x = Math.round(q.xs[0] * c.width), y = Math.round((q.ys[0] + q.ys[1]) / 2 * p.source.height);
+                            const d = c.getContext('2d').getImageData(Math.max(0, x - 3), y, 7, 1).data;
+                            let best = [255, 255, 255];
+                            for (let k = 0; k < d.length; k += 4) if (d[k] + d[k + 1] + d[k + 2] < best[0] + best[1] + best[2]) best = [d[k], d[k + 1], d[k + 2]];
+                            return hex(best);
+                        })();
+                        const rowsHtml = q.ys.slice(1).map((y, i) => {
+                            const y0 = q.ys[i], inRow = q.group.filter(g => (g.top + g.bot) / 2 > y0 && (g.top + g.bot) / 2 < y);
+                            const cellsHtml = cols.map(c => {
+                                const tiles = inRow.flatMap(g => g.tiles).filter(t => { const x = tileParts(t)[0].x + 0.003; return x >= c.x0 - 0.005 && x < c.x1; });
+                                const content = tiles.map(t => partHtml(p.num, t, { pageNumbers: q.footer, bare: true })).join(' ');   // the cell's borders are its lines
+                                const lh = inRow.length ? Math.max(...inRow.map(sizeOf)) * 1.15 : 10;
+                                // words against the right side of their cell, or in its middle, stay there
+                                let align = '';
+                                if (tiles.length) {
+                                    const t0 = Math.min(...tiles.flatMap(tileParts).map(q2 => q2.x)), t1 = Math.max(...tiles.flatMap(tileParts).map(q2 => q2.x + q2.w));
+                                    const before = t0 - c.x0, after = c.x1 - t1;
+                                    if (before > 0.02 && after < before / 3) align = ' text-align: right;';
+                                    else if (before > 0.02 && Math.abs(before - after) < 0.012) align = ' text-align: center;';
+                                }
+                                return `<td style="width: ${mm((c.x1 - c.x0) * mmW)}mm; height: ${mm((y - y0) * mmH - 0.6)}mm; padding: 0 1.2mm; vertical-align: middle; line-height: ${mm(lh)}pt; border: 0.75pt solid ${edge};${align}">${content || '&nbsp;'}</td>`;
+                            }).join('');
+                            return `<tr>${cellsHtml}</tr>`;
+                        }).join('');
+                        html += `<table border="1" style="${gap(q.top * mmH)}margin-left: ${mm((q.xs[0] - left) * mmW)}mm; border-collapse: collapse; width: ${mm((q.xs[q.xs.length - 1] - q.xs[0]) * mmW)}mm;"><tbody>${rowsHtml}</tbody></table>`;
+                        cursor = (q.top + q.h) * mmH;
+                        return;
+                    }
+                    if (q.kind === 'box') {
+                        const bx = q.box, inner = write(bx.rows.map(r => ({ kind: r.tiles.length > 1 ? 'cols' : 'line', top: r.top, h: r.bot - r.top, group: [r] })), bx.y);
+                        const centred = bx.rows.length && bx.rows.every(r => Math.abs((rowLeft(r) + rowRight(r)) / 2 - (bx.x + bx.w / 2)) < 0.03);
+                        const boxCss = `border: 0.75pt solid #777777;${bx.rounded ? ' border-radius: 2.5mm;' : ''} width: ${mm(bx.w * mmW)}mm;`;
+                        const cell = `<td style="height: ${mm(bx.h * mmH - 0.6)}mm; padding: 0 1.5mm; vertical-align: ${centred ? 'middle' : 'top'};${centred ? ' text-align: center;' : ''}">${centred ? inner.replace(/margin-top: -?[\d.]+mm; /g, '').replace(/margin-left: -?[\d.]+mm; /g, '') : inner}</td>`;
+                        if (bx.float) {
+                            const text = bx.rows.map(r => r.tiles.map(t => partHtml(p.num, t)).join(' ')).join('<br>');
+                            html += `<div style="float: right; margin: 0; margin-top: ${mm(Math.max(0, bx.y * mmH - cursor))}mm; margin-right: ${mm((right - bx.x - bx.w) * mmW)}mm; ${boxCss} height: ${mm(bx.h * mmH)}mm; text-align: center; line-height: ${mm(bx.h * mmH)}mm;">${text || '&nbsp;'}</div>`;
+                            return;   // the lines beside it go on as before
+                        }
+                        html += `<table style="${gap(bx.y * mmH)}margin-left: ${mm((bx.x - left) * mmW)}mm; border-collapse: separate; ${boxCss}"><tbody><tr>${cell}</tr></tbody></table>`;
+                        cursor = (bx.y + bx.h) * mmH;
+                        return;
+                    }
+                    // words: one line, a paragraph, or labels side by side
+                    const g0 = q.group[0], s0 = sizeOf(g0);
+                    if (q.kind === 'para') {
+                        const pitch = (q.group[q.group.length - 1].top - g0.top) / (q.group.length - 1) * pageHpt;
+                        const top = ((g0.top + g0.bot) / 2) * mmH - pitch * ptMm / 2;
+                        html += `<p style="${gap(top)}margin-left: ${mm((rowLeft(g0) - left) * mmW)}mm; line-height: ${mm(pitch)}pt; text-align: justify;">${q.group.map(g => partHtml(p.num, g.tiles[0], { pageNumbers: q.footer })).join(' ')}</p>`;
+                        cursor = top + q.group.length * pitch * ptMm;
+                        return;
+                    }
+                    const lh = s0 * 1.18, top = ((g0.top + g0.bot) / 2) * mmH - lh * ptMm / 2;
+                    if (q.kind === 'cols') {
+                        const L0 = rowLeft(g0);
+                        const slots = g0.tiles.map((t, j) => {
+                            const x = tileParts(t)[0].x, next = g0.tiles[j + 1] ? tileParts(g0.tiles[j + 1])[0].x : Math.max(x + 0.02, Math.min(right, Math.max(...tileParts(t).map(q2 => q2.x + q2.w)) + 0.01));
+                            const w = (next - x) * mmW - (g0.tiles[j + 1] ? 0 : 1.5);   // the last a little short of the edge, or it goes onto a line of its own
+                            return `<span style="display: inline-block; width: ${mm(w)}mm;">${partHtml(p.num, t, { pageNumbers: q.footer, slot: w })}</span>`;
+                        }).join('');
+                        html += `<p style="${gap(top)}margin-left: ${mm((L0 - left) * mmW)}mm; line-height: ${mm(lh)}pt; white-space: nowrap;">${slots}</p>`;
+                    } else {
+                        const L0 = rowLeft(g0), R0 = rowRight(g0), cx = (L0 + R0) / 2;
+                        const centre = Math.abs(cx - (left + right) / 2) < 0.03 && R0 - L0 < (right - left) * 0.85;
+                        html += `<p style="${gap(top)}${centre ? 'text-align: center; ' : `margin-left: ${mm((L0 - left) * mmW)}mm; `}line-height: ${mm(lh)}pt; white-space: nowrap;">${partHtml(p.num, g0.tiles[0], { pageNumbers: q.footer, slot: (right - L0) * mmW - 1.5 })}</p>`;
+                    }
+                    cursor = top + lh * ptMm;
+                });
+                return html;
+            };
+            const bodyPieces = pieces.filter(q => !q.footer);
+            const bodyStart = p.num === 1 && band ? band.y + band.h : (p.num === 1 ? layout.top : Math.min(...bodyPieces.map(q => q.top)));
+            parts.body += (p.num > 1 ? '<div class="page-break"></div>' : '') + write(bodyPieces, bodyStart);
+            if (p.num === 1 && footPieces.length) {
+                parts.footer = write(footPieces, footTop);
+                footerMm = mm((Math.max(...footPieces.map(q => q.top + q.h)) - footTop) * mmH);
+                layout.margins[2] = mm(Math.max(3, (1 - Math.max(...footPieces.map(q => q.top + q.h))) * mmH));
+            }
+            if (p.num === 1 && !band && layout) layout.top = Math.min(...pieces.map(q => q.top));
         }
-        return { ...parts, paper, header_mm: Math.max(10, headerMm || 20), footer_mm: Math.max(6, footerMm || 8) };
+        const { top, ...kept } = layout || { margins: [15, 15, 15, 15], bleed: false };
+        return { ...parts, paper, header_mm: headerMm || 0, footer_mm: footerMm || 0, layout: kept };
     }
 
     // ================= HISTORY: earlier versions of the form =================

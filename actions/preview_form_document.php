@@ -32,6 +32,7 @@ $doc = [
     'paper' => isset(FORM_DOCUMENT_PAPERS[$d['paper'] ?? '']) ? $d['paper'] : 'A4',
     'header_mm' => (float) ($d['header_mm'] ?? 20), 'footer_mm' => (float) ($d['footer_mm'] ?? 12),
 ];
+if ($layout = cleanFormDocumentLayout($d['layout'] ?? null)) $doc['layout'] = $layout;
 // Answer spots carry their question's place in the form (data-qi); its name comes with them (labels: place => name)
 $labels = [];
 foreach ((array) ($payload['labels'] ?? []) as $i => $name) $labels[900000000 + (int) $i] = mb_substr((string) $name, 0, 255);
