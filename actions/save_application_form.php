@@ -136,7 +136,8 @@ foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     if ($page < 1 || ($pdf_page_count && $page > $pdf_page_count)) fail("Content edit $n is on a page that isn't in the selected PDF.");
     $min_h = $kind === 'line' ? 0.0005 : 0.002;   // an answer line is a hairline
     if ($ex < 0 || $ey < 0 || $ew < 0.002 || $eh < $min_h || $ex + $ew > 1.0001 || $ey + $eh > PDF_MAX_PAGE_HEIGHT) fail("Content edit $n is outside the page.");
-    $text = $kind === 'text' ? mb_substr(trim((string) ($e['text'] ?? '')), 0, 1000) : null;
+    // A paragraph keeps its line breaks (decided in the designer, so print wraps exactly as the screen)
+    $text = $kind === 'text' ? mb_substr(trim(preg_replace("/[ \t]*\r?\n[ \t]*/", "\n", (string) ($e['text'] ?? ''))), 0, 4000) : null;
     if ($kind === 'text' && $text === '') fail("Text edit $n is empty. Type some text or delete it.");
     $font = in_array($e['font'] ?? '', ['Helvetica', 'Times', 'Courier'], true) ? $e['font'] : 'Helvetica';
     $size = isset($e['size']) && $e['size'] !== '' && $e['size'] !== null ? (float) $e['size'] : null;
@@ -150,7 +151,9 @@ foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
     $color = fn($k) => isset($e[$k]) && is_string($e[$k]) && preg_match('/^#[0-9a-f]{6}$/i', $e[$k]) ? strtolower($e[$k]) : null;
     $fill = in_array($kind, ['erase', 'text', 'line'], true) ? $color('fill') : null;
     $text_color = $kind === 'text' ? $color('color') : null;
-    $edits[] = [$kind, $page, $ex, $ey, $ew, $eh, $to, $text, $font, $size, !empty($e['bold']) ? 1 : 0, $kind === 'text' && !empty($e['italic']) ? 1 : 0, !empty($e['cover']) ? 1 : 0, $fill, $text_color, $n];
+    $align = $kind === 'text' && in_array($e['align'] ?? '', ['center', 'right'], true) ? $e['align'] : 'left';
+    $edits[] = [$kind, $page, $ex, $ey, $ew, $eh, $to, $text, $font, $size, !empty($e['bold']) ? 1 : 0, $kind === 'text' && !empty($e['italic']) ? 1 : 0,
+        $kind === 'text' && !empty($e['underline']) ? 1 : 0, $align, !empty($e['cover']) ? 1 : 0, $fill, $text_color, $n];
 }
 
 $restored_from = (int) ($payload['restored_from'] ?? 0) ?: null;
@@ -217,7 +220,7 @@ try {
 
     // Replace this scholarship's edits to the PDF's printed content
     $pdo->prepare("DELETE FROM scholarship_pdf_edits WHERE ScholarshipID = ?")->execute([$scholarship_id]);
-    $edit_insert = $pdo->prepare("INSERT INTO scholarship_pdf_edits (ScholarshipID, Kind, PdfPage, PdfX, PdfY, PdfW, PdfH, PdfTo, Content, FontFamily, FontSize, IsBold, IsItalic, Cover, FillColor, TextColor, SortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $edit_insert = $pdo->prepare("INSERT INTO scholarship_pdf_edits (ScholarshipID, Kind, PdfPage, PdfX, PdfY, PdfW, PdfH, PdfTo, Content, FontFamily, FontSize, IsBold, IsItalic, IsUnderline, TextAlign, Cover, FillColor, TextColor, SortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     foreach ($edits as $e) {
         $edit_insert->execute(array_merge([$scholarship_id], $e));
     }

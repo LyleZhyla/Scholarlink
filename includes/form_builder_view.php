@@ -92,6 +92,22 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     html.dark .pdf-gap-item:hover { background: #1e293b; }
     .pt-fmt { padding: 8px 12px; border-radius: 10px; border: 1px solid #e2e8f0; background: #f8fafc; font-size: 12px; font-weight: 800; color: #334155; }
     .pt-fmt.on { background: #0f172a; border-color: #0f172a; color: #fff; }
+    /* the Word-style ribbon */
+    .pd-ribbon { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 4px; border-radius: 12px; background: #f1f5f9; }
+    .pd-ribbon select { height: 32px; padding: 0 6px; border-radius: 8px; border: 1px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 700; color: #0f172a; cursor: pointer; }
+    .pd-ribbon #rbFont { width: 104px; } .pd-ribbon #rbSize { width: 64px; }
+    .pd-ribbon .rb { min-width: 32px; height: 32px; padding: 0 8px; border-radius: 8px; font-size: 13px; color: #334155; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+    .pd-ribbon .rb:hover:not(:disabled) { background: #e2e8f0; }
+    .pd-ribbon .rb.on { background: #0f172a; color: #fff; }
+    .pd-ribbon .rb-wide { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; }
+    .pd-ribbon .rb-sep { width: 1px; height: 22px; background: #cbd5e1; margin: 0 3px; }
+    .pd-ribbon .rb-color { position: relative; flex-direction: column; gap: 0; cursor: pointer; }
+    .pd-ribbon .rb-colorbar { width: 16px; height: 4px; border-radius: 2px; background: #000; }
+    .pd-ribbon .rb-color input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .pd-ribbon.off select, .pd-ribbon.off .rb:not(.rb-wide) { opacity: 0.4; pointer-events: none; }
+    /* typing on the page */
+    .pd-inline { position: absolute; z-index: 30; outline: 2px solid #2563eb; outline-offset: 1px; border-radius: 2px; padding: 0 1px; margin: 0; caret-color: #2563eb; overflow: visible; box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.12); cursor: text; }
+    .pd-inline:empty::before { content: 'Type here…'; color: #94a3b8; font-style: italic; }
     .pd-side-tab { flex: 1; padding: 11px 8px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; border-bottom: 3px solid transparent; }
     .pd-side-tab.active { color: #0f172a; border-bottom-color: #dc2626; }
     .pd-add > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; font-size: 12px; font-weight: 900; color: #0f172a; cursor: pointer; }
@@ -235,6 +251,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         </div>
         <div class="flex items-center gap-2 shrink-0">
             <button type="button" onclick="openFormHistory()" title="Earlier versions of this form" class="bg-white border border-slate-200 text-slate-700 hover:border-slate-900 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"><i class="fas fa-clock-rotate-left"></i> History</button>
+            <button type="button" id="fbRedoBtn" onclick="redoChange()" disabled title="Redo (Ctrl+Y)" class="order-last bg-white border border-slate-200 text-slate-700 hover:border-slate-900 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"><i class="fas fa-rotate-right"></i> Redo</button>
             <button type="button" id="fbUndoBtn" onclick="undoChange()" disabled title="Undo (Ctrl+Z)" class="bg-white border border-slate-200 text-slate-700 hover:border-slate-900 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"><i class="fas fa-rotate-left"></i> Undo</button>
             <button type="button" id="fbPreviewBtn" onclick="togglePreview()" class="bg-white border border-slate-200 text-slate-700 hover:border-slate-900 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all">
                 <i class="fas fa-eye"></i> <span>Preview as student</span>
@@ -414,15 +431,36 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             <p class="text-[10px] font-black text-red-600 uppercase tracking-widest"><i class="fas fa-file-pdf"></i> PDF Designer</p>
             <p id="pdTitle" class="text-sm font-black text-slate-900 truncate"></p>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center justify-center gap-2 flex-1 min-w-0">
+            <!-- Home: how text looks (what is being typed, or the text selected) -->
+            <div id="pdRibbon" class="pd-ribbon" role="toolbar" aria-label="Text">
+                <select id="rbFont" title="Font" onchange="ribbonSet('font', this.value)">
+                    <option value="Helvetica" style="font-family:Arial,Helvetica,sans-serif">Helvetica</option>
+                    <option value="Times" style="font-family:'Times New Roman',Times,serif">Times</option>
+                    <option value="Courier" style="font-family:'Courier New',monospace">Courier</option>
+                </select>
+                <select id="rbSize" title="Size" onchange="ribbonSet('size', Number(this.value))"></select>
+                <span class="rb-sep"></span>
+                <button type="button" class="rb" data-rb="bold" title="Bold (Ctrl+B)" onmousedown="event.preventDefault()" onclick="ribbonToggle('bold')"><b>B</b></button>
+                <button type="button" class="rb" data-rb="italic" title="Italic (Ctrl+I)" onmousedown="event.preventDefault()" onclick="ribbonToggle('italic')"><i class="font-serif">I</i></button>
+                <button type="button" class="rb" data-rb="underline" title="Underline (Ctrl+U)" onmousedown="event.preventDefault()" onclick="ribbonToggle('underline')"><u>U</u></button>
+                <label class="rb rb-color" title="Text colour"><span class="font-black">A</span><span id="rbColorBar" class="rb-colorbar"></span><input type="color" id="rbColor" oninput="ribbonSet('color', this.value)"></label>
+                <span class="rb-sep"></span>
+                <button type="button" class="rb" data-rb-align="left" title="Align left" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'left')"><i class="fas fa-align-left"></i></button>
+                <button type="button" class="rb" data-rb-align="center" title="Center" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'center')"><i class="fas fa-align-center"></i></button>
+                <button type="button" class="rb" data-rb-align="right" title="Align right" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'right')"><i class="fas fa-align-right"></i></button>
+                <span class="rb-sep"></span>
+                <button type="button" class="rb rb-wide" title="Insert something under the selected line" onmousedown="event.preventDefault()" onclick="openInsertMenu(event)"><i class="fas fa-plus"></i> Insert <i class="fas fa-caret-down text-[9px]"></i></button>
+            </div>
             <div class="inline-flex flex-wrap rounded-xl bg-slate-100 p-1 gap-0.5" role="toolbar" aria-label="PDF tools">
                 <button type="button" data-tool="boxes" onclick="pickTool('boxes')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-square-plus"></i> Answer boxes</button>
-                <button type="button" data-tool="select" onclick="pickTool('select')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-i-cursor"></i> Change text</button>
+                <button type="button" data-tool="select" onclick="pickTool('select')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-i-cursor"></i> Select &amp; type</button>
                 <button type="button" data-tool="addtext" onclick="pickTool('addtext')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-font"></i> Add text</button>
                 <button type="button" data-tool="erase" onclick="pickTool('erase')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-eraser"></i> Erase</button>
                 <button type="button" data-tool="row" onclick="pickTool('row')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-grip-lines"></i> Insert row</button>
                 <button type="button" data-tool="column" onclick="pickTool('column')" class="pd-tool px-3 py-2 rounded-lg text-[11px] font-black"><i class="fas fa-grip-lines-vertical"></i> Insert column</button>
             </div>
+            <button type="button" id="pdRedoBtn" onclick="redoChange()" disabled title="Redo (Ctrl+Y)" class="fb-undo order-last px-3 py-2 rounded-xl border border-slate-200 bg-white text-[11px] font-black text-slate-700 hover:border-slate-900 disabled:opacity-40 disabled:cursor-not-allowed"><i class="fas fa-rotate-right"></i> Redo</button>
             <button type="button" id="pdUndoBtn" onclick="undoChange()" disabled title="Undo (Ctrl+Z)" class="fb-undo px-3 py-2 rounded-xl border border-slate-200 bg-white text-[11px] font-black text-slate-700 hover:border-slate-900 disabled:opacity-40 disabled:cursor-not-allowed"><i class="fas fa-rotate-left"></i> Undo</button>
         </div>
         <button type="button" onclick="closePdfDesigner()" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-blue-600">Done</button>
@@ -506,13 +544,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     const findField = key => fbFields.find(f => f.key === key);
 
     // Undo: the form as it was before each change (typing in one box counts as one change)
-    let fbUndo = [], fbLastState = null, fbLastPush = 0;
+    let fbUndo = [], fbRedo = [], fbLastState = null, fbLastPush = 0;
     const fbState = () => JSON.stringify({ fields: fbFields, edits: fbEdits, overrides: fbOverrides });
     function markDirty() {
         fbDirty = true;
         document.getElementById('fbDirty').classList.remove('hidden');
         const now = fbState();
         if (fbLastState === null || now === fbLastState) return;
+        fbRedo = [];   // a new change: nothing to redo
         if (Date.now() - fbLastPush > 800) {
             fbUndo.push(fbLastState);
             if (fbUndo.length > 100) fbUndo.shift();
@@ -523,10 +562,20 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
     function updateUndoButtons() {
         document.querySelectorAll('#fbUndoBtn, #pdUndoBtn').forEach(b => { b.disabled = !fbUndo.length; });
+        document.querySelectorAll('#fbRedoBtn, #pdRedoBtn').forEach(b => { b.disabled = !fbRedo.length; });
+    }
+    function redoChange() {
+        if (!fbRedo.length) return;
+        fbUndo.push(fbLastState);
+        restoreState(fbRedo.pop());
     }
     function undoChange() {
         if (!fbUndo.length) return;
-        const previous = fbUndo.pop();
+        fbRedo.push(fbLastState);
+        restoreState(fbUndo.pop());
+    }
+    function restoreState(previous) {
+        if (typeof finishInline === 'function' && pdTile && pdTile.inline) { const el = pdTile.inline.el; if (el) el.remove(); pdTile = null; }
         const state = JSON.parse(previous);
         fbFields = state.fields;
         fbEdits = state.edits;
@@ -738,6 +787,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
 
     function closePdfDesigner() {
+        finishInline(true);
         closePdfTile(true);
         document.getElementById('pdfDesigner').classList.add('hidden');
         document.body.style.overflow = '';
@@ -756,8 +806,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
     // One toolbar: "Answer boxes" is the fields mode, every other tool edits the printed content
     const PD_HINTS = {
-        boxes: 'Drag on the form to draw a box where an answer prints. Click a dashed field to choose what fills it. Drag anything you added to move it.',
-        select: 'Click any printed text to change or delete it, also inside rows you inserted. Drag anything you added to move it; click an inserted row to move or resize it.',
+        boxes: 'Drag on the form to draw a box where an answer prints. Click a dashed field to choose what fills it. Double-click any words to type in them. Drag anything you added to move it.',
+        select: 'Click any words on the PDF and type, like in Word. Enter starts a new line · Esc cancels · the toolbar sets font, size, B / I / U, colour and alignment. Drag anything you added to move it.',
         addtext: 'Click where the new text should go, then type it in the panel on the right.',
         erase: 'Drag over anything (text, lines, a logo) to white it out.',
         row: 'Drag across the row you want to copy. The copy goes right under it and everything below moves down.',
@@ -1157,6 +1207,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         renderDesignerPanel();
         renderPdfPalette();
         renderPdfRows();
+        syncRibbon();
     }
 
     function renderDesignerPages() {
@@ -1177,6 +1228,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
             // Content edits are always shown, so both modes look like the final PDF
             fbEdits.filter(e => e.page === p.num && e.kind !== 'move').forEach(e => {
+                if (pdTile && pdTile.inline && pdTile.inline.hideKey === e.key) return;   // being typed over
                 const sel = content && pdSelEdit === e.key;
                 if (isInsert(e)) {
                     html += `<div class="pd-edit insert ${e.kind} ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(finalArea(e))}" title="Inserted ${e.kind}${sel ? ' — drag to move, drag the handle to resize' : ' — click to edit'}"><span class="pd-ins-grip" title="Drag to move this ${e.kind === 'row' ? 'line' : 'column'}"><i class="fas fa-grip-${e.kind === 'row' ? 'vertical' : 'lines'}"></i></span>${content ? `<span class="pd-insert-tag">＋ ${e.kind}</span>` : ''}${sel ? '<span class="pd-handle"></span>' : ''}</div>`;
@@ -1185,10 +1237,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 } else if (e.kind === 'erase') {
                     html += `<div class="pd-edit erase ${sel ? 'sel' : ''}" data-edit="${e.key}" style="${pos(e)};background:${e.fill || '#fff'}" title="Erased area">${sel ? handles : ''}</div>`;
                 } else {
-                    const boxPx = e.h * p.hPt * p.scale;
                     const sizePt = e.size || Math.min(14, Math.max(6, e.h * p.hPt * 0.75));
+                    const lines = e.text.includes('\n');   // a paragraph: its lines as they print
+                    const boxPx = lines ? sizePt * 1.2 * p.scale : e.h * p.hPt * p.scale;
                     html += `<div class="pd-edit text ${e.cover ? 'cover' : ''} ${sel ? 'sel' : ''}" data-edit="${e.key}" title="Added text"
-                        style="${pos(e)};${e.cover ? `background:${e.fill || '#fff'};` : ''}color:${e.color || '#000'};font-family:${PD_FONTS[e.font] || PD_FONTS.Helvetica};font-size:${(sizePt * p.scale).toFixed(2)}px;font-weight:${e.bold ? 700 : 400};font-style:${e.italic ? 'italic' : 'normal'};line-height:${boxPx.toFixed(2)}px">${esc(e.text)}${sel ? handles : ''}</div>`;
+                        style="${pos(e)};${e.cover ? `background:${e.fill || '#fff'};` : ''}color:${e.color || '#000'};font-family:${PD_FONTS[e.font] || PD_FONTS.Helvetica};font-size:${(sizePt * p.scale).toFixed(2)}px;font-weight:${e.bold ? 700 : 400};font-style:${e.italic ? 'italic' : 'normal'};text-decoration:${e.underline ? 'underline' : 'none'};text-align:${e.align || 'left'};white-space:${lines ? 'pre' : 'nowrap'};line-height:${boxPx.toFixed(2)}px">${esc(e.text)}${sel ? handles : ''}</div>`;
                 }
             });
 
@@ -1719,7 +1772,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 if (pdTool !== 'select') setContentTool('select', false);
                 if (!wasSelected) { pdSelEdit = grabbedEdit.key; pdSelText = null; renderDesigner(); }
                 pdDrag = { mode: wasSelected && e.target.closest('.pd-handle') ? 'resize' : 'move', start: point, orig: { ...grabbedEdit }, ref: grabbedEdit,
-                    selector: `.pd-edit[data-edit="${grabbedEdit.key}"]`, moved: false };
+                    selector: `.pd-edit[data-edit="${grabbedEdit.key}"]`, moved: false, typeOnClick: wasSelected && grabbedEdit.kind === 'text' && !e.target.closest('.pd-handle') };
                 capture(e);
                 return;
             }
@@ -1842,6 +1895,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
             if (drag.mode === 'pick-text') {
                 pdSelEdit = null;
+                // Clicking words puts the cursor in them
+                const hit = pdTool === 'select' ? tileAt(drag.page, drag.start) : null;
+                if (hit) { startInlineFromTile(hit.i, hit.j); return; }
                 pdSelText = drag.i === null ? null : { page: drag.page, i: drag.i };
                 renderDesigner();
                 return;
@@ -1890,8 +1946,19 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 renderDesigner();
                 return;
             }
+            // A click on added words that were already selected puts the cursor in them
+            if (!drag.moved && drag.typeOnClick) { startInlineOnEdit(drag.ref.key); return; }
             if (drag.moved) markDirty();
             renderDesigner();
+        });
+
+        // Double-click words (any tool) to type in them
+        overlay.addEventListener('dblclick', e => {
+            const point = toFraction(e);
+            const edEl = e.target.closest('.pd-edit.text');
+            if (edEl && findEdit(edEl.dataset.edit)) { startInlineOnEdit(edEl.dataset.edit); return; }
+            const hit = tileAt(page.num, point);
+            if (hit) startInlineFromTile(hit.i, hit.j);
         });
     }
 
@@ -2495,7 +2562,18 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return { x, y, w: Math.max(...list.map(q => q.x + q.w)) - x, h: Math.max(...list.map(q => q.y + q.h)) - y };
     };
     const tileParts = t => t.blank ? [...t.labels, t.blank] : t.labels;
-    const tileText = t => t.labels.map(l => l.str).join(' ').replace(/_{2,}/g, ' ').replace(/\s+/g, ' ').trim();
+    // A part's words. Pieces that touch are one word (a PDF often stores "informati" + "on", or a big first letter apart)
+    const tileText = t => {
+        const pagePtWide = pdPages.length ? pdPages[0].hPt * pdPages[0].source.width / pdPages[0].source.height : 612;
+        let out = '', prev = null;
+        t.labels.forEach(l => {
+            const touching = prev && Math.abs((l.y + l.h / 2) - (prev.y + prev.h / 2)) < Math.max(l.h, prev.h) * 0.6
+                && l.x - (prev.x + prev.w) < (l.size || prev.size || 10) * 0.12 / pagePtWide && l.x >= prev.x;
+            out += (prev && !touching ? ' ' : '') + l.str;
+            prev = l;
+        });
+        return out.replace(/_{2,}/g, ' ').replace(/\s+/g, ' ').trim();
+    };
     const pushEdit = e => { colorEdit(e); e.key = 'e' + (++fbKeySeq); fbEdits.push(e); return e; };
     // A new line, measured on the page as it looks now, goes at the end of the list (inserts and moves apply in order)
     function addLineInsert(ins) {
@@ -2792,7 +2870,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         </div>`;
     }
     let pdGapAt = null;
-    function openGapMenu(e, i) {
+    function openGapMenu(e, i, fromRibbon = false) {
         e.stopPropagation();
         pdGapAt = i;
         const pick = ['Text', 'Paragraph', 'Number', 'Date', 'YesNo', 'Dropdown'].filter(t => FB_TYPES[t]);
@@ -2800,12 +2878,13 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const item = (spec, icon, label, sub) => `<button type="button" class="pdf-gap-item" onclick='gapAdd(${esc(JSON.stringify(JSON.stringify(spec)))})'>
             <i class="fas ${icon}"></i><span><b>${esc(label)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
         const menu = document.getElementById('pdGapMenu');
-        menu.innerHTML = `<p class="pdf-gap-title">Add here</p>`
+        menu.innerHTML = `<p class="pdf-gap-title">${fromRibbon ? 'Insert under “' + esc((pdRows[i] && pdRows[i].tiles[0] ? tileText(pdRows[i].tiles[0]) : 'the last line').slice(0, 30)) + '”' : 'Add here'}</p>`
             + item({ pdf: 'empty' }, 'fa-arrows-up-down', 'Blank space', 'an empty line to fill later')
             + item({ pdf: 'text' }, 'fa-font', 'Printed text', 'words only')
             + item({ pdf: 'heading' }, 'fa-heading', 'Heading', 'bold words')
             + item({ pdf: 'field', type: 'Text' }, 'fa-pen-to-square', 'Question + answer blank', 'students answer it')
             + pick.filter(t => t !== 'Text').map(t => item({ pdf: 'field', type: t }, FB_TYPES[t].icon, FB_TYPES[t].label + ' question', 'with an answer blank')).join('')
+            + (fromRibbon && pdRows[i] && pdRows[i].tiles.length ? item({ pdf: 'copyline' }, 'fa-clone', 'Copy of this line', 'one more table row') : '')
             + (off.length ? `<p class="pdf-gap-title">Questions not on the PDF yet</p>` + off.slice(0, 8).map(f => item({ pdf: 'place', key: f.key }, typeIcon(f.type), f.label || 'Untitled question', typeLabel(f.type))).join('') : '');
         menu.classList.remove('hidden');
         // Next to the ＋, kept on screen
@@ -2825,9 +2904,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const i = pdGapAt;
         closeGapMenu();
         if (i === null || !pdRows[i]) return;
+        if (JSON.parse(json).pdf === 'copyline') { duplicatePdfRow(i); return; }
         addPdfElement(json, { mode: 'after', row: i });
         if (JSON.parse(json).pdf === 'empty') showAlert('success', 'Blank space added. Hover it and press ＋, or drag an element onto it, to fill it.');
     }
+    // Typing on the page ends with a click anywhere else (not on the ribbon)
+    document.addEventListener('pointerdown', e => {
+        if (pdTile && pdTile.inline && !e.target.closest('#pdInline, #pdRibbon')) finishInline(true);
+    }, true);
     // Any click outside closes it (pointerdown, caught first: the PDF pages stop mouse events)
     document.addEventListener('pointerdown', e => {
         if (pdGapAt !== null && !e.target.closest('#pdGapMenu, .pdf-gap-btn')) closeGapMenu();
@@ -2837,30 +2921,22 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function editPdfTile(i, j) {
         const row = pdRows[i];
         pdSelRowAt = { page: row.page, y: row.y + row.h / 2 };
-        const tile = row.tiles[j], first = tile.labels.find(l => l.kind !== 'edit') || tile.labels[0];
-        let fmt = null;
-        if (first) {
-            const own = first.kind === 'edit' ? findEdit(first.key) : null;
-            fmt = {
-                font: (own || first).font || 'Helvetica', size: Math.round(((own && own.size) || first.size || 10) * 2) / 2,
-                bold: !!(own || first).bold, italic: !!(own || first).italic,
-                color: (own && own.color) || (pageColors(row.page, unionOf(tile.labels)) || {}).color || '#000000',
-            };
-        }
+        finishInline(true);
+        const tile = row.tiles[j], fmt = tileFormat(row, tile);
         pdTile = { row, tile, text: tileText(tile), fmt0: fmt && { ...fmt }, fmt, created: null };
         // An added text being edited: what it was, to go back to while trying things
         const own = tile.labels.length === 1 && tile.labels[0].kind === 'edit' ? findEdit(tile.labels[0].key) : null;
-        if (own) pdTile.own = { key: own.key, before: { text: own.text, font: own.font, size: own.size, bold: own.bold, italic: !!own.italic, color: own.color, w: own.w, h: own.h, y: own.y } };
+        if (own) pdTile.own = { key: own.key, before: editLook(own) };
         renderPdfTile();
         const input = document.getElementById('ptText');
         if (input) { input.focus(); input.select(); }
     }
 
     function renderPdfTile() {
-        const modal = document.getElementById('pdfTileEditor');
-        modal.classList.toggle('hidden', !pdTile);
-        modal.classList.toggle('flex', !!pdTile);
-        if (!pdTile) return;
+        const modal = document.getElementById('pdfTileEditor'), show = !!pdTile && !pdTile.inline;   // typing on the page has no window
+        modal.classList.toggle('hidden', !show);
+        modal.classList.toggle('flex', show);
+        if (!show) return;
         const { row, tile } = pdTile, b = tile.blank, used = pdfUsage();
         const label = 'text-[10px] font-black text-slate-400 uppercase tracking-widest';
         const input = 'mt-1 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-blue-500 focus:bg-white';
@@ -2871,7 +2947,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (tile.labels.length) {
             const f = pdTile.fmt, sizes = [...new Set([6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, f.size])].sort((a, b) => a - b);
             const toggle = (prop, label, mark) => `<button type="button" id="pt-${prop}" onclick="pdfTileToggle('${prop}')" aria-pressed="${f[prop]}" class="pt-fmt ${f[prop] ? 'on' : ''}">${mark} ${label}</button>`;
-            body += `<label class="block ${label}">Printed words
+            body += `<label class="block ${label}">Printed words <span class="normal-case tracking-normal font-bold text-slate-400">(or click the words on the PDF and type there)</span>
                 <input id="ptText" type="text" value="${esc(pdTile.typed ?? pdTile.text)}" oninput="pdfTileLive()" class="${input} normal-case tracking-normal" onkeydown="if (event.key === 'Enter') closePdfTile(true)">
             </label>
             <p class="text-[11px] text-slate-400 mt-1">Leave it empty to remove these words from the PDF. Changes show on the PDF as you make them.</p>
@@ -2890,7 +2966,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 </label>
             </div>
             <div class="flex flex-wrap items-center gap-2 mt-2">
-                ${toggle('bold', 'Bold', '<b>B</b>')}${toggle('italic', 'Italic', '<i>I</i>')}
+                ${toggle('bold', 'Bold', '<b>B</b>')}${toggle('italic', 'Italic', '<i>I</i>')}${toggle('underline', 'Underline', '<u>U</u>')}
+                <select id="ptAlign" onchange="pdfTileLive()" class="pt-fmt cursor-pointer" title="Alignment">${['left', 'center', 'right'].map(a => `<option value="${a}" ${f.align === a ? 'selected' : ''}>${a === 'left' ? '⇤ Left' : a === 'center' ? '↔ Center' : 'Right ⇥'}</option>`).join('')}</select>
                 <button type="button" onclick="pdfTileResetFormat()" class="ml-auto text-[11px] font-black text-slate-500 hover:text-slate-900" title="Back to how the words looked">↺ As it was</button>
             </div>
             <p id="ptFit" class="hidden mt-2 text-[11px] font-bold text-amber-700"></p>`;
@@ -2955,8 +3032,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // on the PDF, then puts the words as they are now. Printed words get one replacing text (over the colour behind them);
     // words added earlier are just changed.
     function readTileFormat() {
-        if (!pdTile || !pdTile.fmt) return;
+        if (!pdTile || !pdTile.fmt || pdTile.inline) return;
         const val = id => document.getElementById(id);
+        if (val('ptAlign')) pdTile.fmt.align = val('ptAlign').value;
         if (val('ptFont')) pdTile.fmt.font = val('ptFont').value;
         if (val('ptSize')) pdTile.fmt.size = Number(val('ptSize').value);
         if (val('ptColor')) { pdTile.fmt.color = val('ptColor').value; val('ptColorText').textContent = pdTile.fmt.color; }
@@ -2988,13 +3066,24 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return ctx.measureText(text).width / (p.hPt * p.source.width / p.source.height);
     }
 
-    function applyPdfTileText(final = true) {
-        const input = document.getElementById('ptText');
-        if (!input || !pdTile) return;
+    // How an added text looks and sits (to go back to while trying things)
+    const editLook = e => ({ text: e.text, font: e.font, size: e.size, bold: e.bold, italic: !!e.italic, underline: !!e.underline, align: e.align || 'left', color: e.color, x: e.x, w: e.w, h: e.h, y: e.y });
+    const LOOK_KEYS = ['font', 'size', 'bold', 'italic', 'underline', 'align', 'color'];
+    // A box of width w for words that were in `area`, kept where the alignment keeps them (left edge, middle or right edge)
+    function alignBox(area, w, align) {
+        const x = align === 'center' ? area.x + area.w / 2 - w / 2 : align === 'right' ? area.x + area.w - w : area.x;
+        return clamp(x, 0, Math.max(0, 1 - w));
+    }
+
+    // value: what was typed on the page (else the window's words box)
+    function applyPdfTileText(final = true, value) {
+        const input = value === undefined ? document.getElementById('ptText') : null;
+        if ((value === undefined && !input) || !pdTile) return;
         readTileFormat();
-        pdTile.typed = input.value;
-        const { row, tile } = pdTile, text = input.value.trim(), fmt = pdTile.fmt, f0 = pdTile.fmt0;
-        const unchanged = text === pdTile.text && ['font', 'size', 'bold', 'italic', 'color'].every(k => fmt[k] === f0[k]);
+        const raw = value !== undefined ? value : input.value;
+        pdTile.typed = raw;
+        const { row, tile } = pdTile, text = raw.trim(), fmt = pdTile.fmt, f0 = pdTile.fmt0;
+        const unchanged = text === pdTile.text && LOOK_KEYS.every(k => fmt[k] === f0[k]);
         const fit = document.getElementById('ptFit');
         if (fit) fit.classList.add('hidden');
         // take back what this window put on the PDF so far
@@ -3003,16 +3092,22 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const e = findEdit(pdTile.own.key);
             if (!e) return;
             Object.assign(e, pdTile.own.before);
-            if (unchanged) { if (final) markDirty(); return; }
+            // A paragraph is re-wrapped when it is done
+            if (pdTile.own.before.text.includes('\n')) {
+                if (final) commitParagraph({ ...pdTile, inline: { paragraph: true, width: e.w, rect: { x: e.x, y: e.y, w: e.w, h: e.h } } }, raw);
+                return;
+            }
             if (!text) {
                 if (final) { fbEdits = fbEdits.filter(x => x !== e); markDirty(); }
                 else e.text = '';   // hidden while the box is empty
                 return;
             }
+            if (unchanged) { if (final) markDirty(); return; }
             const grow = fmt.size / (pdTile.own.before.size || fmt.size);
             const h = Math.max(e.h, e.h * grow);
-            Object.assign(e, { text, font: fmt.font, size: fmt.size, bold: fmt.bold, italic: fmt.italic, color: fmt.color,
-                y: e.y - (h - e.h) / 2, h, w: clamp(Math.max(e.w * 0.5, textWidthOnPage(row.page, text, fmt) + 0.006), 0.01, 1 - e.x) });
+            const w = clamp(Math.max(e.w * 0.5, textWidthOnPage(row.page, text, fmt) + 0.006), 0.01, 1);
+            Object.assign(e, { text, font: fmt.font, size: fmt.size, bold: fmt.bold, italic: fmt.italic, underline: fmt.underline, align: fmt.align, color: fmt.color,
+                y: e.y - (h - e.h) / 2, h, w, x: alignBox(pdTile.own.before, w, fmt.align) });
             if (e.cover) trimCover(e);   // a bigger cover still stops at the words around it
             if (final) { syncQuestionLabel(text); markDirty(); }
             return;
@@ -3020,6 +3115,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (unchanged) return;
         if (final) syncQuestionLabel(text);
         const area = textArea(row.page, unionOf(tile.labels)), first = tile.labels.find(l => l.kind !== 'edit') || tile.labels[0];
+        fbEdits = fbEdits.filter(e => !tile.labels.some(l => l.kind === 'edit' && l.key === e.key));   // words added there before are replaced
         if (!text) {
             pdTile.created = pushEdit({ kind: 'erase', ...area, text: '', font: 'Helvetica', size: null, bold: false, cover: false }).key;
         } else {
@@ -3029,9 +3125,12 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (grow > 1) { const h = area.h * grow; area.y = Math.max(0, area.y - (h - area.h) / 2); area.h = h; }
             const next = Math.min(1, ...row.tiles.flatMap(tileParts).filter(q => q.x > area.x + area.w - 0.002 && !tile.labels.includes(q)).map(q => q.x));
             const needed = textWidthOnPage(row.page, text, fmt) + 0.006, room = Math.max(area.w, next - area.x - 0.003);
-            area.w = clamp(Math.min(needed, room), area.w, 1 - area.x);
             if (needed > room && fit) { fit.textContent = '⚠ Too long for its spot at this size: it prints a little smaller to fit. Shorter words or a smaller size avoid that.'; fit.classList.remove('hidden'); }
-            pdTile.created = pushEdit({ kind: 'text', ...area, text, font: fmt.font, size: fmt.size, bold: fmt.bold, italic: fmt.italic, color: fmt.color, cover: true }).key;
+            // The box keeps covering the old words; centered / right-aligned words stay around the middle / right edge
+            const w = clamp(Math.min(needed, room), area.w, 1 - area.x);
+            const x = fmt.align === 'left' ? area.x : Math.min(area.x, alignBox(area, w, fmt.align));
+            pdTile.created = pushEdit({ kind: 'text', ...area, x, w: Math.max(w, area.x + area.w - x), text, font: fmt.font, size: fmt.size, bold: fmt.bold, italic: fmt.italic,
+                underline: fmt.underline, align: fmt.align, color: fmt.color, cover: true }).key;
         }
         if (final) markDirty();
     }
@@ -3227,11 +3326,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         }
         markDirty();
         render();
-        // Name it right away
-        setTimeout(() => {
-            const i = pdRows.findIndex(r => r.tiles.some(t => t.labels.some(l => l.key === textEdit.key)));
-            if (i >= 0) editPdfTile(i, pdRows[i].tiles.findIndex(t => t.labels.some(l => l.key === textEdit.key)));
-        }, 60);
+        // Type it right away, on the page
+        setTimeout(() => startInlineOnEdit(textEdit.key, { blank: f ? f.key : null, selectAll: true }), 60);
     }
 
     // Form elements for the PDF tab
@@ -3310,6 +3406,372 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         showDropMark(null);
         if (t) addPdfElement(json, t);
     });
+
+
+    // ================= TYPING ON THE PAGE (like a word processor) =================
+    // Click words on the PDF (Select & type) or double-click them (any tool) and type right there. The ribbon sets the look
+    // of what is being typed, or of the added text that is selected. Lines that run on into each other are a paragraph:
+    // typed as one and wrapped again within their width; when it needs more lines, the rest of the form moves down.
+    const lineHeightOf = (p, size) => size * 1.2 / p.hPt;
+    const RIBBON_SIZES = [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36];
+
+    // The look of a part's words (font, size, bold, italic, underline, alignment, colour)
+    function tileFormat(row, tile) {
+        const first = tile.labels.find(l => l.kind !== 'edit') || tile.labels[0];
+        if (!first) return null;
+        const own = first.kind === 'edit' ? findEdit(first.key) : null, src = own || first;
+        return { font: src.font || 'Helvetica', size: Math.round(((own && own.size) || first.size || 10) * 2) / 2, bold: !!src.bold, italic: !!src.italic,
+            underline: !!(own && own.underline), align: (own && own.align) || 'left',
+            color: (own && own.color) || (pageColors(row.page, unionOf(tile.labels)) || {}).color || '#000000' };
+    }
+
+    // Lines of words, at most `width` wide (line breaks typed with Shift+Enter are kept)
+    function wrapText(page, text, fmt, width) {
+        const out = [];
+        text.split('\n').forEach(par => {
+            const words = par.split(/\s+/).filter(Boolean);
+            if (!words.length) { out.push(''); return; }
+            let line = words[0];
+            words.slice(1).forEach(w => {
+                if (textWidthOnPage(page, line + ' ' + w, fmt) <= width) line += ' ' + w;
+                else { out.push(line); line = w; }
+            });
+            out.push(line);
+        });
+        return out;
+    }
+
+    // The lines around line i that make one paragraph: words only, starting at the same place, the same size, close
+    // together, each running on to the next (a line that is not full ends the paragraph)
+    function paragraphRows(i) {
+        const words = r => r && r.tiles.length === 1 && !r.tiles[0].blank && r.tiles[0].labels.length && r.tiles[0].labels.every(l => l.kind === 'text');
+        if (!words(pdRows[i])) return [i];
+        const ls = r => r.tiles[0].labels, left = r => Math.min(...ls(r).map(l => l.x)), right = r => Math.max(...ls(r).map(l => l.x + l.w));
+        const size = r => ls(r)[0].size || 10, full = r => right(r) - left(r) > 0.45;
+        const together = (a, b) => a.page === b.page && Math.abs(left(a) - left(b)) < 0.03 && Math.abs(size(a) - size(b)) < 0.6
+            && b.y - a.y > 0 && b.y - a.y < size(a) * 2.1 / pdPages[a.page - 1].hPt;
+        let top = i, bottom = i;
+        while (top > 0 && words(pdRows[top - 1]) && full(pdRows[top - 1]) && together(pdRows[top - 1], pdRows[top])) top--;
+        while (words(pdRows[bottom + 1]) && full(pdRows[bottom]) && together(pdRows[bottom], pdRows[bottom + 1])) bottom++;
+        return Array.from({ length: bottom - top + 1 }, (_, k) => top + k);
+    }
+
+    // The part under a point of a page
+    function tileAt(page, pt) {
+        for (let i = 0; i < pdRows.length; i++) {
+            const r = pdRows[i];
+            if (r.page !== page) continue;
+            for (let j = 0; j < r.tiles.length; j++)
+                if (r.tiles[j].labels.some(l => pt.x >= l.x - 0.004 && pt.x <= l.x + l.w + 0.004 && pt.y >= l.y - 0.004 && pt.y <= l.y + l.h + 0.004)) return { i, j };
+        }
+        return null;
+    }
+
+    function startInlineFromTile(i, j, opts = {}) {
+        finishInline(true);
+        const row = pdRows[i], tile = row && row.tiles[j];
+        if (!tile || !tile.labels.length) return;
+        const own = tile.labels.length === 1 && tile.labels[0].kind === 'edit' ? findEdit(tile.labels[0].key) : null;
+        if (own) { startInlineOnEdit(own.key, { ...opts, blank: tile.blank && tile.blank.kind === 'box' ? tile.blank.key : null }); return; }
+        const fmt = tileFormat(row, tile);
+        pdSelRowAt = { page: row.page, y: row.y + row.h / 2 };
+        const block = tile.blank || row.tiles.length > 1 ? [i] : paragraphRows(i);
+        if (block.length > 1) {
+            const labels = block.flatMap(k => pdRows[k].tiles[0].labels), u = unionOf(labels);
+            startSession({ row, tile: { labels, blank: null }, text: block.map(k => tileText(pdRows[k].tiles[0])).join(' '), fmt, paragraph: true,
+                rect: textArea(row.page, u), width: u.w + 0.012, ...opts });
+            return;
+        }
+        startSession({ row, tile, text: tileText(tile), fmt, paragraph: false, rect: textArea(row.page, unionOf(tile.labels)), ...opts });
+    }
+
+    function startInlineOnEdit(key, opts = {}) {
+        finishInline(true);
+        const e = findEdit(key);
+        if (!e || e.kind !== 'text') return;
+        const p = pdPages[e.page - 1], paragraph = e.text.includes('\n');
+        let blank = opts.blank;
+        if (blank === undefined) {   // the question whose words these are (renaming them renames it)
+            const r = pdRows.find(r => r.tiles.some(t => t.labels.some(l => l.key === key)));
+            const t = r && r.tiles.find(t => t.labels.some(l => l.key === key));
+            blank = t && t.blank && t.blank.kind === 'box' ? t.blank.key : null;
+        }
+        const fmt = { font: e.font || 'Helvetica', size: Math.round((e.size || Math.min(14, Math.max(6, e.h * p.hPt * 0.75))) * 2) / 2, bold: !!e.bold, italic: !!e.italic,
+            underline: !!e.underline, align: e.align || 'left', color: e.color || '#000000' };
+        pdSelEdit = key;
+        startSession({ row: { page: e.page, y: e.y, h: e.h, tiles: [] }, tile: { labels: [{ kind: 'edit', key, x: e.x, y: e.y, w: e.w, h: e.h, str: e.text }], blank: blank ? { kind: 'box', key: blank } : null },
+            text: paragraph ? e.text.replace(/\n/g, ' ') : e.text, fmt, paragraph, rect: { x: e.x, y: e.y, w: e.w, h: e.h }, width: e.w,
+            own: { key, before: editLook(e) }, fill: e.cover ? (e.fill || '#ffffff') : 'transparent', ...opts });
+    }
+
+    function startSession(o) {
+        pdTile = { row: o.row, tile: o.tile, text: o.text, fmt0: { ...o.fmt }, fmt: { ...o.fmt }, created: null, own: o.own || null,
+            inline: { paragraph: !!o.paragraph, rect: o.rect, width: o.width || o.rect.w, hideKey: o.own ? o.own.key : null,
+                fill: o.fill !== undefined ? o.fill : ((pageColors(o.row.page, o.rect) || {}).fill || '#ffffff'),
+                newLine: o.newLine || null, prevRow: o.prevRow || null, selectAll: !!o.selectAll } };
+        if (pdMode !== 'content') setDesignerMode('content', false);
+        if (pdTool !== 'select') setContentTool('select', false);
+        if (o.own) pdSelEdit = o.own.key;   // (switching tools clears the selection)
+        renderDesignerPages();
+        const page = pdPages[o.row.page - 1], el = document.createElement('div');
+        el.className = 'pd-inline';
+        el.id = 'pdInline';
+        el.contentEditable = 'true';
+        el.spellcheck = true;
+        el.setAttribute('role', 'textbox');
+        el.setAttribute('aria-label', 'Type the words');
+        el.textContent = o.text;
+        page.overlay.parentElement.appendChild(el);
+        pdTile.inline.el = el;
+        styleInline();
+        el.addEventListener('keydown', inlineKeys);
+        el.addEventListener('paste', ev => {
+            ev.preventDefault();
+            const t = (ev.clipboardData || window.clipboardData).getData('text') || '';
+            document.execCommand('insertText', false, pdTile && pdTile.inline && pdTile.inline.paragraph ? t : t.replace(/\s*\n\s*/g, ' '));
+        });
+        el.addEventListener('blur', ev => {
+            // Picking a font or a colour on the ribbon keeps typing; anything else finishes it
+            if (ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('#pdRibbon')) return;
+            setTimeout(() => { if (pdTile && pdTile.inline && pdTile.inline.el === el && document.activeElement !== el && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#pdRibbon'))) finishInline(true); }, 0);
+        });
+        el.focus();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        if (!pdTile.inline.selectAll) range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        syncRibbon();
+    }
+
+    function styleInline() {
+        const s = pdTile;
+        if (!s || !s.inline || !s.inline.el) return;
+        const p = pdPages[s.row.page - 1], f = s.fmt, r = s.inline.rect, tall = p.maxY;
+        Object.assign(s.inline.el.style, {
+            left: (r.x * 100) + '%', top: (r.y / tall * 100) + '%', minWidth: (r.w * 100) + '%', minHeight: (r.h / tall * 100) + '%',
+            width: s.inline.paragraph ? (s.inline.width * 100) + '%' : 'auto', maxWidth: ((1 - r.x) * 100) + '%',
+            fontFamily: PD_FONTS[f.font] || PD_FONTS.Helvetica, fontSize: (f.size * p.scale).toFixed(2) + 'px', fontWeight: f.bold ? 700 : 400,
+            fontStyle: f.italic ? 'italic' : 'normal', textDecoration: f.underline ? 'underline' : 'none', textAlign: f.align, color: f.color,
+            lineHeight: (s.inline.paragraph ? f.size * 1.2 * p.scale : Math.max(r.h * p.hPt, f.size * 1.25) * p.scale).toFixed(2) + 'px',
+            background: s.inline.fill, whiteSpace: s.inline.paragraph ? 'pre-wrap' : 'pre',
+        });
+    }
+
+    // Finishes typing on the page: keep = put the words on the PDF (false: drop them). Returns where they are.
+    function finishInline(keep, after = null) {
+        const s = pdTile;
+        if (!s || !s.inline) return null;
+        const el = s.inline.el, value = el ? el.innerText.replace(/\u00a0/g, ' ').replace(/\n+$/, '') : s.text;
+        const where = { page: s.row.page, y: s.row.y + s.row.h / 2, key: s.own ? s.own.key : null };
+        if (el) el.remove();
+        s.inline.el = null;
+        if (keep && !(s.inline.newLine && !value.trim())) {
+            if (s.inline.paragraph) commitParagraph(s, value);
+            else applyPdfTileText(true, value);
+            where.key = s.own ? s.own.key : s.created;
+        } else if (s.inline.newLine) dropNewLine(s);
+        pdTile = null;
+        render();
+        syncRibbon();
+        if (after) after(where, s);
+        return where;
+    }
+
+    // A new line that was left empty goes away again
+    function dropNewLine(s) {
+        fbEdits = fbEdits.filter(e => !(s.own && e.key === s.own.key));
+        const ins = findEdit(s.inline.newLine);
+        if (ins) deleteInsert(ins.key);
+    }
+
+    // A paragraph: wrapped again in its width; more lines than it had → the rest of the form moves down to make room
+    function commitParagraph(s, value) {
+        const text = value.replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').trim(), f = s.fmt, page = s.row.page, p = pdPages[page - 1];
+        if (text === s.text && LOOK_KEYS.every(k => f[k] === s.fmt0[k])) return;
+        let target, base;
+        if (s.own) {
+            target = findEdit(s.own.key);
+            if (!target) return;
+            Object.assign(target, s.own.before);
+            base = { x: target.x, y: target.y, w: target.w, h: target.h };
+            if (!text) { fbEdits = fbEdits.filter(e => e !== target); pushEdit({ kind: 'erase', page, ...base, text: '', font: 'Helvetica', size: null, bold: false, cover: false }); markDirty(); return; }
+        } else {
+            fbEdits = fbEdits.filter(e => !s.tile.labels.some(l => l.kind === 'edit' && l.key === e.key));
+            if (!text) { pushEdit({ kind: 'erase', page, ...s.inline.rect, text: '', font: 'Helvetica', size: null, bold: false, cover: false }); markDirty(); return; }
+            target = pushEdit({ kind: 'text', page, ...s.inline.rect, w: Math.max(s.inline.rect.w, s.inline.width), text: 'x', font: f.font, size: f.size, cover: true });
+            base = { x: target.x, y: target.y, w: target.w, h: target.h };   // the old words (trimmed off its neighbours)
+        }
+        const width = Math.max(0.05, Math.min(1 - base.x, s.inline.width));
+        const lines = wrapText(page, text, f, width), need = lines.length * lineHeightOf(p, f.size) + 0.002;
+        Object.assign(target, { text: lines.join('\n'), font: f.font, size: f.size, bold: f.bold, italic: f.italic, underline: f.underline, align: f.align, color: f.color, w: width });
+        const extra = need - base.h;
+        if (extra > 0.003) {
+            pdRows = scanPdfRows();
+            const i = pdRows.findIndex(r => r.tiles.some(t => t.labels.some(l => l.key === target.key)));
+            const at = i >= 0 ? cutUnder(i, 'mid') : base.y + base.h;
+            addLineInsert({ kind: 'row', page, x: 0, y: Math.max(0, at - extra), w: 1, h: Math.min(extra, at), text: '', font: 'Helvetica', size: null, bold: false, cover: false });
+        }
+        target.h = Math.max(base.h, need);
+        markDirty();
+    }
+
+    // Enter: the words are done and a new line opens under them; Backspace on an empty new line takes it away again
+    function inlineKeys(ev) {
+        const s = pdTile;
+        if (!s || !s.inline) return;
+        const ctrl = ev.ctrlKey || ev.metaKey, k = ev.key.toLowerCase();
+        if (ctrl && (k === 'b' || k === 'i' || k === 'u')) { ev.preventDefault(); ribbonToggle({ b: 'bold', i: 'italic', u: 'underline' }[k]); return; }
+        if (ctrl && k === 's') return;   // save: handled by the page (it finishes typing first)
+        if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finishInline(false); return; }
+        if (ev.key === 'Tab') { ev.preventDefault(); finishInline(true); return; }
+        if (ev.key === 'Enter' && !(ev.shiftKey && s.inline.paragraph)) {
+            ev.preventDefault();
+            const look = { ...s.fmt }, x = Math.min(...s.tile.labels.map(l => l.x));
+            finishInline(true, where => {
+                pdRows = scanPdfRows();
+                const i = where.key ? pdRows.findIndex(r => r.tiles.some(t => t.labels.some(l => l.key === where.key)))
+                    : pdRows.findIndex(r => r.page === where.page && where.y >= r.top - 0.004 && where.y <= r.bot + 0.004);
+                if (i >= 0) typeOnNewLine(i, look, x);
+            });
+            return;
+        }
+        if (ev.key === 'Backspace' && s.inline.newLine && !s.inline.el.innerText.trim()) {
+            ev.preventDefault();
+            const prev = s.inline.prevRow;
+            finishInline(false, () => {
+                pdRows = scanPdfRows();
+                const i = prev ? pdRows.findIndex(r => r.page === prev.page && prev.y >= r.top - 0.004 && prev.y <= r.bot + 0.004) : -1;
+                if (i >= 0 && pdRows[i].tiles.length) startInlineFromTile(i, pdRows[i].tiles.length - 1);
+            });
+        }
+    }
+
+    // A new line under line i, typed straight away (in the look of the line above)
+    function typeOnNewLine(i, look, x) {
+        const row = pdRows[i], p = pdPages[row.page - 1];
+        const lh = Math.max(LINE_H, look.size * 1.5 / p.hPt), at = cutUnder(i, 'mid');
+        const ins = addLineInsert({ kind: 'row', page: row.page, x: 0, y: Math.max(0, at - lh), w: 1, h: Math.min(lh, at), text: '', font: 'Helvetica', size: null, bold: false, cover: false });
+        const a = finalArea(ins), th = look.size * 1.35 / p.hPt;
+        const e = pushEdit({ kind: 'text', page: row.page, x: clamp(x, 0, 0.9), y: a.y + (a.h - th) / 2, w: 0.3, h: th, text: '', font: look.font, size: look.size,
+            bold: look.bold, italic: look.italic, underline: look.underline, align: 'left', color: look.color, cover: false });
+        markDirty();
+        render();
+        startInlineOnEdit(e.key, { newLine: ins.key, prevRow: { page: row.page, y: row.y + row.h / 2 }, blank: null });
+    }
+
+    // ---- the ribbon ----
+    // What it formats: the words being typed, else the added text selected
+    function ribbonTarget() {
+        if (pdTile && pdTile.inline) return { kind: 'inline', fmt: pdTile.fmt };
+        const e = designerOpen() && pdMode === 'content' && pdSelEdit ? findEdit(pdSelEdit) : null;
+        if (e && e.kind === 'text') return { kind: 'edit', edit: e, fmt: { font: e.font || 'Helvetica', size: e.size || 10, bold: !!e.bold, italic: !!e.italic, underline: !!e.underline, align: e.align || 'left', color: e.color || '#000000' } };
+        return null;
+    }
+    function syncRibbon() {
+        const bar = document.getElementById('pdRibbon');
+        if (!bar) return;
+        const t = ribbonTarget(), f = t ? t.fmt : { font: 'Helvetica', size: 10, bold: false, italic: false, underline: false, align: 'left', color: '#000000' };
+        bar.classList.toggle('off', !t);
+        bar.title = t ? '' : 'Click words on the PDF to type, or select text you added, to format it';
+        const size = document.getElementById('rbSize');
+        const sizes = [...new Set([...RIBBON_SIZES, f.size])].sort((a, b) => a - b);
+        size.innerHTML = sizes.map(n => `<option value="${n}" ${n === f.size ? 'selected' : ''}>${n}</option>`).join('');
+        document.getElementById('rbFont').value = f.font;
+        ['bold', 'italic', 'underline'].forEach(k => bar.querySelector(`[data-rb="${k}"]`).classList.toggle('on', !!f[k]));
+        bar.querySelectorAll('[data-rb-align]').forEach(b => b.classList.toggle('on', b.dataset.rbAlign === f.align));
+        document.getElementById('rbColor').value = f.color;
+        document.getElementById('rbColorBar').style.background = f.color;
+    }
+    function ribbonSet(prop, value) {
+        const t = ribbonTarget();
+        if (!t) return;
+        if (t.kind === 'inline') {
+            pdTile.fmt[prop] = value;
+            styleInline();
+            syncRibbon();
+            const el = pdTile.inline.el;
+            if (el && document.activeElement !== el && prop !== 'color') el.focus();
+            return;
+        }
+        const e = t.edit, p = pdPages[e.page - 1];
+        e[prop] = value;
+        if (prop === 'size' && !e.text.includes('\n')) { const th = value * 1.35 / p.hPt; if (th > e.h) { e.y -= (th - e.h) / 2; e.h = th; } }
+        if (prop === 'size' || prop === 'bold' || prop === 'italic' || prop === 'font') {
+            if (!e.text.includes('\n')) { const w = textWidthOnPage(e.page, e.text, { ...t.fmt, [prop]: value }) + 0.006; if (w > e.w) e.w = Math.min(1 - e.x, w); }
+        }
+        markDirty();
+        renderDesigner();
+        syncRibbon();
+    }
+    function ribbonToggle(prop) {
+        const t = ribbonTarget();
+        if (t) ribbonSet(prop, !t.fmt[prop]);
+    }
+
+    // ---- Insert (ribbon): under the selected line, else at the end ----
+    function openInsertMenu(e) {
+        finishInline(true);
+        const i = pdSelIndex() >= 0 ? pdSelIndex() : pdRows.length - 1;
+        if (i < 0) return;
+        openGapMenu(e, i, true);
+    }
+
+    // ---- copy / paste: the selected added thing, or the selected line ----
+    let pdClip = null;
+    function copySelection() {
+        const e = pdSelEdit ? findEdit(pdSelEdit) : null;
+        if (e && !isTransform(e)) { const { key, ...rest } = e; pdClip = { edit: JSON.parse(JSON.stringify(rest)) }; showAlert('success', 'Copied. Ctrl+V pastes it.'); return true; }
+        const i = pdSelIndex();
+        if (i >= 0 && pdRows[i].tiles.length) { const r = pdRows[i]; pdClip = { line: { page: r.page, y: (r.top + r.bot) / 2 } }; showAlert('success', 'Line copied. Select where it goes and press Ctrl+V.'); return true; }
+        return false;
+    }
+    function pasteSelection() {
+        if (!pdClip) return false;
+        if (pdClip.edit) {
+            const c = { ...JSON.parse(JSON.stringify(pdClip.edit)) };
+            c.x = clamp(c.x + 0.012, 0, 1 - c.w);
+            c.y = clamp(c.y + 0.018, 0, PDF_MAX_Y - c.h);
+            if (pdMode !== 'content') setDesignerMode('content', false);
+            addEdit(c);
+            pdClip.edit = { ...pdClip.edit, x: c.x, y: c.y };   // the next paste goes a little further
+            return true;
+        }
+        const src = pdRows.findIndex(r => r.page === pdClip.line.page && pdClip.line.y >= r.top - 0.004 && pdClip.line.y <= r.bot + 0.004);
+        if (src < 0) { showAlert('error', 'The copied line is not on the form any more.'); return true; }
+        const tgt = pdSelIndex() >= 0 ? pdSelIndex() : src, tgtRow = pdRows[tgt], srcRow = pdRows[src];
+        if (tgtRow.page !== srcRow.page) { showAlert('error', 'A line can only be pasted on its own page.'); return true; }
+        const tgtY = (tgtRow.top + tgtRow.bot) / 2;
+        duplicatePdfRow(src);
+        if (tgt !== src) {
+            const ins = fbEdits.filter(isInsert).pop();
+            pdRows = scanPdfRows();
+            const copy = pdRows.findIndex(r => r.insert === ins.key);
+            const y = tgtY + (tgtY > (srcRow.top + srcRow.bot) / 2 ? ins.h : 0);
+            const t = pdRows.findIndex(r => r.page === tgtRow.page && y >= r.top - 0.004 && y <= r.bot + 0.004);
+            if (copy >= 0 && t >= 0) moveLineTo(copy, t + 1);
+        }
+        showAlert('success', 'Line pasted.');
+        return true;
+    }
+
+    // ---- arrows: nudge what is selected ----
+    function nudgeSelection(dx, dy) {
+        const e = pdSelEdit ? findEdit(pdSelEdit) : null;
+        if (e && isInsert(e)) { nudgeInsert(e.key, e.kind === 'row' ? 'y' : 'x', (e.kind === 'row' ? dy : dx) > 0 ? 1 : -1); return true; }
+        let box = e && !isTransform(e) ? e : null, riders = [];
+        if (!box && pdMode === 'fields' && pdSelField && fbOverrides[pdSelField] && fbOverrides[pdSelField].box) box = fbOverrides[pdSelField].box;
+        if (!box && pdMode === 'fields' && !pdSelField && pdCurrentKey && findField(pdCurrentKey) && findField(pdCurrentKey).box) { box = findField(pdCurrentKey).box; riders = answerLinesOf(box); }
+        if (!box) return false;
+        const p = pdPages[(box.page || 1) - 1], ox = box.x, oy = box.y;
+        box.x = clamp(box.x + dx, 0, 1 - box.w);
+        box.y = clamp(box.y + dy, 0, (p ? p.maxY : 1) - box.h);
+        riders.forEach(l => { l.x += box.x - ox; l.y += box.y - oy; });
+        markDirty();
+        renderDesignerPages();
+        return true;
+    }
 
     // ================= HISTORY: earlier versions of the form =================
     // Every save is kept (actions/save_application_form.php → includes/form_versions.php). Opening one loads it into the
@@ -3536,6 +3998,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     }
 
     async function saveForm() {
+        finishInline(true);
         const btn = document.getElementById('fbSaveBtn');
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
@@ -3584,10 +4047,29 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (e.key === 'Escape' && pdGapAt !== null) closeGapMenu();
         const typing = e.target.closest && e.target.closest('input, textarea, select, [contenteditable]');
         if (typing) return;
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undoChange(); }
-        // Delete removes what is selected in the PDF designer
-        const designerOpen = !document.getElementById('pdfDesigner').classList.contains('hidden');
-        if (designerOpen && (e.key === 'Delete' || e.key === 'Backspace') && pdSelEdit) { e.preventDefault(); deleteEdit(pdSelEdit); }
+        const ctrl = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
+        if (ctrl && key === 'z' && !e.shiftKey) { e.preventDefault(); undoChange(); }
+        if (ctrl && (key === 'y' || (key === 'z' && e.shiftKey))) { e.preventDefault(); redoChange(); }
+        const inDesigner = designerOpen();
+        if (!inDesigner) return;
+        if (ctrl && key === 'c' && copySelection()) { e.preventDefault(); return; }
+        if (ctrl && key === 'v' && pasteSelection()) { e.preventDefault(); return; }
+        // Arrows nudge what is selected (Shift: further)
+        const step = e.shiftKey ? 0.01 : 0.001, arrows = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+        if (!ctrl && arrows[e.key] && nudgeSelection(...arrows[e.key])) { e.preventDefault(); return; }
+        // Delete / Backspace removes what is selected: an added thing, an empty line, an answer box (its question stays)
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (pdSelEdit && findEdit(pdSelEdit)) { e.preventDefault(); deleteEdit(pdSelEdit); return; }
+            const i = pdSelIndex();
+            if (i >= 0 && pdRows[i].empty) { e.preventDefault(); deletePdfRow(i); return; }
+            if (pdMode === 'fields' && !pdSelField && pdCurrentKey && findField(pdCurrentKey) && findField(pdCurrentKey).box) {
+                e.preventDefault();
+                const f = findField(pdCurrentKey), lines = answerLinesOf(f.box);
+                fbEdits = fbEdits.filter(x => !lines.includes(x));
+                removeFromPdf(pdCurrentKey);
+                renderDesigner();
+            }
+        }
     });
 
     autoGrow(document.getElementById('fbInstructions'));

@@ -215,17 +215,25 @@ if (!function_exists('listPdfTemplates')) {
                 if ($edit['kind'] !== 'text' || trim((string) $edit['text']) === '') continue;
 
                 $family = in_array($edit['font'] ?? '', ['Helvetica', 'Times', 'Courier'], true) ? $edit['font'] : 'Helvetica';
-                $style = (!empty($edit['bold']) ? 'B' : '') . (!empty($edit['italic']) ? 'I' : '');
-                $text = iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', preg_replace('/\s+/', ' ', trim($edit['text'])));
+                $style = (!empty($edit['bold']) ? 'B' : '') . (!empty($edit['italic']) ? 'I' : '') . (!empty($edit['underline']) ? 'U' : '');
+                // A paragraph's lines (broken in the designer) are kept; one line is one line
+                $lines = array_map(fn($l) => iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', preg_replace('/[ \t]+/', ' ', trim($l))), preg_split('/\r?\n/', trim((string) $edit['text'])));
                 $size = $edit['size'] ? (float) $edit['size'] : min(14, max(6, $h * 0.75));
-                // Keep the chosen size unless the text would spill out of its box
+                // Keep the chosen size unless a line would spill out of its box
                 do {
                     $overlay->SetFont($family, $style, $size);
-                    if ($overlay->GetStringWidth($text) <= $w || $size <= 5) break;
+                    if (max(array_map(fn($l) => $overlay->GetStringWidth($l), $lines)) <= $w || $size <= 5) break;
                     $size -= 0.5;
                 } while (true);
                 $overlay->SetTextColor(...$rgb($edit['color'] ?? null, [0, 0, 0]));
-                $overlay->Text($x, $y + ($h + $size * 0.7) / 2, $text);
+                $align = $edit['align'] ?? 'left';
+                $at = fn($line) => $align === 'center' ? $x + ($w - $overlay->GetStringWidth($line)) / 2 : ($align === 'right' ? $x + $w - $overlay->GetStringWidth($line) : $x);
+                if (count($lines) === 1) {
+                    $overlay->Text($at($lines[0]), $y + ($h + $size * 0.7) / 2, $lines[0]);
+                } else {
+                    $lh = $size * 1.2;   // the designer's line height
+                    foreach ($lines as $n => $line) $overlay->Text($at($line), $y + $lh * 0.78 + $n * $lh, $line);
+                }
             }
             $overlay->SetTextColor(0, 0, 0);
             $overlay->SetFillColor(255, 255, 255);
