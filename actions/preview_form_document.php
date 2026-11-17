@@ -35,6 +35,7 @@ $doc = [
 // Answer spots carry their question's place in the form (data-qi); its name comes with them (labels: place => name)
 $labels = [];
 foreach ((array) ($payload['labels'] ?? []) as $i => $name) $labels[900000000 + (int) $i] = mb_substr((string) $name, 0, 255);
+foreach ((array) ($payload['pdf_labels'] ?? []) as $field => $name) $labels['pdf:' . $field] = mb_substr((string) $name, 0, 255);
 $ids = array_map(fn($i) => 900000000 + $i, range(0, 999));
 foreach (['body', 'header', 'footer'] as $part) $doc[$part] = formDocumentLinkFields($doc[$part], $ids);
 

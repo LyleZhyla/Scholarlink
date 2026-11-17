@@ -139,6 +139,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .doc-page hr { border-top: 1px solid #000; margin: 6pt 0; }
     .doc-page .page-break, .doc-page .mce-pagebreak { display: block; width: 100%; height: 0; border: 0; border-top: 2px dashed #94a3b8; margin: 12pt 0; }
     .doc-page .sl-field { background: #dbeafe; color: #1d4ed8; border-bottom: 1.5px dashed #2563eb; padding: 0 3px; border-radius: 3px; font-family: Arial, Helvetica, sans-serif; font-size: 0.9em; white-space: nowrap; cursor: default; }
+    .doc-page .sl-field[data-pdf-field] { background: #dcfce7; color: #15803d; border-bottom-color: #16a34a; }
     .doc-page .sl-field[data-sys] { background: #ede9fe; color: #6d28d9; border-bottom-color: #7c3aed; }
     .doc-page .sl-missing { background: #fee2e2; color: #b91c1c; border-bottom-color: #dc2626; }
     #docToolbar .tox-tinymce-inline { position: static !important; width: 100% !important; border: 0 !important; box-shadow: none !important; }
@@ -397,7 +398,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <p id="fbDocInfo" class="text-xs font-bold text-slate-400 mt-1"></p>
             </div>
             <div class="flex flex-col gap-2 shrink-0">
-                <button type="button" onclick="openDocEditor()" class="px-5 py-3 rounded-xl bg-blue-700 text-white text-[11px] font-black uppercase tracking-widest hover:bg-blue-800"><i class="fas fa-pen"></i> Open the document</button>
+                <button type="button" id="fbDocOpen" onclick="openDocEditor()" class="px-5 py-3 rounded-xl bg-blue-700 text-white text-[11px] font-black uppercase tracking-widest hover:bg-blue-800"><i class="fas fa-pen"></i> Open the document</button>
+                <button type="button" onclick="convertPdfToDocument()" class="px-5 py-2.5 rounded-xl bg-white border border-blue-200 text-blue-700 text-[11px] font-black uppercase tracking-widest hover:bg-blue-50"><i class="fas fa-wand-magic-sparkles"></i> Copy the official PDF into it</button>
                 <button type="button" onclick="previewDocument()" class="px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-[11px] font-black uppercase tracking-widest hover:border-slate-900"><i class="fas fa-eye"></i> Preview PDF</button>
             </div>
         </div>
@@ -582,6 +584,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <option value="A4">A4</option><option value="Letter">Letter (8.5 × 11 in)</option><option value="Legal">Legal / long (8.5 × 14 in)</option>
                 </select>
             </label>
+            <button type="button" onclick="convertPdfToDocument()" title="Make the document again from the official PDF" class="px-4 py-2 rounded-xl border border-blue-200 bg-white text-[11px] font-black uppercase tracking-widest text-blue-700 hover:bg-blue-50"><i class="fas fa-wand-magic-sparkles"></i> Copy the PDF in</button>
             <button type="button" onclick="previewDocument()" class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase tracking-widest text-slate-700 hover:border-slate-900"><i class="fas fa-eye"></i> Preview PDF</button>
             <button type="button" onclick="closeDocEditor()" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-blue-600">Done</button>
         </div>
@@ -845,6 +848,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // Single quotes inside: these go into style="..." attributes
     const PD_FONTS = { Helvetica: "Arial, Helvetica, sans-serif", Times: "'Times New Roman', Times, serif", Courier: "'Courier New', Courier, monospace" };
     let pdDocFile = null;
+    let pdPdfDoc = null;         // the opened PDF (pdf.js)
     let pdPages = [];            // [{ num, overlay, canvas, source, scale, hPt, fields, texts (as laid out), fieldsOrig, textsOrig (on the untouched page), cut }]
     let pdMode = 'fields';       // 'fields' | 'content'
     let pdTool = 'select';       // content tool: 'select' | 'erase' | 'addtext' | 'row' | 'column'
@@ -940,6 +944,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
         try {
             const doc = await pdfjsLib.getDocument('../forms/' + encodeURIComponent(file)).promise;
+            pdPdfDoc = doc;
             holder.innerHTML = '';
             pdPages = [];
             const cssWidth = Math.min(880, (holder.clientWidth || 928) - 48);   // the designer may still be closed
@@ -3886,13 +3891,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (toEditor) {
                 span.setAttribute('contenteditable', 'false');
                 if (span.dataset.sys) { span.textContent = '[' + (DOC_SYS[span.dataset.sys] || span.dataset.sys) + ']'; return; }
+                if (span.dataset.pdfField) { span.textContent = '[' + (span.dataset.label || pdfBlankLabel(span.dataset.pdfField)) + ']'; return; }
                 const id = Number(span.dataset.fieldId), f = span.dataset.qk ? findField(span.dataset.qk) : fbFields.find(x => x.id === id);
                 span.removeAttribute('data-field-id');
                 if (f) { span.dataset.qk = f.key; span.classList.remove('sl-missing'); span.textContent = '[' + (f.label || 'Untitled question') + ']'; }
                 else { span.removeAttribute('data-qk'); span.classList.add('sl-missing'); span.textContent = '[Removed question]'; }
             } else {
                 span.removeAttribute('contenteditable');
-                if (span.dataset.sys) return;
+                if (span.dataset.sys || span.dataset.pdfField) return;
                 const i = span.dataset.qk ? fbFields.findIndex(f => f.key === span.dataset.qk) : -1;
                 span.removeAttribute('data-qk');
                 if (i >= 0) span.dataset.qi = i; else span.classList.add('sl-missing');
@@ -3928,10 +3934,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function setFormMode(mode) {
         if (mode === fbFormMode) { renderFormMode(); return; }
         fbFormMode = mode;
-        if (mode === 'document' && !fbDoc) fbDoc = starterDocument();
         markDirty();
         render();
         renderFormMode();
+        // The first time: the official PDF is copied into the document, to edit like in Word
+        if (mode === 'document' && !fbDoc) convertPdfToDocument();
     }
     function renderFormMode() {
         document.querySelectorAll('[data-formmode]').forEach(b => { b.classList.toggle('on', b.dataset.formmode === fbFormMode); b.setAttribute('aria-checked', b.dataset.formmode === fbFormMode); });
@@ -4091,7 +4098,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">Making the preview…</p>');
         try {
             const res = await fetch('../actions/preview_form_document.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scholarship_id: FB_SCHOLARSHIP_ID, document: docForServer(), labels: Object.fromEntries(fbFields.map((f, i) => [i, f.label || 'Untitled question'])) }) });
+                body: JSON.stringify({ scholarship_id: FB_SCHOLARSHIP_ID, document: docForServer(), labels: Object.fromEntries(fbFields.map((f, i) => [i, f.label || 'Untitled question'])),
+                    pdf_labels: Object.fromEntries(activeTemplate().fields.map(f => [f.name, pdfBlankLabel(f.name)])) }) });
             if (!res.ok) throw new Error(await res.text());
             const url = URL.createObjectURL(await res.blob());
             if (win) win.location.href = url; else window.open(url, '_blank');
@@ -4099,6 +4107,336 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (win) win.close();
             showAlert('error', 'Could not make the preview: ' + err.message);
         }
+    }
+
+
+    // ================= THE OFFICIAL PDF, COPIED INTO THE WORD-STYLE DOCUMENT =================
+    // The PDF as the designer reads it (lines, words with their font / size / colour, blanks, tables) is written out as a
+    // document: the coloured letterhead becomes the Header (its pictures cut out, its words still words), the bottom lines the
+    // Footer, ruled tables real tables, lines with several labels side-by-side columns, and every blank an answer spot that
+    // prints what the official PDF would (data-pdf-field), so nothing is lost. It is a close copy to edit, not a scan.
+    const DOC_FONTS = { Helvetica: 'arial, helvetica, sans-serif', Times: "'times new roman', times, serif", Courier: "'courier new', courier, monospace" };
+    function pdfBlankLabel(name) {
+        const owner = pdfUsage()[name];
+        if (owner) return owner.label || 'Untitled question';
+        return humanize(name).replace(/^./, c => c.toUpperCase());
+    }
+
+    async function convertPdfToDocument() {
+        if (fbDoc && !confirm('Make the document again from the official PDF? What is in the document now is replaced (Undo in the editor or Back in History can bring it back).')) return;
+        showAlert('success', 'Reading the official PDF and copying it into the document…');
+        if (!(await ensurePdfLoaded())) { showAlert('error', 'The official PDF could not be opened.'); return; }
+        pdRows = scanPdfRows();
+        let made;
+        try { made = await pdfToDocument(); }
+        catch (err) { showAlert('error', 'Could not copy the PDF: ' + err.message); return; }
+        fbDoc = made;
+        fbFormMode = 'document';
+        setDirty(true);
+        render();
+        renderFormMode();
+        if (docEditors) { docEditors.header.setContent(fbDoc.header); docEditors.body.setContent(fbDoc.body); docEditors.footer.setContent(fbDoc.footer); setDocPaper(fbDoc.paper, false); }
+        else await openDocEditor();
+        showAlert('success', 'The official PDF is now a Word-style document. It is a close copy: check it, edit anything like in Word, then Save form. Green tags are the PDF\'s blanks (they print what the PDF printed).');
+    }
+
+    // ---- what is printed where, from the page image ----
+    function pageInk(p) {
+        paintPage(p);
+        const c = p.canvas, W = c.width, H = p.source.height, HC = c.height;
+        const data = c.getContext('2d').getImageData(0, 0, W, HC).data;
+        const px = (x, y) => { const i = (y * W + x) * 4; return [data[i], data[i + 1], data[i + 2]]; };
+        const near = (a, b, t) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < t;
+        // Coloured bands (a letterhead): rows of pixels mostly one colour that is not white
+        const rowBg = [], bands = [], gapPx = Math.round(0.012 * H);
+        for (let y = 0; y < HC; y++) {
+            const counts = new Map();
+            for (let x = 0; x < W; x += 6) { const c3 = px(x, y), k = c3.map(v => v >> 4).join(','); const g = counts.get(k) || { n: 0, c: c3 }; g.n++; counts.set(k, g); }
+            let best = null; counts.forEach(g => { if (luma(g.c) <= 235 && (!best || g.n > best.n)) best = g; });
+            rowBg[y] = [255, 255, 255];
+            if (!best || best.n / Math.ceil(W / 6) < 0.35) continue;
+            const last = bands[bands.length - 1];
+            if (last && y - last.y1 <= gapPx && near(last.c, best.c, 90)) last.y1 = y; else bands.push({ y0: y, y1: y, c: best.c });
+        }
+        const bandList = bands.filter(b => (b.y1 - b.y0) / H > 0.025).map(b => ({ y: b.y0 / H, h: (b.y1 - b.y0 + 1) / H, color: hex(b.c), c: b.c }));
+        bandList.forEach(b => { for (let y = Math.round(b.y * H); y < Math.round((b.y + b.h) * H) && y < HC; y++) rowBg[y] = b.c; });
+        // Ink that is not text: pictures and lines
+        const G = Math.max(2, Math.round(W / 420)), gw = Math.ceil(W / G), gh = Math.ceil(HC / G);
+        const skip = [...p.texts, ...p.fields].map(r => ({ x0: (r.x - 0.002) * W, x1: (r.x + r.w + 0.002) * W, y0: (r.y - 0.002) * H, y1: (r.y + r.h + 0.002) * H }));
+        const ink = new Uint8Array(gw * gh);
+        for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+            const cx = gx * G + G / 2, cy = gy * G + G / 2;
+            if (skip.some(r => cx >= r.x0 && cx <= r.x1 && cy >= r.y0 && cy <= r.y1)) continue;
+            for (let dy = 0; dy < G && !ink[gy * gw + gx]; dy++) for (let dx = 0; dx < G; dx++) {
+                const x = gx * G + dx, y = gy * G + dy;
+                if (x >= W || y >= HC) continue;
+                if (!near(px(x, y), rowBg[y], 150)) { ink[gy * gw + gx] = 1; break; }
+            }
+        }
+        // Long thin runs are lines (rules, box sides), set apart so a picture touching one is still found on its own
+        const hr = new Uint16Array(gw * gh), vr = new Uint16Array(gw * gh);
+        for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw;) {
+            if (!ink[gy * gw + gx]) { gx++; continue; }
+            let e = gx; while (e < gw && ink[gy * gw + e]) e++;
+            for (let k = gx; k < e; k++) hr[gy * gw + k] = e - gx;
+            gx = e;
+        }
+        for (let gx = 0; gx < gw; gx++) for (let gy = 0; gy < gh;) {
+            if (!ink[gy * gw + gx]) { gy++; continue; }
+            let e = gy; while (e < gh && ink[e * gw + gx]) e++;
+            for (let k = gy; k < e; k++) vr[k * gw + gx] = e - gy;
+            gy = e;
+        }
+        const lines = [];
+        for (let i = 0; i < ink.length; i++) {
+            if (!ink[i]) continue;
+            const horizontal = hr[i] >= 0.12 * gw && vr[i] <= 3, vertical = vr[i] >= 0.04 * gh && hr[i] <= 3;
+            if (!horizontal && !vertical) continue;
+            if (horizontal) {
+                const gx = i % gw, gy = (i - gx) / gw;
+                if (gx === 0 || !ink[i - 1]) lines.push({ x: gx * G / W, y: gy * G / H, w: hr[i] * G / W, h: G / H });
+            }
+            ink[i] = 0;
+        }
+        // one rule drawn a few pixels thick is one line
+        lines.sort((a, b) => a.y - b.y || a.x - b.x);
+        for (let k = lines.length - 1; k > 0; k--) if (Math.abs(lines[k].y - lines[k - 1].y) < 3 * G / H && Math.abs(lines[k].x - lines[k - 1].x) < 0.01) lines.splice(k, 1);
+        const seen = new Uint8Array(gw * gh), images = [];
+        for (let i = 0; i < ink.length; i++) {
+            if (!ink[i] || seen[i]) continue;
+            let x0 = gw, x1 = 0, y0 = gh, y1 = 0, n = 0;
+            const stack = [i];
+            seen[i] = 1;
+            while (stack.length) {
+                const k = stack.pop(), x = k % gw, y = (k - x) / gw;
+                n++; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+                [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([ax, ay]) => {
+                    const nx = x + ax, ny = y + ay, nk = ny * gw + nx;
+                    if (nx >= 0 && ny >= 0 && nx < gw && ny < gh && ink[nk] && !seen[nk]) { seen[nk] = 1; stack.push(nk); }
+                });
+            }
+            const r = { x: x0 * G / W, y: y0 * G / H, w: (x1 - x0 + 1) * G / W, h: (y1 - y0 + 1) * G / H };
+            const fill = n / ((x1 - x0 + 1) * (y1 - y0 + 1));
+            if (r.w > 0.035 && r.h > 0.025 && fill > 0.18) images.push(r);
+        }
+        return { bands: bandList, images, lines, rowBg, H, W };
+    }
+
+    // The side borders of a table's cells across a line: thin vertical lines running from above its letters to below them
+    // (a letter's stroke never does), as fractions of the width
+    function verticalLinesAt(p, top, bot) {
+        const c = p.canvas, W = c.width, H = p.source.height;
+        const y0 = Math.max(0, Math.floor((top - 0.004) * H)), y1 = Math.min(c.height - 1, Math.ceil((bot + 0.004) * H)), rows = y1 - y0 + 1;
+        if (rows < 4) return [];
+        const data = c.getContext('2d').getImageData(0, y0, W, rows).data;
+        const dark = (x, r) => { const i = (r * W + x) * 4; return data[i] + data[i + 1] + data[i + 2] < 500; };
+        const runs = [];
+        for (let x = 1; x < W - 1; x++) {
+            let solid = true;
+            for (let r = 0; r < rows && solid; r++) solid = dark(x, r) || dark(x - 1, r) || dark(x + 1, r);
+            if (!solid) continue;
+            const last = runs[runs.length - 1];
+            if (last && x - last.x1 <= 1) last.x1 = x; else runs.push({ x0: x, x1: x });
+        }
+        return runs.filter(r => r.x1 - r.x0 <= Math.max(4, W / 250)).map(r => (r.x0 + r.x1) / 2 / W);
+    }
+
+    async function cutPicture(pageNum, r) {
+        const page = await pdPdfDoc.getPage(pageNum), vp = page.getViewport({ scale: 3 });
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.ceil(r.w * vp.width)); c.height = Math.max(1, Math.ceil(r.h * vp.height));
+        await page.render({ canvasContext: c.getContext('2d'), viewport: vp, transform: [1, 0, 0, 1, -r.x * vp.width, -r.y * vp.height] }).promise;
+        return c.toDataURL('image/png');
+    }
+
+    async function pdfToDocument() {
+        const p0 = pdPages[0], pageWpt = p0.hPt * p0.source.width / p0.source.height, pageHpt = p0.hPt, mmW = pageWpt * 25.4 / 72;
+        const paper = Math.abs(pageHpt - 1008) < 12 ? 'Legal' : Math.abs(pageHpt - 842) < 12 && Math.abs(pageWpt - 595) < 12 ? 'A4' : 'Letter';
+        const used = pdfUsage(), tplAuto = activeTemplate().auto;
+        const parts = { header: '', body: '', footer: '' };
+        let headerMm = 0, footerMm = 0;
+        const colourOf = new Map();
+        const inkColour = (page, t) => {
+            const key = page + ':' + t.labels.map(l => l.x.toFixed(4) + l.y.toFixed(4)).join();
+            if (!colourOf.has(key)) colourOf.set(key, t.labels.length ? ((pageColors(page, unionOf(t.labels)) || {}).color || '#000000') : '#000000');
+            return colourOf.get(key);
+        };
+        const pagePtWide = pageWpt;
+        // A part's words (each piece in its own font / size / weight) and its blank
+        const partHtml = (page, t, opts = {}) => {
+            const colour = inkColour(page, t), b = t.blank;
+            const words = tileText(t).replace(/[:*]+$/, '').replace(/^\(\s*\)\s*/, '').trim();
+            const spot = b && b.kind === 'field' && !b.sig
+                ? `<span class="sl-field${b.check ? ' sl-check' : ''}" contenteditable="false" data-pdf-field="${esc(b.name)}" data-label="${esc(b.check ? (words || 'Tick') : (pdfUsage()[b.name] ? pdfBlankLabel(b.name) : (words && words.length <= 40 ? words : pdfBlankLabel(b.name))))}">[${esc(b.check ? '✓' : (pdfUsage()[b.name] ? pdfBlankLabel(b.name) : (words && words.length <= 40 ? words : pdfBlankLabel(b.name))))}]</span>` : null;
+            let inBrackets = false, html = '', prev = null;
+            t.labels.forEach(l => {
+                const touching = prev && Math.abs((l.y + l.h / 2) - (prev.y + prev.h / 2)) < Math.max(l.h, prev.h) * 0.6 && l.x - (prev.x + prev.w) < (l.size || 10) * 0.12 / pagePtWide && l.x >= prev.x;
+                let text = esc(l.str);
+                if (spot && b.check && !inBrackets && /\(\s*\)/.test(text)) { text = text.replace(/\(\s*\)/, '(' + spot + ')'); inBrackets = true; }
+                else if (spot && b.check && !inBrackets && /\(\s*$/.test(text)) { text += spot; inBrackets = true; }   // "(" and ")" printed apart
+                if (opts.pageNumbers) text = text.replace(/\b(\d+)\s+of\s+(\d+)\b/, () => docSpan({ sys: 'page_number', label: DOC_SYS.page_number }) + ' of ' + docSpan({ sys: 'page_count', label: DOC_SYS.page_count }));
+                const st = [`font-family: ${DOC_FONTS[l.font] || DOC_FONTS.Times}`, `font-size: ${Math.round((l.size || 10) * 2) / 2}pt`];
+                if (colour !== '#000000') st.push(`color: ${colour}`);
+                let piece = `<span style="${st.join('; ')}">${text}</span>`;
+                if (l.bold) piece = `<strong>${piece}</strong>`;
+                if (l.italic) piece = `<em>${piece}</em>`;
+                html += (prev && !touching ? ' ' : '') + piece;
+                prev = l;
+            });
+            if (b && !inBrackets) {
+                let piece;
+                if (b.kind === 'box') { const f = findField(b.key); piece = f ? docSpan({ qk: f.key, label: f.label }) : ''; }
+                else if (b.kind === 'line') piece = '_'.repeat(Math.max(4, Math.min(60, Math.round(b.w * pageWpt / 5.8))));
+                else if (b.sig) piece = '_'.repeat(Math.max(8, Math.min(60, Math.round(b.w * pageWpt / 5.8))));
+                else piece = b.check ? '(' + spot + ')' : spot;
+                html += (html ? ' ' : '') + piece;
+            }
+            // "1 of 1" in the footer: the page number and the number of pages
+            if (opts.pageNumbers && /^\s*\d+\s+of\s+\d+\s*$/.test(tileText(t)) && !b)
+                return docSpan({ sys: 'page_number', label: DOC_SYS.page_number }) + ' of ' + docSpan({ sys: 'page_count', label: DOC_SYS.page_count });
+            return html;
+        };
+        const rowLeft = r => Math.min(...r.tiles.flatMap(tileParts).map(q => q.x)), rowRight = r => Math.max(...r.tiles.flatMap(tileParts).map(q => q.x + q.w));
+
+        for (const p of pdPages) {
+            const ink = pageInk(p);
+            const rows = pdRows.filter(r => r.page === p.num && r.tiles.length);
+            // Printed ____ answer lines (not fields) join their line as blanks
+            p.texts.filter(t => /_{3,}/.test(t.str) && !/[A-Za-z0-9]/.test(t.str)).forEach(t => {
+                const r = rows.find(r => t.y + t.h / 2 >= r.top - 0.004 && t.y + t.h / 2 <= r.bot + 0.006);
+                if (r && !r.tiles.some(x => x.blank && x.blank.x < t.x + t.w && x.blank.x + x.blank.w > t.x)) r.tiles.push({ labels: [], blank: { kind: 'line', x: t.x, y: t.y, w: t.w, h: t.h } });
+            });
+            rows.forEach(r => r.tiles.sort((a, b) => tileParts(a)[0].x - tileParts(b)[0].x));
+            const left = Math.min(...rows.map(rowLeft).filter(isFinite), 0.2), right = Math.max(...rows.map(rowRight).filter(isFinite), 0.8);
+            const width = Math.max(0.3, right - left);
+            const mm = f => Math.round(f * mmW * 10) / 10;
+
+            // Header: the coloured band at the top of the first page; footer: the lines at the bottom of the first page
+            const topBand = p.num === 1 ? ink.bands.find(b => b.y < 0.2) : null;
+            const inHeader = r => topBand && r.top >= topBand.y - 0.01 && r.bot <= topBand.y + topBand.h + 0.01;
+            const inFooter = r => p.num === 1 && r.top > 0.925;
+            // Ruled tables: lines crossed by the same 3+ vertical borders, with their words between the outer ones
+            const ruled = rows.map(r => {
+                const xs = verticalLinesAt(p, r.top, r.bot);
+                if (xs.length < 3) return null;
+                const inside = r.tiles.every(t => { const c = tileParts(t)[0].x + 0.002; return c >= xs[0] - 0.01 && c <= xs[xs.length - 1]; });
+                return inside ? xs : null;
+            });
+            const sameCols = (a, b) => a && b && a.length === b.length && a.every((x, k) => Math.abs(x - b[k]) < 0.008);
+            // A line next to a table, whose borders sit close to its words, joins it when the table's column lines cross it
+            for (let changed = true; changed;) {
+                changed = false;
+                rows.forEach((r, k) => {
+                    if (ruled[k]) return;
+                    const cols = ruled[k - 1] && Math.abs(rows[k - 1].bot - r.top) < 0.03 ? ruled[k - 1] : ruled[k + 1] && Math.abs(r.bot - rows[k + 1].top) < 0.03 ? ruled[k + 1] : null;
+                    if (!cols) return;
+                    const mid = (r.top + r.bot) / 2, xs = verticalLinesAt(p, mid + 0.001, mid - 0.001);   // (it widens what it is given by 0.004 each way: ±0.003 around the middle)
+                    if (cols.every(x => xs.some(v => Math.abs(v - x) < 0.008))) { ruled[k] = cols; changed = true; }
+                });
+            }
+            const used2 = new Set();
+            let lastBot = topBand ? topBand.y + topBand.h : 0.05, html = '';
+            // Only the PDF's own spacing between lines (not the editor's usual space after a paragraph)
+            const gapStyle = top => { const gap = (top - lastBot) * pageHpt - 3; return 'margin: 0; ' + (gap > 3 ? `margin-top: ${Math.min(40, Math.round(gap))}pt; ` : ''); };
+            const pictures = [];
+            for (const im of ink.images) pictures.push({ ...im, src: await cutPicture(p.num, im) });
+            const picHtml = (im, extra = '') => `<img src="${im.src}" alt="" width="${Math.round(im.w * mmW * 96 / 25.4)}" style="${extra}">`;
+            const placedPics = new Set();
+
+            // the letterhead
+            if (topBand) {
+                const hRows = rows.filter(inHeader), hPics = pictures.filter(im => im.y < topBand.y + topBand.h && im.y + im.h > topBand.y);
+                hPics.forEach(im => placedPics.add(im));
+                const textLeft = Math.min(...hRows.map(rowLeft)), textRight = Math.max(...hRows.map(rowRight));
+                const cells = [];
+                hPics.filter(im => im.x + im.w <= textLeft + 0.02).forEach(im => cells.push(`<td style="width: ${Math.round(im.w * 100)}%; vertical-align: middle;">${picHtml(im)}</td>`));
+                const lines = hRows.map(r => {
+                    const cx = (rowLeft(r) + rowRight(r)) / 2, mid = (textLeft + textRight) / 2;
+                    const align = Math.abs(cx - mid) < 0.03 && rowRight(r) - rowLeft(r) < (textRight - textLeft) * 0.95 ? 'center' : 'left';
+                    return `<p style="margin: 0; text-align: ${align};">${r.tiles.map(t => partHtml(p.num, t)).join(' &nbsp; ')}</p>`;
+                }).join('');
+                cells.push(`<td style="vertical-align: middle;">${lines}</td>`);
+                hPics.filter(im => im.x >= textRight - 0.02).forEach(im => cells.push(`<td style="width: ${Math.round(im.w * 100)}%; vertical-align: middle;">${picHtml(im)}</td>`));
+                parts.header += `<table style="border-collapse: collapse; width: 100%; background-color: ${topBand.color};"><tbody><tr>${cells.join('')}</tr></tbody></table>`;
+                headerMm = mm(topBand.h) + 2;
+                hRows.forEach(r => used2.add(r));
+            }
+
+            // the page in order: pictures, lines (alone, side by side, as a paragraph), ruled tables
+            const items = [];
+            rows.forEach((r, k) => { if (!used2.has(r)) items.push({ y: r.top, row: r, k }); });
+            pictures.filter(im => !placedPics.has(im)).forEach(im => items.push({ y: im.y, pic: im }));
+            ink.lines.filter(l => !rows.some(r => l.y >= r.top - 0.012 && l.y <= r.bot + 0.006) && !(topBand && l.y < topBand.y + topBand.h) && !(ruled.some(Boolean) && rows.some((r, k) => ruled[k] && Math.abs(l.y - r.top) < 0.03)))
+                .forEach(l => items.push({ y: l.y, line: l }));
+            items.sort((a, b) => a.y - b.y);
+            let footerHtml = '';
+            for (let n = 0; n < items.length; n++) {
+                const it = items[n];
+                if (it.pic) {
+                    const float = it.pic.x > 0.55 ? 'float: right; margin-left: 4mm;' : it.pic.x + it.pic.w < 0.45 ? 'float: left; margin-right: 4mm;' : '';
+                    html += float ? `<p style="margin: 0;">${picHtml(it.pic, float)}</p>` : `<p style="${gapStyle(it.y)}text-align: center;">${picHtml(it.pic)}</p>`;
+                    if (!float) lastBot = it.pic.y + it.pic.h;
+                    continue;
+                }
+                if (it.line) {
+                    if (it.line.y > 0.9 && p.num === 1) continue;
+                    if (it.line.w > 0.5) {
+                        // a rule across the page (one, when it is drawn double)
+                        if (!/<hr[^>]*>$/.test(html)) html += `<hr style="${gapStyle(it.line.y)}border: 0; border-top: 1px solid #888888;">`;
+                    } else {
+                        const indent = Math.max(0, it.line.x - left), room = Math.max(0.05, width - indent);
+                        html += `<p style="${gapStyle(it.line.y)}margin-left: ${mm(indent)}mm;">${'_'.repeat(Math.max(6, Math.round(Math.min(it.line.w, room) * pageWpt / 5.8)))}</p>`;
+                    }
+                    lastBot = it.line.y + 0.004;
+                    continue;
+                }
+                const r = it.row, k = it.k, footer = inFooter(r);
+                let piece = '';
+                if (ruled[k]) {
+                    // a ruled table: this line and the next with the same columns
+                    const group = [r];
+                    while (items[n + 1] && items[n + 1].row && sameCols(ruled[items[n + 1].k], ruled[k])) { n++; group.push(items[n].row); }
+                    const xs = ruled[k], cols = xs.slice(1).map((x, c) => ({ x0: xs[c], x1: x }));
+                    const tw = xs[xs.length - 1] - xs[0];
+                    piece = `<table border="1" style="${gapStyle(r.top)}border-collapse: collapse; width: ${Math.min(100, Math.round(tw / width * 100))}%;"><tbody>`
+                        + group.map(g => '<tr>' + cols.map(c => `<td style="width: ${Math.round((c.x1 - c.x0) / tw * 100)}%;">${g.tiles.filter(t => { const x = tileParts(t)[0].x + 0.003; return x >= c.x0 - 0.005 && x < c.x1; }).map(t => partHtml(p.num, t, { pageNumbers: footer })).join(' ') || '&nbsp;'}</td>`).join('') + '</tr>').join('')
+                        + '</tbody></table>';
+                    lastBot = group[group.length - 1].bot;
+                } else if (r.tiles.length > 1) {
+                    // several labels on one line: side-by-side columns (a borderless table)
+                    const L0 = rowLeft(r), cells = [];
+                    if (L0 - left > 0.02) cells.push(`<td style="width: ${Math.round((L0 - left) / width * 100)}%;">&nbsp;</td>`);
+                    r.tiles.forEach((t, j) => {
+                        const x = tileParts(t)[0].x, next = r.tiles[j + 1] ? tileParts(r.tiles[j + 1])[0].x : right;
+                        cells.push(`<td style="width: ${Math.max(4, Math.round((next - x) / width * 100))}%; padding: 0 2pt;">${partHtml(p.num, t, { pageNumbers: footer })}</td>`);
+                    });
+                    piece = `<table style="${gapStyle(r.top)}border-collapse: collapse; width: 100%;"><tbody><tr>${cells.join('')}</tr></tbody></table>`;
+                    lastBot = r.bot;
+                } else {
+                    // one label: a line, or the start of a paragraph that runs over the next lines
+                    const gi = pdRows.indexOf(r), block = gi >= 0 ? paragraphRows(gi) : [gi];
+                    let group = [r];
+                    if (block.length > 1 && block[0] === gi) {
+                        group = block.map(b => pdRows[b]);
+                        while (items[n + 1] && items[n + 1].row && group.includes(items[n + 1].row)) n++;
+                    }
+                    const L0 = rowLeft(r), R0 = Math.max(...group.map(rowRight)), cx = (L0 + R0) / 2;
+                    const align = group.length === 1 && Math.abs(cx - (left + right) / 2) < 0.035 && R0 - L0 < width * 0.85 ? 'center'
+                        : group.length === 1 && L0 > 0.5 && R0 > right - 0.03 ? 'right' : 'left';
+                    const indent = align === 'left' ? `margin-left: ${mm(Math.max(0, L0 - left))}mm; ` : '';
+                    piece = `<p style="${gapStyle(r.top)}${indent}text-align: ${align === 'left' && group.length > 1 ? 'justify' : align};">${group.map(g => partHtml(p.num, g.tiles[0], { pageNumbers: footer })).join(' ')}</p>`;
+                    lastBot = group[group.length - 1].bot;
+                }
+                if (footer) footerHtml += piece.replace(/margin-top: \d+pt; /, '');   // (no gaps inside the footer)
+                else html += piece;
+            }
+            if (p.num === 1 && footerHtml) {
+                parts.footer = footerHtml;
+                footerMm = mm(1 - Math.min(...rows.filter(inFooter).map(r => r.top))) + 2;
+            } else if (footerHtml) html += footerHtml;
+            parts.body += (p.num > 1 ? '<div class="page-break"></div>' : '') + html;
+        }
+        return { ...parts, paper, header_mm: Math.max(10, headerMm || 20), footer_mm: Math.max(6, footerMm || 8) };
     }
 
     // ================= HISTORY: earlier versions of the form =================

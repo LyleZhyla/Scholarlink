@@ -37,7 +37,7 @@ function sanitizeFormDocumentHtml(string $html): string {
     $allowed = ['p', 'br', 'span', 'strong', 'b', 'em', 'i', 'u', 's', 'sub', 'sup', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
         'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption', 'colgroup', 'col', 'img', 'div', 'hr', 'blockquote'];
     $drop = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'select', 'textarea', 'link', 'meta', 'svg', 'math', 'template', 'noscript', 'video', 'audio', 'canvas'];
-    $attrs = ['style', 'class', 'colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'border', 'cellpadding', 'cellspacing', 'src', 'alt', 'start', 'type', 'data-field-id', 'data-qi', 'data-sys', 'data-label'];
+    $attrs = ['style', 'class', 'colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'border', 'cellpadding', 'cellspacing', 'src', 'alt', 'start', 'type', 'data-field-id', 'data-qi', 'data-sys', 'data-label', 'data-pdf-field'];
     $styles = ['color', 'background-color', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'text-align', 'vertical-align', 'line-height',
         'width', 'height', 'min-width', 'max-width', 'min-height', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color', 'border-width', 'border-style',
         'border-collapse', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
@@ -70,7 +70,7 @@ function sanitizeFormDocumentHtml(string $html): string {
                     // Pictures only as data kept in the document (never an outside address)
                     if ($tag !== 'img' || !preg_match('#^data:image/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$#', $value)) $child->removeAttribute($a->name);
                 } elseif ($name === 'class') {
-                    $keep = array_values(array_intersect(preg_split('/\s+/', $value), ['sl-field', 'page-break', 'sl-missing']));
+                    $keep = array_values(array_intersect(preg_split('/\s+/', $value), ['sl-field', 'page-break', 'sl-missing', 'sl-check']));
                     $keep ? $child->setAttribute('class', implode(' ', $keep)) : $child->removeAttribute('class');
                 } elseif ($name === 'style') {
                     $kept = [];
@@ -84,6 +84,8 @@ function sanitizeFormDocumentHtml(string $html): string {
                     $kept ? $child->setAttribute('style', implode('; ', $kept)) : $child->removeAttribute('style');
                 } elseif (in_array($name, ['data-field-id', 'data-qi'], true)) {
                     if (!ctype_digit($value)) $child->removeAttribute($a->name);
+                } elseif ($name === 'data-pdf-field') {
+                    if (!preg_match('/^[\w .()\/#:\[\]-]{1,100}$/u', $value)) $child->removeAttribute($a->name);
                 } elseif ($name === 'data-sys') {
                     if (!isset(FORM_DOCUMENT_SYSTEM_FIELDS[$value])) $child->removeAttribute($a->name);
                 } elseif (preg_match('/^\s*(javascript|vbscript|data):/i', $value)) {
@@ -119,18 +121,26 @@ function formDocumentFill(string $html, array $values, array $system, array $lab
     foreach ($xp->query('//span[contains(concat(" ", normalize-space(@class), " "), " sl-field ")]') as $span) {
         $sys = $span->getAttribute('data-sys');
         $fid = (int) $span->getAttribute('data-field-id');
+        $pdf_field = $span->getAttribute('data-pdf-field');   // a blank of the official PDF the document was made from
         while ($span->firstChild) $span->removeChild($span->firstChild);
         if ($sys === 'page_number' || $sys === 'page_count') {
             $span->setAttribute('class', $sys === 'page_number' ? 'sl-page' : 'sl-pages');   // filled by dompdf on each page
             continue;
         }
         if ($sample) {
-            $name = $sys !== '' ? (FORM_DOCUMENT_SYSTEM_FIELDS[$sys] ?? $sys) : ($labels[$fid] ?? 'Removed question');
+            $name = $pdf_field !== '' ? ($span->getAttribute('data-label') ?: ($labels['pdf:' . $pdf_field] ?? ucwords(trim(preg_replace('/[_\s]+/', ' ', $pdf_field)))))
+                : ($sys !== '' ? (FORM_DOCUMENT_SYSTEM_FIELDS[$sys] ?? $sys) : ($labels[$fid] ?? 'Removed question'));
             $span->appendChild($doc->createTextNode('[' . $name . ']'));
             $span->setAttribute('class', 'sl-answer sl-sample');
             continue;
         }
-        $value = $sys !== '' ? (string) ($system[$sys] ?? '') : (string) ($values[$fid] ?? '');
+        $value = $pdf_field !== '' ? (string) ($values['pdf:' . $pdf_field] ?? '') : ($sys !== '' ? (string) ($system[$sys] ?? '') : (string) ($values[$fid] ?? ''));
+        if (str_contains(' ' . $span->getAttribute('class') . ' ', ' sl-check ')) {
+            // a checkbox: X when ticked, a little space when not (no answer line)
+            $span->appendChild($doc->createTextNode($value !== '' ? 'X' : "\u{00A0}\u{00A0}\u{00A0}"));
+            $span->setAttribute('class', 'sl-tick');
+            continue;
+        }
         $span->appendChild($doc->createTextNode($value !== '' ? $value : "\u{00A0}\u{00A0}\u{00A0}\u{00A0}\u{00A0}\u{00A0}\u{00A0}\u{00A0}"));
         $span->setAttribute('class', 'sl-answer');
     }
@@ -182,11 +192,13 @@ function formDocumentHtml(array $d, array $values, array $system, array $labels,
         table { border-collapse: collapse; table-layout: fixed; max-width: 100%; } td, th { padding: 2pt 4pt; vertical-align: top; word-wrap: break-word; }
         table[border=\"1\"] td, table[border=\"1\"] th { border: 0.75pt solid #000; }
         img { max-width: 100%; } .page-break { page-break-after: always; height: 0; }
-        .sl-answer { border-bottom: 0.6pt solid #000; padding: 0 2pt; font-family: Helvetica, Arial, sans-serif; font-size: 0.95em; }
+        .sl-answer { border-bottom: 0.6pt solid #000; padding: 0 2pt; font-family: Helvetica, Arial, sans-serif; font-size: 0.85em; }
+        .sl-tick { font-family: Helvetica, Arial, sans-serif; font-weight: bold; padding: 0 1pt; }
+        hr { border: 0; border-top: 0.75pt solid #888; margin: 3pt 0; }
         .sl-sample { color: #2563eb; border-bottom-style: dashed; }
         .sl-page:after { content: counter(page); } .sl-pages:after { content: counter(pages); }
-        #sl-header { position: fixed; left: 0; right: 0; top: -" . ($hh + 4) . "mm; height: {$hh}mm; overflow: hidden; }
-        #sl-footer { position: fixed; left: 0; right: 0; bottom: -" . ($fh + 3) . "mm; height: {$fh}mm; overflow: hidden; }";
+        #sl-header { position: fixed; left: 0; right: 0; top: -" . ($hh + 4) . "mm; height: {$hh}mm; }
+        #sl-footer { position: fixed; left: 0; right: 0; bottom: -" . ($fh + 3) . "mm; height: {$fh}mm; }";
     $fill = fn($h) => formDocumentColumnWidths(formDocumentFill($h, $values, $system, $labels, $sample));
     return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' . $css . '</style></head><body>'
         . ($hasHeader ? '<div id="sl-header">' . $fill($d['header']) . '</div>' : '')
