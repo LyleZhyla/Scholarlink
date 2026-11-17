@@ -4172,6 +4172,28 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             return { y: b.y0 / H, h: (b.y1 - b.y0 + 1) / H, x: x0 / W, w: (x1 - x0 + 1) / W, color: hex(b.c), c: b.c };
         });
         bandList.forEach(b => { for (let y = Math.round(b.y * H); y < Math.round((b.y + b.h) * H) && y < HC; y++) rowBg[y] = b.c; });
+        // thin stripes along a band's top and bottom edges (a letterhead's trim): rows of one colour across the band's width
+        const stripeRow = y => {
+            if (y < 0 || y >= HC) return null;
+            const samples = [];
+            for (let x = Math.round(W * 0.04); x < W * 0.96; x += Math.max(1, Math.round(W / 60))) samples.push(px(x, y));
+            const c = samples.slice().sort((a, b) => luma(a) - luma(b))[Math.floor(samples.length / 2)];
+            return c[0] + c[1] + c[2] < 745 && samples.filter(q => near(q, c, 30)).length >= samples.length * 0.75 ? c : null;
+        };
+        const stripes = (from, step, band) => {
+            const out = [];
+            for (let y = from, k = 0; k < Math.round(0.012 * H); y += step, k++) {
+                const c = stripeRow(y);
+                if (!c || near(c, band.c, 60)) { if (c) continue; break; }   // still the band's soft edge
+                const last = out[out.length - 1];
+                if (last && near(last.c, c, 30)) last.n++; else out.push({ c, n: 1 });
+            }
+            return out.filter(q => q.n >= 2).map(q => ({ h: q.n / H, color: hex(q.c) }));
+        };
+        bandList.forEach(b => {
+            b.above = stripes(Math.round(b.y * H) - 1, -1, b).reverse();      // top to bottom
+            b.below = stripes(Math.round((b.y + b.h) * H), 1, b);
+        });
         // ink that is not text, on a grid
         const G = Math.max(2, Math.round(W / 420)), gw = Math.ceil(W / G), gh = Math.ceil(HC / G);
         const skip = [...p.texts, ...p.fields].map(r => ({ x0: (r.x - 0.002) * W, x1: (r.x + r.w + 0.002) * W, y0: (r.y - 0.002) * H, y1: (r.y + r.h + 0.002) * H }));
@@ -4314,18 +4336,81 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             .filter(x => !words.some(l => x > l.x + 0.002 && x < l.x + l.w - 0.002));
     }
 
+    // The pictures stored in a page of the PDF and where each is drawn (fractions of the page)
+    async function pdfPictures(pageNum) {
+        pdfPictures.cache = pdfPictures.cache || {};
+        if (pdfPictures.cache[pageNum]) return pdfPictures.cache[pageNum];
+        const page = await pdPdfDoc.getPage(pageNum), vp = page.getViewport({ scale: 1 }), ops = await page.getOperatorList(), O = pdfjsLib.OPS;
+        const mul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+        let ctm = [1, 0, 0, 1, 0, 0];
+        const stack = [], found = [];
+        ops.fnArray.forEach((fn, k) => {
+            const a = ops.argsArray[k];
+            if (fn === O.save) stack.push(ctm);
+            else if (fn === O.restore) ctm = stack.pop() || ctm;
+            else if (fn === O.transform) ctm = mul(ctm, a);
+            else if (fn === O.paintFormXObjectBegin) { stack.push(ctm); if (a && a[0]) ctm = mul(ctm, a[0]); }
+            else if (fn === O.paintFormXObjectEnd) ctm = stack.pop() || ctm;
+            else if (fn === O.paintImageXObject || fn === O.paintInlineImageXObject) {
+                const pts = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([u, v]) => vp.convertToViewportPoint(ctm[0] * u + ctm[2] * v + ctm[4], ctm[1] * u + ctm[3] * v + ctm[5]));
+                const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+                found.push({ x: Math.min(...xs) / vp.width, y: Math.min(...ys) / vp.height, w: (Math.max(...xs) - Math.min(...xs)) / vp.width, h: (Math.max(...ys) - Math.min(...ys)) / vp.height,
+                    id: fn === O.paintImageXObject ? a[0] : null, inline: fn === O.paintInlineImageXObject ? a[0] : null, flipX: ctm[0] < 0, flipY: ctm[3] < 0 });   // a picture drawn upside down or mirrored
+            }
+        });
+        const get = id => new Promise(ok => { try { (id.startsWith('g_') ? page.commonObjs : page.objs).get(id, ok); } catch (e) { ok(null); } setTimeout(() => ok(null), 4000); });
+        for (const f of found) {
+            const img = f.inline || (f.id ? await get(f.id) : null);
+            if (!img) continue;
+            const c = document.createElement('canvas'), g = c.getContext('2d');
+            if (img.bitmap) { c.width = img.bitmap.width; c.height = img.bitmap.height; g.drawImage(img.bitmap, 0, 0); }
+            else if (img.data && img.width) {
+                c.width = img.width; c.height = img.height;
+                const out = g.createImageData(img.width, img.height), n = img.width * img.height, d = img.data;
+                for (let i = 0; i < n; i++) {
+                    if (img.kind === 3) { out.data.set(d.subarray(i * 4, i * 4 + 4), i * 4); continue; }
+                    if (img.kind === 2) { out.data[i * 4] = d[i * 3]; out.data[i * 4 + 1] = d[i * 3 + 1]; out.data[i * 4 + 2] = d[i * 3 + 2]; out.data[i * 4 + 3] = 255; continue; }
+                    const row = Math.floor(i / img.width), col = i % img.width, bit = (d[row * Math.ceil(img.width / 8) + (col >> 3)] >> (7 - (col & 7))) & 1;
+                    out.data.fill(bit ? 255 : 0, i * 4, i * 4 + 3); out.data[i * 4 + 3] = 255;
+                }
+                g.putImageData(out, 0, 0);
+            } else continue;
+            f.canvas = c;
+        }
+        return (pdfPictures.cache[pageNum] = found.filter(f => f.canvas));
+    }
+
+    // A picture of the PDF as an image file: the PDF's own picture when one is drawn there (sharp, its see-through parts
+    // kept, at the exact place), else that part of the page drawn 3 times larger. { src, rect }
     async function cutPicture(pageNum, r) {
+        const area = q => q.w * q.h, overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+        let own = null;
+        try { own = (await pdfPictures(pageNum)).filter(f => overlap(f, r) > area(r) * 0.5 && area(f) < area(r) * 3).sort((a, b) => overlap(b, r) - overlap(a, r))[0]; } catch (e) { own = null; }
+        if (own) {
+            const max = 1400, k = Math.min(1, max / Math.max(own.canvas.width, own.canvas.height));
+            const c = document.createElement('canvas'), g = c.getContext('2d');
+            c.width = Math.max(1, Math.round(own.canvas.width * k)); c.height = Math.max(1, Math.round(own.canvas.height * k));
+            g.imageSmoothingQuality = 'high';
+            g.translate(own.flipX ? c.width : 0, own.flipY ? c.height : 0); g.scale(own.flipX ? -1 : 1, own.flipY ? -1 : 1);
+            g.drawImage(own.canvas, 0, 0, c.width, c.height);
+            return { src: c.toDataURL('image/png'), rect: { x: own.x, y: own.y, w: own.w, h: own.h } };
+        }
         const page = await pdPdfDoc.getPage(pageNum), vp = page.getViewport({ scale: 3 });
         const c = document.createElement('canvas');
         c.width = Math.max(1, Math.ceil(r.w * vp.width)); c.height = Math.max(1, Math.ceil(r.h * vp.height));
         await page.render({ canvasContext: c.getContext('2d'), viewport: vp, transform: [1, 0, 0, 1, -r.x * vp.width, -r.y * vp.height] }).promise;
-        return c.toDataURL('image/png');
+        return { src: c.toDataURL('image/png'), rect: null };
     }
 
     // ---- the copy ----
     // Every piece is put where it was: each line's top comes from the PDF (its space above is the difference from where the
     // one before ended), widths and indents in mm, blanks as wide as on the PDF, boxes and table rows as tall.
     async function pdfToDocument() {
+        const kept = pdRows.map(r => r.tiles);
+        pdRows.forEach(r => { r.tiles = r.tiles.map(t => ({ ...t, blank: t.blank ? { ...t.blank } : t.blank })); });
+        try { return await pdfToDocumentPages(); } finally { pdRows.forEach((r, k) => { r.tiles = kept[k]; }); }
+    }
+    async function pdfToDocumentPages() {
         const p0 = pdPages[0], pageWpt = p0.hPt * p0.source.width / p0.source.height, pageHpt = p0.hPt;
         const mmW = pageWpt * 25.4 / 72, mmH = pageHpt * 25.4 / 72, ptMm = 25.4 / 72;
         const paper = Math.abs(pageHpt - 1008) < 12 ? 'Legal' : Math.abs(pageHpt - 842) < 12 && Math.abs(pageWpt - 595) < 12 ? 'A4' : 'Letter';
@@ -4345,7 +4430,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const partHtml = (page, t, opts = {}) => {
             const colour = inkColour(page, t), b = t.blank;
             // the room left for the blank in its slot (opts.slot: the slot's width in mm)
-            const room = opts.slot ? opts.slot - wordsMm(t) - 2 : Infinity;
+            const room = opts.slot ? opts.slot - wordsMm(t) - (t.labels.length ? 1.5 : 0.4) : Infinity;
             const words = tileText(t).replace(/[:*]+$/, '').replace(/^\(\s*\)\s*/, '').trim();
             const name = b && b.kind === 'field' ? (pdfUsage()[b.name] ? pdfBlankLabel(b.name) : (words && words.length <= 40 ? words : pdfBlankLabel(b.name))) : '';
             const spot = b && b.kind === 'field' && !b.sig
@@ -4412,13 +4497,16 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     if (!ink.hLines.some(l => Math.abs(l.y - y) < 0.008 && Math.min(l.x + l.w, t.x + t.w) - Math.max(l.x, t.x) > t.w * 0.5)) ink.hLines.push({ x: t.x, y, w: t.w });
                     return;
                 }
-                // the part not already a blank (a field over the start of the line leaves its end)
-                let segs = [[t.x, t.x + t.w]];
-                r.tiles.filter(x => x.blank).forEach(x => { segs = segs.flatMap(([a, b]) => x.blank.x >= b || x.blank.x + x.blank.w <= a ? [[a, b]] : [[a, x.blank.x], [x.blank.x + x.blank.w, b]]); });
-                segs.filter(([a, b]) => b - a >= (segs.length === 1 && a === t.x && b === t.x + t.w ? 0.015 : 0.04))
-                    // a short bit between two answers is the same underline (they are drawn on it)
-                    .filter(([a, b]) => b - a >= 0.05 || !r.tiles.some(x => x.blank && (Math.abs(x.blank.x + x.blank.w - a) < 0.012 || Math.abs(x.blank.x - b) < 0.012)))
-                    .forEach(([a, b]) => r.tiles.push({ labels: [], blank: { kind: 'line', x: a, y: t.y, w: b - a, h: t.h } }));
+                // answers drawn on the line: the line runs on under them, so each answer reaches the next one (or the line's end)
+                const on = r.tiles.filter(x => x.blank && !x.blank.check && x.blank.x < t.x + t.w && x.blank.x + x.blank.w > t.x).sort((a, b) => a.blank.x - b.blank.x);
+                if (!on.length) { if (t.w >= 0.015) r.tiles.push({ labels: [], blank: { kind: 'line', x: t.x, y: t.y, w: t.w, h: t.h } }); return; }
+                if (on[0].blank.x - t.x >= 0.04) r.tiles.push({ labels: [], blank: { kind: 'line', x: t.x, y: t.y, w: on[0].blank.x - t.x, h: t.h } });
+                const starts = r.tiles.map(x => tileParts(x)[0].x);
+                on.forEach((x, k) => {
+                    const b = x.blank, nextTile = Math.min(...starts.filter(v => v > b.x + 0.002), Infinity);
+                    const end = Math.min(k + 1 < on.length ? on[k + 1].blank.x : t.x + t.w, nextTile);
+                    if (end > b.x + b.w) b.w = end - b.x;
+                });
             });
             rows.forEach(r => r.tiles.sort((a, b) => tileParts(a)[0].x - tileParts(b)[0].x));
             const band = p.num === 1 ? ink.bands.find(b => b.y < 0.2) : null;
@@ -4456,7 +4544,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const usedLines = new Set(), usedRows = new Set();
             // the letterhead (the header): the band, its pictures and its words
             const pictures = [];
-            for (const im of ink.images) pictures.push({ ...im, src: await cutPicture(p.num, im) });
+            for (const im of ink.images) { const cut = await cutPicture(p.num, im); pictures.push({ ...im, ...(cut.rect || {}), src: cut.src }); }
             if (band) {
                 const hRows = rows.filter(inBand), hPics = pictures.filter(im => im.y < band.y + band.h && im.y + im.h > band.y);
                 hRows.forEach(r => usedRows.add(r));
@@ -4479,10 +4567,20 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 });
                 const pad = Math.max(0, textLeft - edge);
                 cells.push(`<td style="width: ${mm(Math.max(10, ((bleed ? 1 : band.x + band.w) - edge - pad) * mmW))}mm; height: ${mm(band.h * mmH)}mm; padding: 0 0 0 ${mm(pad * mmW)}mm; vertical-align: top;">${inner}</td>`);
-                parts.header += `<table style="border-collapse: collapse; width: 100%; background-color: ${band.color};"><tbody><tr>${cells.join('')}</tr></tbody></table>`;
-                headerMm = mm(band.h * mmH);
-                layout = layout || { bleed, top: band.y };
-                ink.hLines.forEach(l => { if (l.y >= band.y - 0.004 && l.y <= band.y + band.h + 0.004) usedLines.add(l); });
+                let head = `<table style="border-collapse: collapse; width: 100%; background-color: ${band.color};"><tbody><tr>${cells.join('')}</tr></tbody></table>`;
+                const above = band.above || [], below = band.below || [];
+                for (let k = 0; k < Math.max(above.length, below.length); k++) {
+                    const a = above[above.length - 1 - k], b = below[k], st = [];
+                    if (a) st.push(`border-top: ${mm(a.h * mmH)}mm solid ${a.color};`);
+                    if (b) st.push(`border-bottom: ${mm(b.h * mmH)}mm solid ${b.color};`);
+                    head = `<div style="margin: 0; ${st.join(' ')}">${head}</div>`;
+                }
+                parts.header += head;
+                const upH = above.reduce((t, q) => t + q.h, 0), downH = below.reduce((t, q) => t + q.h, 0);
+                headerMm = mm((upH + band.h + downH) * mmH);
+                band.top = band.y - upH; band.bottom = band.y + band.h + downH;
+                layout = layout || { bleed, top: band.top };
+                ink.hLines.forEach(l => { if (l.y >= band.top - 0.004 && l.y <= band.bottom + 0.004) usedLines.add(l); });
             }
 
             // boxes (not tables): the words inside them go with them
@@ -4601,7 +4699,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                                     if (before > 0.02 && after < before / 3) align = ' text-align: right;';
                                     else if (before > 0.02 && Math.abs(before - after) < 0.012) align = ' text-align: center;';
                                 }
-                                return `<td style="width: ${mm((c.x1 - c.x0) * mmW)}mm; height: ${mm((y - y0) * mmH - 0.6)}mm; padding: 0 1.2mm; vertical-align: middle; line-height: ${mm(lh)}pt; border: 0.75pt solid ${edge};${align}">${content || '&nbsp;'}</td>`;
+                                return `<td style="width: ${mm((c.x1 - c.x0) * mmW - 2.4 - 0.3)}mm; height: ${mm((y - y0) * mmH - 0.6)}mm; padding: 0 1.2mm; vertical-align: middle; line-height: ${mm(lh)}pt; border: 0.75pt solid ${edge};${align}">${content || '&nbsp;'}</td>`;
                             }).join('');
                             return `<tr>${cellsHtml}</tr>`;
                         }).join('');
@@ -4651,7 +4749,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 return html;
             };
             const bodyPieces = pieces.filter(q => !q.footer);
-            const bodyStart = p.num === 1 && band ? band.y + band.h : (p.num === 1 ? layout.top : Math.min(...bodyPieces.map(q => q.top)));
+            const bodyStart = p.num === 1 && band ? (band.bottom || band.y + band.h) : (p.num === 1 ? layout.top : Math.min(...bodyPieces.map(q => q.top)));
             parts.body += (p.num > 1 ? '<div class="page-break"></div>' : '') + write(bodyPieces, bodyStart);
             if (p.num === 1 && footPieces.length) {
                 parts.footer = write(footPieces, footTop);
