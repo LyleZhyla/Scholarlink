@@ -38,6 +38,9 @@ $pdf_edits = array_values(array_filter($form_state['edits'], fn($e) => $e['kind'
 $pdf_breaks = array_values(array_filter($form_state['edits'], fn($e) => $e['kind'] === 'break'));
 // Fields of the PDF this scholarship hid or moved in the PDF designer
 $pdf_overrides = $form_state['overrides'];
+// The Word-style document (when the scholarship has one) and which form prints
+$form_mode = $form_state['mode'] ?? 'pdf';
+$form_document = $form_state['document'] ?? null;
 $default_template = defaultPdfTemplate($scholarship['Name']);
 ?>
 
@@ -108,6 +111,37 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     /* typing on the page */
     .pd-inline { position: absolute; z-index: 30; outline: 2px solid #2563eb; outline-offset: 1px; border-radius: 2px; padding: 0 1px; margin: 0; caret-color: #2563eb; overflow: visible; box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.12); cursor: text; }
     .pd-inline:empty::before { content: 'Type here…'; color: #94a3b8; font-style: italic; }
+    /* which form prints */
+    .fb-mode { display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px; border-radius: 18px; background: #fff; border: 2px solid #e2e8f0; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; }
+    .fb-mode i { font-size: 26px; margin-top: 2px; }
+    .fb-mode b { display: block; font-size: 15px; font-weight: 900; color: #0f172a; }
+    .fb-mode small { display: block; margin-top: 2px; font-size: 12px; font-weight: 600; color: #64748b; }
+    .fb-mode:hover { border-color: #93c5fd; }
+    .fb-mode.on { border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12); }
+    /* the Word-style page (sizes follow the paper; the same look prints, see includes/form_document.php) */
+    .doc-page { position: relative; margin: 0 auto; background: #fff; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25); padding: 15mm 15mm; color: #000;
+        font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.25; }
+    .doc-page .doc-part { outline: none; }
+    .doc-page .doc-body { min-height: 120mm; margin: 4mm 0 3mm; }
+    .doc-zone { position: relative; min-height: 8mm; border: 1px dashed transparent; border-radius: 3px; }
+    .doc-zone:hover, .doc-zone:focus-within { border-color: #94a3b8; }
+    .doc-zone::after { content: attr(data-zone); position: absolute; right: 2px; top: -10px; padding: 0 6px; border-radius: 4px; background: #64748b; color: #fff; font: 900 9px/16px 'Plus Jakarta Sans', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0; transition: opacity 0.15s; }
+    .doc-zone:hover::after, .doc-zone:focus-within::after { opacity: 1; }
+    .doc-zone .doc-part { min-height: 8mm; }
+    .doc-page p { margin: 0 0 6pt; }
+    .doc-page h1 { font-size: 20pt; font-weight: bold; margin: 0 0 8pt; } .doc-page h2 { font-size: 16pt; font-weight: bold; margin: 0 0 6pt; }
+    .doc-page h3 { font-size: 13pt; font-weight: bold; margin: 0 0 6pt; } .doc-page h4, .doc-page h5, .doc-page h6 { font-size: 11pt; font-weight: bold; margin: 0 0 4pt; }
+    .doc-page ul { list-style: disc; padding-left: 18pt; margin: 0 0 6pt; } .doc-page ol { list-style: decimal; padding-left: 18pt; margin: 0 0 6pt; }
+    .doc-page strong, .doc-page b { font-weight: bold; } .doc-page em, .doc-page i { font-style: italic; } .doc-page u { text-decoration: underline; }
+    .doc-page table { border-collapse: collapse; } .doc-page td, .doc-page th { padding: 2pt 4pt; vertical-align: top; }
+    .doc-page table[border="1"] td, .doc-page table[border="1"] th { border: 0.75pt solid #000; }
+    .doc-page img { display: inline; max-width: 100%; }
+    .doc-page hr { border-top: 1px solid #000; margin: 6pt 0; }
+    .doc-page .page-break, .doc-page .mce-pagebreak { display: block; width: 100%; height: 0; border: 0; border-top: 2px dashed #94a3b8; margin: 12pt 0; }
+    .doc-page .sl-field { background: #dbeafe; color: #1d4ed8; border-bottom: 1.5px dashed #2563eb; padding: 0 3px; border-radius: 3px; font-family: Arial, Helvetica, sans-serif; font-size: 0.9em; white-space: nowrap; cursor: default; }
+    .doc-page .sl-field[data-sys] { background: #ede9fe; color: #6d28d9; border-bottom-color: #7c3aed; }
+    .doc-page .sl-missing { background: #fee2e2; color: #b91c1c; border-bottom-color: #dc2626; }
+    #docToolbar .tox-tinymce-inline { position: static !important; width: 100% !important; border: 0 !important; box-shadow: none !important; }
     .pd-side-tab { flex: 1; padding: 11px 8px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; border-bottom: 3px solid transparent; }
     .pd-side-tab.active { color: #0f172a; border-bottom-color: #dc2626; }
     .pd-add > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; font-size: 12px; font-weight: 900; color: #0f172a; cursor: pointer; }
@@ -344,6 +378,30 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
         <!-- OFFICIAL PDF FORM: which template is printed, and which of its fields the questions fill -->
         <div id="fbTabPdf" class="hidden">
+        <!-- Which form students print -->
+        <div class="grid md:grid-cols-2 gap-3 mb-5" role="radiogroup" aria-label="The printed form">
+            <button type="button" role="radio" data-formmode="pdf" onclick="setFormMode('pdf')" class="fb-mode">
+                <i class="fas fa-file-pdf text-red-600"></i>
+                <span><b>Official PDF form</b><small>Students' answers are printed on the official PDF. Edit it in the PDF designer.</small></span>
+            </button>
+            <button type="button" role="radio" data-formmode="document" onclick="setFormMode('document')" class="fb-mode">
+                <i class="fas fa-file-word text-blue-700"></i>
+                <span><b>Word-style document</b><small>Write the form like in Microsoft Word: text, tables, pictures, header and footer. It becomes the PDF.</small></span>
+            </button>
+        </div>
+        <div id="fbModeDoc" class="hidden bg-white border border-slate-200 rounded-[1.5rem] p-6 shadow-sm flex flex-col md:flex-row md:items-center gap-5">
+            <div class="w-14 h-14 shrink-0 rounded-2xl bg-blue-50 text-blue-700 flex items-center justify-center text-2xl"><i class="fas fa-file-word"></i></div>
+            <div class="flex-1 min-w-0">
+                <h3 class="text-lg font-black text-slate-900">Edit the document</h3>
+                <p class="text-sm font-medium text-slate-500">It works like Word: type, change the font and size, add tables and pictures, and write the header and footer. <b>Insert answer</b> puts a student's answer in the text. Tip: copy the form from its Word file and paste it in.</p>
+                <p id="fbDocInfo" class="text-xs font-bold text-slate-400 mt-1"></p>
+            </div>
+            <div class="flex flex-col gap-2 shrink-0">
+                <button type="button" onclick="openDocEditor()" class="px-5 py-3 rounded-xl bg-blue-700 text-white text-[11px] font-black uppercase tracking-widest hover:bg-blue-800"><i class="fas fa-pen"></i> Open the document</button>
+                <button type="button" onclick="previewDocument()" class="px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-[11px] font-black uppercase tracking-widest hover:border-slate-900"><i class="fas fa-eye"></i> Preview PDF</button>
+            </div>
+        </div>
+        <div id="fbModePdf">
         <div class="bg-white border border-slate-200 rounded-[1.5rem] p-5 shadow-sm">
             <p class="text-sm font-bold text-slate-600 mb-4">Pick the official PDF students' answers are printed on. Below, the form is read line by line so you can change it.</p>
             <div class="flex flex-col md:flex-row md:items-center gap-4">
@@ -404,6 +462,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <button type="button" onclick="openPdfDesigner()" class="px-5 py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest hover:bg-red-700"><i class="fas fa-pen-ruler"></i> Open the PDF designer</button>
                 <button type="button" onclick="openFormHistory()" class="px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-[11px] font-black uppercase tracking-widest hover:border-slate-900"><i class="fas fa-clock-rotate-left"></i> History</button>
             </div>
+        </div>
         </div>
         </div>
 
@@ -510,6 +569,37 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     </div>
 </div>
 
+<!-- WORD-STYLE DOCUMENT: TinyMCE (assets/lib/tinymce) on a page with a header and a footer -->
+<div id="docEditor" class="hidden fixed inset-0 z-[9998] bg-slate-300 flex-col" role="dialog" aria-modal="true" aria-label="Word-style document">
+    <div class="bg-white px-4 py-2.5 flex flex-wrap items-center gap-3 shadow-sm">
+        <div class="min-w-0">
+            <p class="text-[10px] font-black text-blue-700 uppercase tracking-widest"><i class="fas fa-file-word"></i> Word-style document</p>
+            <p class="text-sm font-black text-slate-900 truncate">Application form · <?= htmlspecialchars($scholarship['Name']) ?></p>
+        </div>
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+            <label class="text-[11px] font-black text-slate-500 uppercase tracking-widest">Paper
+                <select id="docPaper" onchange="setDocPaper(this.value)" class="ml-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold normal-case tracking-normal">
+                    <option value="A4">A4</option><option value="Letter">Letter (8.5 × 11 in)</option><option value="Legal">Legal / long (8.5 × 14 in)</option>
+                </select>
+            </label>
+            <button type="button" onclick="previewDocument()" class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase tracking-widest text-slate-700 hover:border-slate-900"><i class="fas fa-eye"></i> Preview PDF</button>
+            <button type="button" onclick="closeDocEditor()" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-blue-600">Done</button>
+        </div>
+    </div>
+    <div id="docToolbar" class="bg-white border-y border-slate-200 min-h-[42px]"><p id="docToolbarHint" class="px-4 py-3 text-xs font-bold text-slate-500"><i class="fas fa-i-cursor"></i> Click in the page to type. The toolbar appears here.</p></div>
+    <div id="docScroll" class="flex-1 min-h-0 overflow-auto py-8 px-4">
+        <div id="docPage" class="doc-page">
+            <div class="doc-zone" data-zone="Header"><div id="docHeader" class="doc-part"></div></div>
+            <div id="docBody" class="doc-part doc-body"></div>
+            <div class="doc-zone" data-zone="Footer"><div id="docFooter" class="doc-part"></div></div>
+        </div>
+    </div>
+    <div class="bg-white border-t border-slate-200 px-4 py-1.5 text-[11px] font-medium text-slate-500 flex flex-wrap gap-x-5 gap-y-1">
+        <span id="docStatus"></span>
+        <span><b>Insert answer</b> (toolbar) puts a student's answer in the text · copy from a Word file and paste (Ctrl+V) to bring a form in · <b>Table</b> menu for tables · Ctrl+Z undoes</span>
+    </div>
+</div>
+
 <!-- pdf.js renders the official PDF inside the designer -->
 <script src="../assets/lib/pdfjs/pdf.min.js"></script>
 <script>
@@ -532,6 +622,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // 'row' / 'column' insert a copy of the strip x,y,w,h (cover = copy its lines and labels; otherwise blank space), see layoutPieces()
     let fbEdits = <?= json_encode(array_values($pdf_edits)) ?>;
     let fbSavedBreaks = <?= json_encode($pdf_breaks) ?>;
+    // Which form prints ('pdf' | 'document') and the Word-style document ({ body, header, footer, paper, header_mm, footer_mm })
+    let fbFormMode = <?= json_encode($form_mode) ?>;
+    let fbDoc = <?= json_encode($form_document) ?>;
     fbEdits.forEach(e => e.key = 'e' + (++fbKeySeq));
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -697,7 +790,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const pct = tpl.fields.length ? Math.round(filled / tpl.fields.length * 100) : 0;
 
         document.getElementById('pdfCoverageText').textContent = tpl.fields.length ? `${filled} / ${tpl.fields.length}` : 'n/a';
-        document.getElementById('fbPdfCount').textContent = tpl.fields.length ? `${filled}/${tpl.fields.length}` : '–';
+        document.getElementById('fbPdfCount').textContent = fbFormMode === 'document' ? 'Doc' : (tpl.fields.length ? `${filled}/${tpl.fields.length}` : '–');
         document.getElementById('pdfCoverageBar').style.width = pct + '%';
         document.getElementById('pdfMissingSummary').textContent = missing.length
             ? `${missing.length} PDF field${missing.length === 1 ? ' is' : 's are'} not filled yet — add questions for them`
@@ -3773,6 +3866,241 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return true;
     }
 
+
+    // ================= WORD-STYLE DOCUMENT (TinyMCE) =================
+    // The form written like in Word: a page with a header, the body and a footer. Answer spots are
+    // <span class="sl-field" data-qk="…"> (a question here; saved as data-qi = its place, then data-field-id) or data-sys="…".
+    const DOC_SYS = { student_name: 'Student full name', student_no: 'Student number', course: 'Course / program', year_level: 'Year level', email: 'Email address',
+        contact: 'Contact number', scholarship_name: 'Scholarship name', application_no: 'Application number', date_today: "Today's date", page_number: 'Page number', page_count: 'Number of pages' };
+    const DOC_PAPERS = { A4: [210, 297], Letter: [215.9, 279.4], Legal: [215.9, 355.6] };
+    const mmToPx = mm => mm * 96 / 25.4, pxToMm = px => px * 25.4 / 96;
+    const docParse = html => new DOMParser().parseFromString('<body>' + (html || ''), 'text/html').body;   // inert: nothing in it runs or loads
+    let docEditors = null, docLoading = null;
+
+    // Server form (data-field-id) ⇄ editor form (data-qk); toServer: data-qi (the question's place in the form)
+    function docMapFields(html, toEditor) {
+        if (!html) return '';
+        const body = docParse(html);
+        body.querySelectorAll('span.sl-field').forEach(span => {
+            span.removeAttribute('data-mce-selected');
+            if (toEditor) {
+                span.setAttribute('contenteditable', 'false');
+                if (span.dataset.sys) { span.textContent = '[' + (DOC_SYS[span.dataset.sys] || span.dataset.sys) + ']'; return; }
+                const id = Number(span.dataset.fieldId), f = span.dataset.qk ? findField(span.dataset.qk) : fbFields.find(x => x.id === id);
+                span.removeAttribute('data-field-id');
+                if (f) { span.dataset.qk = f.key; span.classList.remove('sl-missing'); span.textContent = '[' + (f.label || 'Untitled question') + ']'; }
+                else { span.removeAttribute('data-qk'); span.classList.add('sl-missing'); span.textContent = '[Removed question]'; }
+            } else {
+                span.removeAttribute('contenteditable');
+                if (span.dataset.sys) return;
+                const i = span.dataset.qk ? fbFields.findIndex(f => f.key === span.dataset.qk) : -1;
+                span.removeAttribute('data-qk');
+                if (i >= 0) span.dataset.qi = i; else span.classList.add('sl-missing');
+            }
+        });
+        return body.innerHTML;
+    }
+    if (fbDoc) fbDoc = { ...fbDoc, body: docMapFields(fbDoc.body, true), header: docMapFields(fbDoc.header, true), footer: docMapFields(fbDoc.footer, true) };
+
+    const docSpan = o => `<span class="sl-field" contenteditable="false" ${o.qk ? `data-qk="${o.qk}"` : `data-sys="${o.sys}"`}>[${esc(o.label || 'Untitled question')}]</span>`;
+    // A first document: the university's heading, the scholarship, a table of the questions with their answers, and a signature
+    function starterDocument() {
+        const sys = k => docSpan({ sys: k, label: DOC_SYS[k] });
+        let rows = '';
+        fbFields.forEach(f => {
+            if (f.type === 'Section') rows += `<tr><td colspan="2" style="background-color: #e2e8f0;"><strong>${esc(f.label || 'Section')}</strong></td></tr>`;
+            else rows += `<tr><td style="width: 38%;">${esc(f.label || 'Untitled question')}</td><td>${docSpan({ qk: f.key, label: f.label })}</td></tr>`;
+        });
+        return {
+            header: '<p style="text-align: center; margin: 0;"><span style="font-size: 10pt;">Republic of the Philippines</span></p>'
+                + '<p style="text-align: center; margin: 0;"><strong><span style="font-size: 15pt; color: #006400;">TARLAC AGRICULTURAL UNIVERSITY</span></strong></p>'
+                + '<p style="text-align: center; margin: 0;"><span style="font-size: 10pt;">Camiling, Tarlac</span></p>',
+            body: `<h2 style="text-align: center;">APPLICATION FORM FOR SCHOLARSHIP</h2><p style="text-align: center;"><strong>${sys('scholarship_name')}</strong></p>`
+                + `<p>Name: ${sys('student_name')} &nbsp; Student no.: ${sys('student_no')}</p><p>Course: ${sys('course')} &nbsp; Year level: ${sys('year_level')}</p>`
+                + (rows ? `<table border="1" style="border-collapse: collapse; width: 100%;"><tbody>${rows}</tbody></table>` : '<p>Write the form here.</p>')
+                + `<p>&nbsp;</p><p>I certify that the information above is true and complete.</p><p>&nbsp;</p>`
+                + `<p>______________________________ &nbsp; &nbsp; Date: ${sys('date_today')}</p><p>Signature of the applicant over printed name</p>`,
+            footer: `<p style="text-align: right; margin: 0;"><span style="font-size: 9pt;">Page ${sys('page_number')} of ${sys('page_count')}</span></p>`,
+            paper: 'A4', header_mm: 20, footer_mm: 8,
+        };
+    }
+
+    function setFormMode(mode) {
+        if (mode === fbFormMode) { renderFormMode(); return; }
+        fbFormMode = mode;
+        if (mode === 'document' && !fbDoc) fbDoc = starterDocument();
+        markDirty();
+        render();
+        renderFormMode();
+    }
+    function renderFormMode() {
+        document.querySelectorAll('[data-formmode]').forEach(b => { b.classList.toggle('on', b.dataset.formmode === fbFormMode); b.setAttribute('aria-checked', b.dataset.formmode === fbFormMode); });
+        document.getElementById('fbModePdf').classList.toggle('hidden', fbFormMode !== 'pdf');
+        document.getElementById('fbModeDoc').classList.toggle('hidden', fbFormMode !== 'document');
+        if (fbDoc) {
+            const words = (docParse(fbDoc.body).textContent.match(/\S+/g) || []).length, spots = (fbDoc.body + fbDoc.header + fbDoc.footer).split('sl-field').length - 1;
+            document.getElementById('fbDocInfo').textContent = `${fbDoc.paper} paper · about ${words} words · ${spots} answer spot${spots === 1 ? '' : 's'}`;
+        }
+    }
+
+    function loadTinyMce() {
+        if (window.tinymce) return Promise.resolve();
+        if (!docLoading) docLoading = new Promise((ok, fail) => {
+            const tag = document.createElement('script');
+            tag.src = '../assets/lib/tinymce/tinymce.min.js';
+            tag.onload = ok;
+            tag.onerror = () => fail(new Error('The document editor could not load.'));
+            document.head.appendChild(tag);
+        });
+        return docLoading;
+    }
+
+    // Insert answer (toolbar): a question, the student's details, page numbers, or a new question
+    function answerMenu(ed) {
+        const qs = fbFields.filter(placeable), item = (text, o) => ({ type: 'menuitem', text, onAction: () => ed.insertContent(docSpan(o) + '&nbsp;') });
+        const studentKeys = ['student_name', 'student_no', 'course', 'year_level', 'email', 'contact', 'scholarship_name', 'application_no', 'date_today'];
+        return [
+            { type: 'nestedmenuitem', text: 'A question (students answer it)', getSubmenuItems: () => qs.length ? qs.map(f => item(f.label || 'Untitled question', { qk: f.key, label: f.label }))
+                : [{ type: 'menuitem', text: 'No questions yet', enabled: false }] },
+            { type: 'nestedmenuitem', text: "The student's details", getSubmenuItems: () => studentKeys.map(k => item(DOC_SYS[k], { sys: k, label: DOC_SYS[k] })) },
+            { type: 'nestedmenuitem', text: 'Page number', getSubmenuItems: () => [item('Page number', { sys: 'page_number', label: DOC_SYS.page_number }), item('Number of pages', { sys: 'page_count', label: DOC_SYS.page_count })] },
+            { type: 'separator' },
+            { type: 'menuitem', text: 'A new question…', onAction: () => {
+                const label = (prompt('The question students answer (for example: Mother\'s occupation)') || '').trim();
+                if (!label) return;
+                const f = makeField({ type: 'Text', label });
+                fbFields.push(f);
+                markDirty();
+                render();
+                ed.insertContent(docSpan({ qk: f.key, label: f.label }) + '&nbsp;');
+                showAlert('success', `“${label}” was added to the application form too: students answer it there.`);
+            } },
+        ];
+    }
+
+    async function openDocEditor() {
+        if (!fbDoc) fbDoc = starterDocument();
+        const modal = document.getElementById('docEditor');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        document.body.style.overflow = 'hidden';
+        setDocPaper(fbDoc.paper || 'A4', false);
+        try { await loadTinyMce(); } catch (err) { document.getElementById('docStatus').textContent = err.message; return; }
+        if (!docEditors) {
+            const config = target => ({
+                target, inline: true, license_key: 'gpl', base_url: '../assets/lib/tinymce', suffix: '.min', promotion: false, branding: false,
+                fixed_toolbar_container: '#docToolbar', toolbar_persist: false, menubar: 'edit insert format table', toolbar_mode: 'wrap',
+                plugins: 'lists advlist table image pagebreak charmap searchreplace wordcount',
+                toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table image hr pagebreak | slanswer | removeformat',
+                font_family_formats: 'Times New Roman=times new roman,times,serif; Arial=arial,helvetica,sans-serif; Courier New=courier new,courier,monospace',
+                font_size_formats: '8pt 9pt 10pt 11pt 12pt 14pt 16pt 18pt 20pt 24pt 28pt 36pt',
+                block_formats: 'Normal text=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Small heading=h4',
+                noneditable_class: 'sl-field', extended_valid_elements: 'span[class|style|data-qk|data-sys|contenteditable]',
+                pagebreak_separator: '<div class="page-break"></div>', pagebreak_split_block: true,
+                table_default_attributes: { border: '1' }, table_default_styles: { 'border-collapse': 'collapse', width: '100%' },
+                image_title: false, image_description: true, automatic_uploads: false, paste_data_images: true, convert_urls: false, entity_encoding: 'raw',
+                file_picker_types: 'image',
+                file_picker_callback: cb => {
+                    const input = document.createElement('input');
+                    input.type = 'file'; input.accept = 'image/png,image/jpeg,image/gif,image/webp';
+                    input.onchange = () => {
+                        const file = input.files[0];
+                        if (!file) return;
+                        if (file.size > 1500000) { alert('That picture is over 1.5 MB. Please use a smaller one.'); return; }
+                        const reader = new FileReader();
+                        reader.onload = () => cb(reader.result, { alt: file.name.replace(/\.[^.]+$/, '') });
+                        reader.readAsDataURL(file);
+                    };
+                    input.click();
+                },
+                setup: ed => {
+                    ed.ui.registry.addMenuButton('slanswer', { text: 'Insert answer', icon: 'user', tooltip: "Put a student's answer in the text", fetch: cb => cb(answerMenu(ed)) });
+                    ed.on('input change undo redo keyup ExecCommand', () => docChanged());
+                    ed.on('focus', () => { document.getElementById('docToolbarHint').classList.add('hidden'); docStatus(ed); });
+                },
+            });
+            const [header, body, footer] = await Promise.all(['docHeader', 'docBody', 'docFooter'].map(id => tinymce.init(config(document.getElementById(id))).then(list => list[0])));
+            docEditors = { header, body, footer };
+        }
+        docEditors.header.setContent(fbDoc.header || '');
+        docEditors.body.setContent(fbDoc.body || '');
+        docEditors.footer.setContent(fbDoc.footer || '');
+        [docEditors.header, docEditors.body, docEditors.footer].forEach(ed => ed.undoManager.clear());
+        docStatus(docEditors.body);
+        docEditors.body.focus();
+    }
+
+    function docStatus(ed) {
+        if (!docEditors) return;
+        const zone = ed === docEditors.header ? 'Header' : ed === docEditors.footer ? 'Footer' : 'Page';
+        const words = (docEditors.body.getContent({ format: 'text' }).match(/\S+/g) || []).length;
+        document.getElementById('docStatus').textContent = `Typing in: ${zone} · ${words} words · ${fbDoc.paper} paper`;
+    }
+
+    // The editors' content back into fbDoc (the editor form)
+    function readDocEditors() {
+        if (!docEditors || !fbDoc) return;
+        fbDoc.header = docEditors.header.getContent();
+        fbDoc.body = docEditors.body.getContent();
+        fbDoc.footer = docEditors.footer.getContent();
+        const zone = id => document.getElementById(id).closest('.doc-zone');
+        fbDoc.header_mm = Math.round(pxToMm(zone('docHeader').offsetHeight) * 10) / 10;
+        fbDoc.footer_mm = Math.round(pxToMm(zone('docFooter').offsetHeight) * 10) / 10;
+    }
+    let docChangeTimer = null;
+    function docChanged() {
+        clearTimeout(docChangeTimer);
+        docChangeTimer = setTimeout(() => {
+            const before = JSON.stringify([fbDoc.header, fbDoc.body, fbDoc.footer]);
+            readDocEditors();
+            if (JSON.stringify([fbDoc.header, fbDoc.body, fbDoc.footer]) !== before) { setDirty(true); renderFormMode(); }
+            if (docEditors) docStatus(tinymce.activeEditor || docEditors.body);
+        }, 250);
+    }
+
+    function setDocPaper(paper, changed = true) {
+        if (!fbDoc) return;
+        if (changed && fbDoc.paper !== paper) { fbDoc.paper = paper; setDirty(true); }
+        fbDoc.paper = paper;
+        document.getElementById('docPaper').value = paper;
+        const [w, h] = DOC_PAPERS[paper] || DOC_PAPERS.A4;
+        Object.assign(document.getElementById('docPage').style, { width: mmToPx(w) + 'px', minHeight: mmToPx(h) + 'px' });
+        renderFormMode();
+    }
+
+    function closeDocEditor() {
+        readDocEditors();
+        document.getElementById('docEditor').classList.add('hidden');
+        document.getElementById('docEditor').classList.remove('flex');
+        document.body.style.overflow = '';
+        renderFormMode();
+    }
+
+    // What is sent: answer spots as data-qi (their question's place in fbFields, the order fields are saved in)
+    function docForServer() {
+        readDocEditors();
+        if (!fbDoc) return null;
+        return { body: docMapFields(fbDoc.body, false), header: docMapFields(fbDoc.header, false), footer: docMapFields(fbDoc.footer, false),
+            paper: fbDoc.paper || 'A4', header_mm: fbDoc.header_mm || 20, footer_mm: fbDoc.footer_mm || 8 };
+    }
+
+    // A PDF of the document as it is now, answer spots shown by name
+    async function previewDocument() {
+        if (!fbDoc) fbDoc = starterDocument();
+        const win = window.open('', '_blank');
+        if (win) win.document.write('<p style="font:16px sans-serif;padding:24px">Making the preview…</p>');
+        try {
+            const res = await fetch('../actions/preview_form_document.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scholarship_id: FB_SCHOLARSHIP_ID, document: docForServer(), labels: Object.fromEntries(fbFields.map((f, i) => [i, f.label || 'Untitled question'])) }) });
+            if (!res.ok) throw new Error(await res.text());
+            const url = URL.createObjectURL(await res.blob());
+            if (win) win.location.href = url; else window.open(url, '_blank');
+        } catch (err) {
+            if (win) win.close();
+            showAlert('error', 'Could not make the preview: ' + err.message);
+        }
+    }
+
     // ================= HISTORY: earlier versions of the form =================
     // Every save is kept (actions/save_application_form.php → includes/form_versions.php). Opening one loads it into the
     // builder (nothing is saved yet) and lights up on the PDF what is different from the form you had; Restore saves it as
@@ -3829,6 +4157,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return JSON.parse(JSON.stringify({
             fields: fbFields.map(({ key, ...f }) => f), edits: [...fbEdits.map(({ key, ...e }) => e), ...fbSavedBreaks], overrides: fbOverrides,
             template: fbTemplate, instructions: document.getElementById('fbInstructions').value,
+            mode: fbFormMode, document: fbDoc ? docForServer() : null,
         }));
     }
     // Puts a form (a version, or the one kept by workingForm) into the builder
@@ -3839,6 +4168,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         fbSavedBreaks = state.edits.filter(e => e.kind === 'break');
         fbOverrides = state.overrides && !Array.isArray(state.overrides) ? state.overrides : {};
         fbTemplate = state.template || '';
+        fbFormMode = state.mode || 'pdf';
+        // (the questions are in place above, so the answer spots find them)
+        fbDoc = state.document ? { ...state.document, body: docMapFields(state.document.body, true), header: docMapFields(state.document.header, true), footer: docMapFields(state.document.footer, true) } : null;
+        if (docEditors && fbDoc) { docEditors.header.setContent(fbDoc.header || ''); docEditors.body.setContent(fbDoc.body || ''); docEditors.footer.setContent(fbDoc.footer || ''); }
+        if (typeof renderFormMode === 'function') renderFormMode();
         document.getElementById('fbTemplate').value = fbTemplate;
         const ins = document.getElementById('fbInstructions');
         ins.value = state.instructions || '';
@@ -4013,6 +4347,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     edits: [...fbEdits.map(({ key, ...e }) => e), ...pageBreaks()],
                     instructions: document.getElementById('fbInstructions').value,
                     restored_from: fbVersionView ? fbVersionView.number : null,
+                    mode: fbFormMode,
+                    document: fbDoc ? docForServer() : null,
                     fields: fbFields.map(({ key, ...f }) => ({ ...f, options: getOpts(f).map(o => o.trim()).filter(Boolean).join('\n') }))
                 })
             });
@@ -4077,4 +4413,5 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     fbLastState = fbState();
     renderPalette();
     render();
+    renderFormMode();
 </script>

@@ -3,6 +3,7 @@ session_start();
 require '../includes/db_connect.php';
 require_once '../vendor/autoload.php';
 require_once '../includes/pdf_templates.php';
+require_once '../includes/form_document.php';
 
 use mikehaertl\pdftk\Pdf;
 
@@ -17,8 +18,8 @@ try {
     // 1. FETCH ALL DATA (Added u.Citizenship here)
     $stmt = $pdo->prepare("
         SELECT 
-            a.DateSubmitted,
-            s.Name AS ScholarshipName, s.FormTemplate,
+            a.DateSubmitted, a.ScholarshipID, a.UserID,
+            s.Name AS ScholarshipName, s.FormTemplate, s.FormMode,
             u.FirstName, u.LastName, u.MiddleName, u.ExtName, 
             u.StudentID_Num, u.Major, u.YearLevel, u.GPA,
             u.ContactNumber, u.Email, u.DateOfBirth, u.Gender, u.Citizenship,
@@ -36,6 +37,32 @@ try {
 
     if (!$data) {
         exit('Application not found or you do not have permission to view it.');
+    }
+
+    // ✨ A WORD-STYLE DOCUMENT FORM: filled with the answers and made into the PDF
+    $form_document = ($data['FormMode'] ?? 'pdf') === 'document' ? loadFormDocument($pdo, (int) $data['ScholarshipID']) : null;
+    if ($form_document) {
+        $answers = [];
+        $answer_stmt = $pdo->prepare('SELECT FieldID, AnswerText FROM application_custom_answers WHERE ApplicationID = ?');
+        $answer_stmt->execute([$application_id]);
+        foreach ($answer_stmt->fetchAll(PDO::FETCH_ASSOC) as $a) $answers[(int) $a['FieldID']] = (string) $a['AnswerText'];
+        // Profile questions without a stored answer: from the student's profile
+        $student_stmt = $pdo->prepare('SELECT * FROM users WHERE UserID = ?');
+        $student_stmt->execute([$data['UserID']]);
+        $student = $student_stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        foreach (getFormFields($pdo, (int) $data['ScholarshipID'], false) as $f) {
+            if (!isset($answers[(int) $f['FieldID']]) && isAutoFillType($f['FieldType'])) $answers[(int) $f['FieldID']] = resolveAutoFillValue($pdo, $f['FieldType'], $student);
+        }
+        $name = trim(implode(' ', array_filter([$data['FirstName'], $data['MiddleName'], $data['LastName'], $data['ExtName']])));
+        $system = ['student_name' => $name, 'student_no' => (string) $data['StudentID_Num'], 'course' => (string) $data['Major'], 'year_level' => (string) $data['YearLevel'],
+            'email' => (string) $data['Email'], 'contact' => (string) $data['ContactNumber'], 'scholarship_name' => (string) $data['ScholarshipName'],
+            'application_no' => (string) $application_id, 'date_today' => date('F j, Y')];
+        $pdf_bytes = formDocumentPdf($form_document, $answers, $system, [], false);
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: inline; filename="' . preg_replace('/[^A-Za-z0-9_-]+/', '_', $data['ScholarshipName']) . '_Application.pdf"');
+        header('Content-Length: ' . strlen($pdf_bytes));
+        echo $pdf_bytes;
+        exit;
     }
     
     // 2. FETCH DYNAMIC CUSTOM FIELD ANSWERS

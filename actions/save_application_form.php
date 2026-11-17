@@ -9,6 +9,7 @@ require_once '../includes/form_fields.php';
 require_once '../includes/pdf_templates.php';
 require_once '../includes/scholarship_config_versions.php';
 require_once '../includes/form_versions.php';
+require_once '../includes/form_document.php';
 
 // ✨ SAVES A SCHOLARSHIP'S APPLICATION FORM FROM THE FORM BUILDER
 // Body (JSON): { scholarship_id, instructions, template, fields: [...], overrides: {...}, edits: [...], restored_from? }
@@ -158,6 +159,23 @@ foreach ((array) ($payload['edits'] ?? []) as $i => $e) {
 
 $restored_from = (int) ($payload['restored_from'] ?? 0) ?: null;
 
+// Which form prints: the official PDF ('pdf') or the Word-style document ('document'); the document is cleaned here
+$form_mode = ($payload['mode'] ?? 'pdf') === 'document' ? 'document' : 'pdf';
+$document = null;
+if (isset($payload['document']) && is_array($payload['document']) && formDocumentsReady($pdo)) {
+    $d = $payload['document'];
+    $document = [
+        'body' => sanitizeFormDocumentHtml((string) ($d['body'] ?? '')),
+        'header' => sanitizeFormDocumentHtml((string) ($d['header'] ?? '')),
+        'footer' => sanitizeFormDocumentHtml((string) ($d['footer'] ?? '')),
+        'paper' => isset(FORM_DOCUMENT_PAPERS[$d['paper'] ?? '']) ? $d['paper'] : 'A4',
+        'header_mm' => max(0, min(120, round((float) ($d['header_mm'] ?? 20), 1))),
+        'footer_mm' => max(0, min(80, round((float) ($d['footer_mm'] ?? 12), 1))),
+    ];
+    if (strlen($document['body'] . $document['header'] . $document['footer']) > FORM_DOCUMENT_MAX_BYTES) fail('The document is too big (its pictures make it bigger). Use smaller pictures.');
+}
+if ($form_mode === 'document' && (!$document || trim(strip_tags($document['body'], '<img><table>')) === '')) fail('The Word-style document is empty. Write the form in it, or choose the official PDF form.');
+
 // --- SAVE ---
 try {
     $pdo->beginTransaction();
@@ -225,6 +243,15 @@ try {
         $edit_insert->execute(array_merge([$scholarship_id], $e));
     }
 
+    // The Word-style document: its answer spots point at the questions just saved
+    if ($document) {
+        foreach (['body', 'header', 'footer'] as $part) $document[$part] = formDocumentLinkFields($document[$part], $saved);
+        $pdo->prepare('INSERT INTO application_form_documents (ScholarshipID, BodyHtml, HeaderHtml, FooterHtml, PaperSize, HeaderHeightMm, FooterHeightMm) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE BodyHtml = VALUES(BodyHtml), HeaderHtml = VALUES(HeaderHtml), FooterHtml = VALUES(FooterHtml), PaperSize = VALUES(PaperSize), HeaderHeightMm = VALUES(HeaderHeightMm), FooterHeightMm = VALUES(FooterHeightMm)')
+            ->execute([$scholarship_id, $document['body'], $document['header'] ?: null, $document['footer'] ?: null, $document['paper'], $document['header_mm'], $document['footer_mm']]);
+    }
+    if (formDocumentsReady($pdo)) $pdo->prepare('UPDATE scholarship SET FormMode = ? WHERE ScholarshipID = ?')->execute([$form_mode, $scholarship_id]);
+
     $instructions = trim((string) ($payload['instructions'] ?? ''));
     $pdo->prepare("UPDATE scholarship SET FormInstructions = ?, FormTemplate = ?, FormUpdatedAt = NOW() WHERE ScholarshipID = ?")
         ->execute([$instructions !== '' ? $instructions : null, $template !== '' ? $template : null, $scholarship_id]);
@@ -246,7 +273,7 @@ try {
     $saved_at->execute([$scholarship_id]);
     $version_stmt = $pdo->prepare('SELECT VersionNumber FROM scholarship_configuration_versions WHERE ConfigurationVersionID = ?');
     $version_stmt->execute([$configuration_version_id]);
-    echo json_encode(['success' => true, 'ids' => $saved, 'archived' => $archived, 'configuration_version' => (int) $version_stmt->fetchColumn(), 'form_version' => $form_version, 'saved_at' => trim($saved_at->fetchColumn())]);
+    echo json_encode(['success' => true, 'ids' => $saved, 'archived' => $archived, 'configuration_version' => (int) $version_stmt->fetchColumn(), 'form_version' => $form_version, 'document' => $document ? ['body' => $document['body'], 'header' => $document['header'], 'footer' => $document['footer']] : null, 'saved_at' => trim($saved_at->fetchColumn())]);
 } catch (PDOException $e) {
     $pdo->rollBack();
     fail('Database error: ' . $e->getMessage(), 500);

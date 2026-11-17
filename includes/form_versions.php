@@ -4,6 +4,7 @@
 // PDF (edited / added text, erased areas, added / copied / moved lines, hidden or moved PDF fields, answer boxes). An earlier
 // version can be opened in the builder and restored; restoring saves it again as the newest version, so nothing is lost.
 require_once __DIR__ . '/form_fields.php';
+require_once __DIR__ . '/form_document.php';
 
 const FORM_VERSIONS_KEPT = 200;   // per scholarship; the oldest are removed after that
 
@@ -18,7 +19,12 @@ function formVersionsReady(PDO $pdo): bool {
 
 // The form as the builder works with it (see includes/form_builder_view.php)
 function loadFormState(PDO $pdo, int $scholarship_id): array {
-    $sch = $pdo->prepare('SELECT FormInstructions, FormTemplate FROM scholarship WHERE ScholarshipID = ?');
+    try {
+        $sch = $pdo->prepare('SELECT FormInstructions, FormTemplate, FormMode FROM scholarship WHERE ScholarshipID = ?');
+        $sch->execute([$scholarship_id]);
+    } catch (PDOException $e) {   // before the Word-style documents were added
+        $sch = $pdo->prepare('SELECT FormInstructions, FormTemplate FROM scholarship WHERE ScholarshipID = ?');
+    }
     $sch->execute([$scholarship_id]);
     $sch = $sch->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -65,13 +71,20 @@ function loadFormState(PDO $pdo, int $scholarship_id): array {
         ]];
     }
 
-    return [
+    $state = [
         'instructions' => (string) ($sch['FormInstructions'] ?? ''),
         'template'     => (string) ($sch['FormTemplate'] ?? ''),
         'fields'       => $fields,
         'edits'        => $edits,
         'overrides'    => $overrides,
     ];
+    // The Word-style document, when there is one (left out otherwise, so older versions compare the same)
+    $document = loadFormDocument($pdo, $scholarship_id);
+    if ($document || ($sch['FormMode'] ?? 'pdf') !== 'pdf') {
+        $state['mode'] = $sch['FormMode'] ?? 'pdf';
+        $state['document'] = $document;
+    }
+    return $state;
 }
 
 // What a version holds, for the list
@@ -145,5 +158,7 @@ function formChangeSummary(?array $before, array $after): string {
         if ($pdfOf($before) !== $pdfOf($after)) $parts[] = 'PDF changed';
     }
     if ($before['instructions'] !== $after['instructions']) $parts[] = 'instructions changed';
+    if (($before['mode'] ?? 'pdf') !== ($after['mode'] ?? 'pdf')) $parts[] = ($after['mode'] ?? 'pdf') === 'document' ? 'now a Word-style document' : 'now the official PDF';
+    elseif (($before['document'] ?? null) != ($after['document'] ?? null)) $parts[] = 'document changed';
     return $parts ? ucfirst(implode(', ', $parts)) : 'Saved';
 }
