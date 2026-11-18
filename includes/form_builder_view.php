@@ -143,6 +143,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .doc-page table { border-collapse: collapse; } .doc-page td, .doc-page th { padding: 2pt 4pt; vertical-align: top; }
     .doc-page table[border="1"] td, .doc-page table[border="1"] th { border: 0.75pt solid #000; }
     .doc-page img { display: inline; max-width: 100%; }
+    .doc-page img.sl-wrap-behind, .doc-page img.sl-wrap-front { cursor: move; }
+    .doc-page img.sl-wrap-behind { opacity: 0.92; }
     .doc-page hr { border-top: 1px solid #000; margin: 6pt 0; }
     .doc-page .page-break, .doc-page .mce-pagebreak { display: block; width: 100%; height: 0; border: 0; border-top: 2px dashed #94a3b8; margin: 2pt 0; }
     .doc-page .sl-field { background: #dbeafe; color: #1d4ed8; border-bottom: 1.5px dashed #2563eb; padding: 0 3px; border-radius: 3px; font-family: Arial, Helvetica, sans-serif; font-size: 0.9em; white-space: nowrap; cursor: default; }
@@ -4156,6 +4158,97 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     ed.addShortcut('meta+shift+190', 'Next size', () => { const n = sizeNow(); setSize(docSizes.find(x => x > n + 0.05) ?? n); });
                     ed.addShortcut('meta+shift+188', 'Previous size', () => { const n = sizeNow(); setSize([...docSizes].reverse().find(x => x < n - 0.05) ?? n); });
                     ed.addShortcut('meta+p', 'Preview the PDF', () => previewDocument());
+                    // ---- pictures: Word's "Wrap Text" ----
+                    // In line (a big letter in the line) · Square / Tight / Through (text flows around it; a picture's outline
+                    // cannot be followed when printed, so Tight and Through only come closer) · Top and bottom (a line of its
+                    // own) · Behind / In front of the text (placed freely in its paragraph: drag it)
+                    const WRAPS = [['inline', 'In line with text'], ['square', 'Square'], ['tight', 'Tight'], ['through', 'Through'], ['topbottom', 'Top and bottom'], ['behind', 'Behind text'], ['front', 'In front of text']];
+                    const GAPS = { square: 3, tight: 1.5, through: 0.6 };
+                    const mmOf = px => Math.round(pxToMm(px) * 10) / 10;
+                    const wrapOf = img => (img.className.match(/sl-wrap-(\w+)/) || [])[1] || (img.style.float ? 'square' : 'inline');
+                    const setWrap = (img, mode) => {
+                        if (!img || img.nodeName !== 'IMG') return;
+                        const block = ed.dom.getParent(img.parentNode, 'p,div,td,th,li,h1,h2,h3,h4,h5,h6', ed.getBody()) || ed.getBody();
+                        const Z = docZoom || 1, r = img.getBoundingClientRect(), br = block.getBoundingClientRect();
+                        const mid = (r.left + r.width / 2 - br.left) / br.width, side = mid > 0.5 ? 'right' : 'left';
+                        ed.undoManager.transact(() => {
+                            // held by its paragraph, not inside a run of formatted words (the printout floats it only there)
+                            if (mode !== 'inline' && block !== ed.getBody() && img.parentNode !== block) block.insertBefore(img, block.firstChild);
+                            WRAPS.forEach(([k]) => img.classList.remove('sl-wrap-' + k));
+                            ['float', 'position', 'left', 'top', 'z-index', 'display', 'margin', 'margin-left', 'margin-right', 'margin-top', 'margin-bottom', 'vertical-align']
+                                .forEach(prop => ed.dom.setStyle(img, prop, ''));
+                            img.classList.add('sl-wrap-' + mode);
+                            if (GAPS[mode]) {
+                                const g = GAPS[mode];
+                                ed.dom.setStyles(img, { float: side, margin: side === 'left' ? `${g / 2}mm ${g}mm ${g}mm 0` : `${g / 2}mm 0 ${g}mm ${g}mm` });
+                            } else if (mode === 'topbottom') {
+                                // a line of its own: its own paragraph just before the words (the printout cannot float a block inside one)
+                                const align = mid > 0.62 ? 'right' : mid > 0.38 ? 'center' : 'left';
+                                if (block !== ed.getBody() && block.textContent.trim() !== '') {
+                                    const own = ed.dom.create('p', { style: `margin: 2mm 0; line-height: 0; text-align: ${align};` });
+                                    block.parentNode.insertBefore(own, block);
+                                    own.appendChild(img);
+                                } else if (block !== ed.getBody()) ed.dom.setStyles(block, { 'text-align': align, 'line-height': '0' });
+                                ed.dom.setStyle(img, 'vertical-align', 'bottom');
+                            } else if (mode === 'behind' || mode === 'front') {
+                                // stays where it is now, held by its paragraph
+                                if (block !== ed.getBody()) ed.dom.setStyle(block, 'position', 'relative');
+                                const box = block === ed.getBody() ? ed.getBody().getBoundingClientRect() : br;
+                                ed.dom.setStyles(img, { position: 'absolute', left: mmOf((r.left - box.left) / Z) + 'mm', top: mmOf((r.top - box.top) / Z) + 'mm', 'z-index': mode === 'behind' ? '-1' : '2' });
+                            }
+                        });
+                        ed.nodeChanged();
+                        docChanged();
+                    };
+                    ed.ui.registry.addMenuButton('slwrap', {
+                        text: 'Wrap text', icon: 'image-options', tooltip: 'How the text goes around the picture (like Word)',
+                        fetch: cb => {
+                            const img = ed.selection.getNode(), now = img && img.nodeName === 'IMG' ? wrapOf(img) : '';
+                            cb(WRAPS.map(([k, label]) => ({ type: 'togglemenuitem', text: label, active: now === k, onAction: () => setWrap(ed.selection.getNode(), k) })));
+                        },
+                    });
+                    ed.ui.registry.addContextToolbar('slimage', {
+                        predicate: n => n.nodeName === 'IMG' && !n.classList.contains('mce-pagebreak'),
+                        items: 'slwrap | alignleft aligncenter alignright | image', position: 'node', scope: 'node',
+                    });
+                    // a picture behind / in front of the text: press and drag it anywhere
+                    const behindAt = (x, y) => {
+                        const img = [...ed.getBody().querySelectorAll('img.sl-wrap-behind')].find(i => { const r = i.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; });
+                        if (!img) return null;
+                        // a press right on a letter is for the words (to type there); elsewhere on the picture, for the picture
+                        const at = ed.getDoc().caretRangeFromPoint ? ed.getDoc().caretRangeFromPoint(x, y) : null;
+                        if (at && at.startContainer.nodeType === 3 && at.startOffset < at.startContainer.length) {
+                            const ch = ed.getDoc().createRange();
+                            ch.setStart(at.startContainer, at.startOffset); ch.setEnd(at.startContainer, at.startOffset + 1);
+                            const cr = ch.getBoundingClientRect();
+                            if (x >= cr.left - 1 && x <= cr.right + 1 && y >= cr.top && y <= cr.bottom) return null;
+                        }
+                        return img;
+                    };
+                    ed.on('mousedown', e => {
+                        const img = e.target && e.target.nodeName === 'IMG' ? e.target : behindAt(e.clientX, e.clientY);
+                        if (e.button !== 0 || !img || img.nodeName !== 'IMG' || !/sl-wrap-(behind|front)/.test(img.className)) return;
+                        e.preventDefault();
+                        ed.selection.select(img);
+                        const Z = docZoom || 1, x0 = e.clientX, y0 = e.clientY, l0 = parseFloat(img.style.left) || 0, t0 = parseFloat(img.style.top) || 0;
+                        let moved = false;
+                        const move = ev => {
+                            moved = true;
+                            img.style.left = Math.round((l0 + pxToMm((ev.clientX - x0) / Z)) * 10) / 10 + 'mm';
+                            img.style.top = Math.round((t0 + pxToMm((ev.clientY - y0) / Z)) * 10) / 10 + 'mm';
+                        };
+                        const up = () => {
+                            window.removeEventListener('mousemove', move);
+                            window.removeEventListener('mouseup', up);
+                            if (!moved) return;
+                            ed.dom.setAttrib(img, 'data-mce-style', img.getAttribute('style'));
+                            ed.undoManager.add();
+                            ed.nodeChanged();
+                            docChanged();
+                        };
+                        window.addEventListener('mousemove', move);
+                        window.addEventListener('mouseup', up);
+                    });
                     ed.ui.registry.addButton('slnewpage', { text: 'New page', icon: 'page-break', tooltip: 'Start a new page here (what follows goes on the next page)', onAction: () => ed.execCommand('mcePageBreak') });
                     ed.ui.registry.addMenuButton('slanswer', { text: 'Insert answer', icon: 'user', tooltip: "Put a student's answer in the text", fetch: cb => cb(answerMenu(ed)) });
                     ed.on('input change undo redo keyup ExecCommand', () => docChanged());

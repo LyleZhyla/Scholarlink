@@ -56,7 +56,8 @@ function sanitizeFormDocumentHtml(string $html): string {
     $styles = ['color', 'background-color', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'text-align', 'vertical-align', 'line-height',
         'width', 'height', 'min-width', 'max-width', 'min-height', 'display', 'border-radius', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color', 'border-width', 'border-style',
         'border-collapse', 'border-spacing', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-        'letter-spacing', 'text-indent', 'list-style-type', 'white-space', 'page-break-before', 'page-break-after', 'break-before', 'break-after', 'float'];
+        'letter-spacing', 'text-indent', 'list-style-type', 'white-space', 'page-break-before', 'page-break-after', 'break-before', 'break-after', 'float',
+        'position', 'z-index', 'left', 'top'];   // a picture behind / in front of the text, placed in its paragraph
 
     $doc = new DOMDocument();
     libxml_use_internal_errors(true);
@@ -85,7 +86,8 @@ function sanitizeFormDocumentHtml(string $html): string {
                     // Pictures only as data kept in the document (never an outside address)
                     if ($tag !== 'img' || !preg_match('#^data:image/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$#', $value)) $child->removeAttribute($a->name);
                 } elseif ($name === 'class') {
-                    $keep = array_values(array_intersect(preg_split('/\s+/', $value), ['sl-field', 'page-break', 'sl-missing', 'sl-check']));
+                    $keep = array_values(array_intersect(preg_split('/\s+/', $value), ['sl-field', 'page-break', 'sl-missing', 'sl-check',
+                        'sl-wrap-inline', 'sl-wrap-square', 'sl-wrap-tight', 'sl-wrap-through', 'sl-wrap-topbottom', 'sl-wrap-behind', 'sl-wrap-front']));
                     $keep ? $child->setAttribute('class', implode(' ', $keep)) : $child->removeAttribute('class');
                 } elseif ($name === 'style') {
                     $kept = [];
@@ -95,6 +97,9 @@ function sanitizeFormDocumentHtml(string $html): string {
                         $prop = strtolower($prop);
                         if (!in_array($prop, $styles, true) || preg_match('/url\s*\(|expression|javascript|behavior|@import|\\\\/i', $val)) continue;
                         if ($prop === 'display' && !in_array(strtolower($val), ['inline-block', 'block'], true)) continue;
+                        if ($prop === 'position' && !in_array(strtolower($val), ['absolute', 'relative'], true)) continue;
+                        if ($prop === 'z-index' && !preg_match('/^-?[0-9]$/', $val)) continue;
+                        if (($prop === 'left' || $prop === 'top') && !preg_match('/^-?[0-9.]+(mm|pt|px|cm|in|%)?$/i', $val)) continue;
                         $kept[] = $prop . ': ' . $val;
                     }
                     $kept ? $child->setAttribute('style', implode('; ', $kept)) : $child->removeAttribute('style');
