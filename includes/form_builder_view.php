@@ -4913,8 +4913,10 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const colour = inkColour(page, t), b = t.blank;
             // the room left for the blank in its slot (opts.slot: the slot's width in mm)
             const room = opts.slot ? opts.slot - wordsMm(t) - (t.labels.length ? 1.5 : 0.4) : Infinity;
-            const words = tileText(t).replace(/[:*]+$/, '').replace(/^\(\s*\)\s*/, '').trim();
-            const name = b && b.kind === 'field' ? (pdfUsage()[b.name] ? pdfBlankLabel(b.name) : (words && words.length <= 40 ? words : pdfBlankLabel(b.name))) : '';
+            const words = (t.nameWords ?? tileText(t)).replace(/[:*]+$/, '').replace(/^\(\s*\)\s*/, '').trim();
+            const own = b && b.kind === 'field' ? pdfBlankLabel(b.name) : '';
+            const ownSays = own && words && own.toLowerCase() !== words.toLowerCase() && own.toLowerCase().includes(words.toLowerCase());
+            const name = b && b.kind === 'field' ? (pdfUsage()[b.name] || ownSays || !words || words.length > 40 ? own : words) : '';
             const tickSpot = (c, wMm) => `<span class="sl-field sl-check" contenteditable="false" data-pdf-field="${esc(c.name)}" data-label="${esc(words || 'Tick')}" style="padding: 0 ${mm(Math.max(0.3, (Math.max(2, wMm ?? c.w * mmW) - 1) / 2))}mm;${c.underline ? ' border-bottom: 0.75pt solid #000000;' : ''}">[✓]</span>`;   // inline (a box of its own width may start a new line)
             const spot = b && b.kind === 'field' && !b.sig
                 ? (b.check ? tickSpot(b, Math.max(3, b.w * mmW)) : `<span class="sl-field" contenteditable="false" data-pdf-field="${esc(b.name)}" data-label="${esc(name)}" style="${answerStyle(b, room, opts.bare)}">[${esc(name)}]</span>`) : null;
@@ -5027,6 +5029,27 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 });
             });
             rows.forEach(r => r.tiles.sort((a, b) => tileParts(a)[0].x - tileParts(b)[0].x));
+            // an answer box drawn on a printed line: the answer runs the whole line (lines one under another end together)
+            rows.forEach(r => r.tiles.forEach((t, k) => {
+                const bl = t.blank;
+                if (!bl || bl.check || bl.kind === 'line') return;
+                const l = ink.hLines.find(l => l.y >= bl.y + bl.h * 0.5 && l.y <= bl.y + bl.h + 0.012 && Math.min(l.x + l.w, bl.x + bl.w) - Math.max(l.x, bl.x) > bl.w * 0.5);
+                if (!l) return;
+                const prevEnd = t.labels.length ? Math.max(...t.labels.map(q => q.x + q.w)) : (k ? Math.max(...tileParts(r.tiles[k - 1]).map(q => q.x + q.w)) : 0);
+                const nextStart = r.tiles[k + 1] ? tileParts(r.tiles[k + 1])[0].x : 1;
+                const x0 = Math.max(Math.min(bl.x, l.x), prevEnd + 0.002), x1 = Math.min(Math.max(bl.x + bl.w, l.x + l.w), nextStart - 0.002);
+                if (x1 > x0) { bl.x = x0; bl.w = x1 - x0; }
+            }));
+            // answer lines that end within a hair of each other (one under another) end together, at the furthest
+            {
+                const ends = [];
+                rows.forEach(r => r.tiles.forEach((t, k) => { const bl = t.blank; if (bl && !bl.check) ends.push({ bl, next: r.tiles[k + 1] ? tileParts(r.tiles[k + 1])[0].x : 1 }); }));
+                ends.forEach(a => {
+                    const end = a.bl.x + a.bl.w, near = ends.filter(o => Math.abs(o.bl.x + o.bl.w - end) < 0.006).map(o => o.bl.x + o.bl.w);
+                    const to = Math.min(Math.max(...near), a.next - 0.002);
+                    if (to > end) a.bl.w = to - a.bl.x;
+                });
+            }
             const band = p.num === 1 ? ink.bands.find(b => b.y < 0.2) : null;
             const inBand = r => band && (r.top + r.bot) / 2 >= band.y && (r.top + r.bot) / 2 <= band.y + band.h;
             const footerTop = 0.925, inFooter = y => p.num === 1 && y > footerTop;
@@ -5349,11 +5372,19 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                         return;
                     }
                     const lh = s0 * (fr.cell ? 1.08 : 1.18), top = ((g0.top + g0.bot) / 2) * mmH - lh * ptMm / 2;   // a table's lines sit closer
-                    if (q.kind === 'cols') {
-                        const L0 = rowLeft(g0);
-                        const slots = g0.tiles.map((t, j) => {
-                            const x = tileParts(t)[0].x, next = g0.tiles[j + 1] ? tileParts(g0.tiles[j + 1])[0].x : Math.max(x + 0.02, right);   // the last runs to the frame's side (printed letters run a little wider)
-                            const w = (next - x) * mmW - (g0.tiles[j + 1] ? 0 : 1.5);   // the last a little short of the edge, or it goes onto a line of its own
+                    // a label and its answer line: the words in one slot, the line in the next, so every line starts and ends where
+                    // the PDF's does (straight, whatever the letters' widths)
+                    const split = g0.tiles.flatMap(t => {
+                        const b = t.blank;
+                        // (a label's width can run on over its trailing spaces: it is after the label's last piece starts)
+                        if (!b || b.check || !t.labels.length || b.x <= Math.max(...t.labels.map(l => l.x)) + 0.01) return [t];
+                        return [{ ...t, blank: null }, { ...t, labels: [], blank: b, nameWords: tileText(t) }];
+                    });
+                    if (q.kind === 'cols' || split.length > 1) {
+                        const L0 = rowLeft(g0), tiles = split;
+                        const slots = tiles.map((t, j) => {
+                            const x = tileParts(t)[0].x, next = tiles[j + 1] ? tileParts(tiles[j + 1])[0].x : Math.max(x + 0.02, right);   // the last runs to the frame's side (printed letters run a little wider)
+                            const w = (next - x) * mmW - (tiles[j + 1] ? 0 : 1.5);   // the last a little short of the edge, or it goes onto a line of its own
                             return `<span style="display: inline-block; width: ${mm(w)}mm;">${partHtml(p.num, t, { bare: fr.bare, pageNumbers: q.footer, slot: w })}</span>`;
                         }).join('');
                         html += `<p style="${gap(top)}margin-left: ${mm((L0 - left) * mmW)}mm; line-height: ${mm(lh)}pt; white-space: nowrap;">${slots}</p>`;
