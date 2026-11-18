@@ -55,7 +55,7 @@ function sanitizeFormDocumentHtml(string $html): string {
     $attrs = ['style', 'class', 'colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'border', 'cellpadding', 'cellspacing', 'src', 'alt', 'start', 'type', 'data-field-id', 'data-qi', 'data-sys', 'data-label', 'data-pdf-field'];
     $styles = ['color', 'background-color', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'text-align', 'vertical-align', 'line-height',
         'width', 'height', 'min-width', 'max-width', 'min-height', 'display', 'border-radius', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color', 'border-width', 'border-style',
-        'border-collapse', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+        'border-collapse', 'border-spacing', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
         'letter-spacing', 'text-indent', 'list-style-type', 'white-space', 'page-break-before', 'page-break-after', 'break-before', 'break-after', 'float'];
 
     $doc = new DOMDocument();
@@ -152,8 +152,8 @@ function formDocumentFill(string $html, array $values, array $system, array $lab
         }
         $value = $pdf_field !== '' ? (string) ($values['pdf:' . $pdf_field] ?? '') : ($sys !== '' ? (string) ($system[$sys] ?? '') : (string) ($values[$fid] ?? ''));
         if (str_contains(' ' . $span->getAttribute('class') . ' ', ' sl-check ')) {
-            // a checkbox: X when ticked, a little space when not (no answer line)
-            $span->appendChild($doc->createTextNode($value !== '' ? 'X' : "\u{00A0}\u{00A0}\u{00A0}"));
+            // a checkbox: X when ticked, a space when not (no answer line; the box's own width keeps its room)
+            $span->appendChild($doc->createTextNode($value !== '' ? 'X' : "\u{00A0}"));
             $span->setAttribute('class', 'sl-tick');
             continue;
         }
@@ -215,7 +215,7 @@ function formDocumentHtml(array $d, array $values, array $system, array $labels,
         table[border=\"1\"] td, table[border=\"1\"] th { border: 0.75pt solid #000; }
         img { max-width: 100%; } .page-break { page-break-after: always; height: 0; }
         .sl-answer { border-bottom: 0.6pt solid #000; padding: 0 2pt; font-family: Helvetica, Arial, sans-serif; font-size: 0.85em; }
-        .sl-tick { font-family: Helvetica, Arial, sans-serif; font-weight: bold; padding: 0 1pt; }
+        .sl-tick { font-family: Helvetica, Arial, sans-serif; font-weight: bold; padding: 0; line-height: 1; }
         hr { border: 0; border-top: 0.75pt solid #888; margin: 3pt 0; }
         .sl-sample { color: #2563eb; border-bottom-style: dashed; }
         .sl-page:after { content: counter(page); } .sl-pages:after { content: counter(pages); }

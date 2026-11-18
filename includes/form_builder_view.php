@@ -122,7 +122,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .doc-page { position: relative; margin: 0 auto; background: #fff; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25); padding: 15mm 15mm; color: #000;
         font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.25; }
     .doc-page .doc-part { outline: none; }
-    .doc-page .doc-body { min-height: 120mm; margin: 4mm 0 3mm; }
+    .doc-page .doc-body { min-height: 40mm; margin: 0; }
+    /* pages: sheets drawn behind the text (the text moves to the next sheet where the printout does) */
+    .doc-page.paged { background: transparent; box-shadow: none; isolation: isolate; }
+    .doc-sheets { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+    .doc-sheet { position: absolute; left: 0; right: 0; background: #fff; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25); }
+    .doc-sheet-no { position: absolute; right: 0; bottom: -22px; font: 800 10px/16px 'Plus Jakarta Sans', sans-serif; color: #64748b; letter-spacing: 0.08em; text-transform: uppercase; }
+    .doc-copy { position: absolute; overflow: hidden; opacity: 0.55; color: #000; }
+    .doc-page.paged .doc-zone.doc-zone-fixed { position: absolute; }
     .doc-zone { position: relative; min-height: 8mm; border: 1px dashed transparent; border-radius: 3px; }
     .doc-zone:hover, .doc-zone:focus-within { border-color: #94a3b8; }
     .doc-zone::after { content: attr(data-zone); position: absolute; right: 2px; top: -10px; padding: 0 6px; border-radius: 4px; background: #64748b; color: #fff; font: 900 9px/16px 'Plus Jakarta Sans', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0; transition: opacity 0.15s; }
@@ -137,7 +144,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .doc-page table[border="1"] td, .doc-page table[border="1"] th { border: 0.75pt solid #000; }
     .doc-page img { display: inline; max-width: 100%; }
     .doc-page hr { border-top: 1px solid #000; margin: 6pt 0; }
-    .doc-page .page-break, .doc-page .mce-pagebreak { display: block; width: 100%; height: 0; border: 0; border-top: 2px dashed #94a3b8; margin: 12pt 0; }
+    .doc-page .page-break, .doc-page .mce-pagebreak { display: block; width: 100%; height: 0; border: 0; border-top: 2px dashed #94a3b8; margin: 2pt 0; }
     .doc-page .sl-field { background: #dbeafe; color: #1d4ed8; border-bottom: 1.5px dashed #2563eb; padding: 0 3px; border-radius: 3px; font-family: Arial, Helvetica, sans-serif; font-size: 0.9em; white-space: nowrap; cursor: default; }
     .doc-page .sl-field[data-pdf-field] { background: #dcfce7; color: #15803d; border-bottom-color: #16a34a; }
     .doc-page .sl-field[data-sys] { background: #ede9fe; color: #6d28d9; border-bottom-color: #7c3aed; }
@@ -528,7 +535,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     </div>
     <div class="flex-1 min-h-0 flex flex-col lg:flex-row">
         <!-- LEFT: the form line by line (click one to see it on the PDF), and the earlier versions -->
-        <aside id="pdLeft" class="lg:w-[400px] shrink-0 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col min-h-0 max-h-[45vh] lg:max-h-none">
+        <aside id="pdLeft" class="lg:w-[330px] 2xl:w-[400px] shrink-0 bg-slate-50 border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col min-h-0 max-h-[45vh] lg:max-h-none">
             <div class="flex bg-white border-b border-slate-200 shrink-0" role="tablist">
                 <button type="button" data-pdside="lines" onclick="showDesignerSide('lines')" class="pd-side-tab active"><i class="fas fa-list"></i> Lines</button>
                 <button type="button" data-pdside="history" onclick="showDesignerSide('history')" class="pd-side-tab"><i class="fas fa-clock-rotate-left"></i> History</button>
@@ -547,7 +554,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <div id="pdHistory" class="space-y-2"></div>
             </div>
         </aside>
-        <div class="flex-1 min-h-0 flex flex-col">
+        <div class="flex-1 min-h-0 min-w-0 flex flex-col">
             <div id="pdVersionBar" class="hidden shrink-0 px-6 py-2.5 bg-amber-300 text-amber-950 text-xs font-black flex flex-wrap items-center gap-3"></div>
             <div id="pdToast" class="hidden shrink-0 px-6 py-2 text-xs font-black"></div>
             <div id="pdHint" class="shrink-0 px-6 py-2.5 bg-slate-800 text-white text-xs font-bold flex items-center gap-2"></div>
@@ -592,6 +599,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     <div id="docToolbar" class="bg-white border-y border-slate-200 min-h-[42px]"><p id="docToolbarHint" class="px-4 py-3 text-xs font-bold text-slate-500"><i class="fas fa-i-cursor"></i> Click in the page to type. The toolbar appears here.</p></div>
     <div id="docScroll" class="flex-1 min-h-0 overflow-auto py-8 px-4">
         <div id="docPage" class="doc-page">
+            <div id="docSheets" class="doc-sheets"></div>
             <div class="doc-zone" data-zone="Header"><div id="docHeader" class="doc-part"></div></div>
             <div id="docBody" class="doc-part doc-body"></div>
             <div class="doc-zone" data-zone="Footer"><div id="docFooter" class="doc-part"></div></div>
@@ -628,6 +636,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // Which form prints ('pdf' | 'document') and the Word-style document ({ body, header, footer, paper, header_mm, footer_mm })
     let fbFormMode = <?= json_encode($form_mode) ?>;
     let fbDoc = <?= json_encode($form_document) ?>;
+    let fbDocStale = false;
+    let docEditorsStarting = null;   // the PDF form was changed since the document was copied from it
     fbEdits.forEach(e => e.key = 'e' + (++fbKeySeq));
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -775,6 +785,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         fbTemplate = value;
         markDirty();
         render();
+        // the Word-style document is a copy of the PDF: a new PDF is copied in again (now, or when the document is next used)
+        if (fbFormMode === 'document') convertPdfToDocument(false);
+        else if (fbDoc) fbDocStale = true;
     }
 
     // Which question (if any) fills each PDF field
@@ -3938,7 +3951,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         render();
         renderFormMode();
         // The first time: the official PDF is copied into the document, to edit like in Word
-        if (mode === 'document' && !fbDoc) convertPdfToDocument();
+        if (mode === 'document' && (!fbDoc || fbDocStale)) convertPdfToDocument(false);
     }
     function renderFormMode() {
         document.querySelectorAll('[data-formmode]').forEach(b => { b.classList.toggle('on', b.dataset.formmode === fbFormMode); b.setAttribute('aria-checked', b.dataset.formmode === fbFormMode); });
@@ -3998,7 +4011,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 target, inline: true, license_key: 'gpl', base_url: '../assets/lib/tinymce', suffix: '.min', promotion: false, branding: false,
                 fixed_toolbar_container: '#docToolbar', toolbar_persist: false, menubar: 'edit insert format table', toolbar_mode: 'wrap',
                 plugins: 'lists advlist table image pagebreak charmap searchreplace wordcount',
-                toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table image hr pagebreak | slanswer | removeformat',
+                toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table image hr slnewpage | slanswer | removeformat',
                 font_family_formats: 'Times New Roman=times new roman,times,serif; Arial=arial,helvetica,sans-serif; Courier New=courier new,courier,monospace',
                 font_size_formats: '8pt 9pt 10pt 11pt 12pt 14pt 16pt 18pt 20pt 24pt 28pt 36pt',
                 block_formats: 'Normal text=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Small heading=h4',
@@ -4021,13 +4034,16 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     input.click();
                 },
                 setup: ed => {
+                    ed.ui.registry.addButton('slnewpage', { text: 'New page', icon: 'page-break', tooltip: 'Start a new page here (what follows goes on the next page)', onAction: () => ed.execCommand('mcePageBreak') });
                     ed.ui.registry.addMenuButton('slanswer', { text: 'Insert answer', icon: 'user', tooltip: "Put a student's answer in the text", fetch: cb => cb(answerMenu(ed)) });
                     ed.on('input change undo redo keyup ExecCommand', () => docChanged());
                     ed.on('focus', () => { document.getElementById('docToolbarHint').classList.add('hidden'); docStatus(ed); });
                 },
             });
-            const [header, body, footer] = await Promise.all(['docHeader', 'docBody', 'docFooter'].map(id => tinymce.init(config(document.getElementById(id))).then(list => list[0])));
-            docEditors = { header, body, footer };
+            // started once (opening the editor twice at the same time shares this)
+            docEditorsStarting = docEditorsStarting || Promise.all(['docHeader', 'docBody', 'docFooter'].map(id => tinymce.init(config(document.getElementById(id))).then(list => list[0])));
+            const [header, body, footer] = await docEditorsStarting;
+            docEditors = docEditors || { header, body, footer };
         }
         docEditors.header.setContent(fbDoc.header || '');
         docEditors.body.setContent(fbDoc.body || '');
@@ -4035,6 +4051,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         [docEditors.header, docEditors.body, docEditors.footer].forEach(ed => ed.undoManager.clear());
         docStatus(docEditors.body);
         docEditors.body.focus();
+        readDocEditors();
+        paginateDoc();
+        setTimeout(paginateDoc, 600);   // pictures take a moment to load
     }
 
     function docStatus(ed) {
@@ -4052,8 +4071,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         fbDoc.footer = docEditors.footer.getContent();
         const zone = id => document.getElementById(id).closest('.doc-zone');
         if (!fbDoc.layout) {
-            fbDoc.header_mm = Math.round(pxToMm(zone('docHeader').offsetHeight) * 10) / 10;
-            fbDoc.footer_mm = Math.round(pxToMm(zone('docFooter').offsetHeight) * 10) / 10;
+            const inner = id => { const el = document.getElementById(id); return [...el.children].reduce((h, c) => Math.max(h, c.offsetTop + c.offsetHeight), 0); };
+            fbDoc.header_mm = Math.round(pxToMm(inner('docHeader')) * 10) / 10;
+            fbDoc.footer_mm = Math.round(pxToMm(inner('docFooter')) * 10) / 10;
         }
     }
     let docChangeTimer = null;
@@ -4064,6 +4084,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             readDocEditors();
             if (JSON.stringify([fbDoc.header, fbDoc.body, fbDoc.footer]) !== before) { setDirty(true); renderFormMode(); }
             if (docEditors) docStatus(tinymce.activeEditor || docEditors.body);
+            paginateDoc();
         }, 250);
     }
 
@@ -4075,10 +4096,106 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const [w, h] = DOC_PAPERS[paper] || DOC_PAPERS.A4;
         const m = fbDoc.layout ? fbDoc.layout.margins : [15, 15, 15, 15];
         Object.assign(document.getElementById('docPage').style, { width: mmToPx(w) + 'px', minHeight: mmToPx(h) + 'px', padding: m.map(v => v + 'mm').join(' ') });
-        const head = document.getElementById('docHeader').closest('.doc-zone');
-        Object.assign(head.style, fbDoc.layout && fbDoc.layout.bleed ? { marginLeft: -m[3] + 'mm', marginRight: -m[1] + 'mm' } : { marginLeft: '', marginRight: '' });
-        document.getElementById('docBody').style.margin = fbDoc.layout ? '1mm 0' : '';
         renderFormMode();
+        paginateDoc();
+    }
+
+    // ---- pages, as printed ----
+    // Where the printout (includes/form_document.php) puts things on each sheet, in mm: the header from the top margin,
+    // the text between it and the footer, the footer ending at the bottom margin. Same sums as the printout's.
+    function docPrintGeometry() {
+        const [w, h] = DOC_PAPERS[fbDoc.paper] || DOC_PAPERS.A4;
+        const m = fbDoc.layout ? fbDoc.layout.margins : [15, 15, 15, 15];
+        const has = html => (html || '').replace(/<(?!img|table)[^>]*>/gi, '').replace(/&nbsp;|\s/g, '') !== '';
+        const grow = fbDoc.layout ? v => v : v => v * 1.15 + 3, gap = fbDoc.layout ? 0 : 4;
+        const hasH = has(fbDoc.header), hasF = has(fbDoc.footer);
+        const hh = hasH ? Math.max(8, Math.min(130, grow(fbDoc.header_mm ?? 20))) : 0;
+        const fh = hasF ? Math.max(6, Math.min(90, grow(fbDoc.footer_mm ?? 12))) : 0;
+        return { w, h, m, hh, fh, top: m[0] + hh + (hasH ? gap : 0), bottom: m[2] + fh + (hasF ? gap : 0), bleed: !!(fbDoc.layout && fbDoc.layout.bleed) };
+    }
+
+    // The editor shown as sheets: page 1's header and footer where they print, the text moved onto the next sheet where
+    // it would not fit (a line of a table, a paragraph, a picture) or after a "New page", and on the next sheets copies of
+    // the header and footer with their page numbers. Moving is done by a style sheet outside the text, so nothing in the
+    // document changes.
+    let docPaginating = false;
+    function paginateDoc() {
+        if (!fbDoc || docPaginating) return;
+        const page = document.getElementById('docPage'), body = document.getElementById('docBody');
+        if (!page || document.getElementById('docEditor').classList.contains('hidden')) return;
+        docPaginating = true;
+        try {
+            const g = docPrintGeometry(), H = mmToPx(g.h), GAP = 28, content = mmToPx(g.h - g.top - g.bottom);
+            let style = document.getElementById('docPushStyle');
+            if (!style) { style = document.createElement('style'); style.id = 'docPushStyle'; document.head.appendChild(style); }
+            style.textContent = '';
+            page.classList.add('paged');
+            page.style.padding = `${g.top}mm ${g.m[1]}mm 0 ${g.m[3]}mm`;
+            const head = document.getElementById('docHeader').closest('.doc-zone'), foot = document.getElementById('docFooter').closest('.doc-zone');
+            [head, foot].forEach(z => z.classList.add('doc-zone-fixed'));
+            Object.assign(head.style, { top: g.m[0] + 'mm', left: (g.bleed ? 0 : g.m[3]) + 'mm', right: (g.bleed ? 0 : g.m[1]) + 'mm', height: Math.max(8, g.hh) + 'mm', marginLeft: '', marginRight: '' });
+            Object.assign(foot.style, { top: (g.h - g.m[2] - Math.max(6, g.fh)) + 'mm', left: g.m[3] + 'mm', right: g.m[1] + 'mm', height: Math.max(6, g.fh) + 'mm' });
+            body.style.minHeight = content + 'px';
+
+            // what can move: each block of the text; a table's lines one by one
+            const rules = new Map(), write = () => { style.textContent = [...rules.values()].join('\n'); };
+            const blocks = [];
+            [...body.children].forEach((el, i) => {
+                const sel = `#docBody > :nth-child(${i + 1})`;
+                if (el.tagName === 'TABLE') {
+                    el.querySelectorAll(':scope > tbody > tr, :scope > thead > tr, :scope > tfoot > tr, :scope > tr').forEach(tr => {
+                        const via = tr.parentElement === el ? '' : ` > ${tr.parentElement.tagName.toLowerCase()}`;
+                        blocks.push({ el: tr, sel: `${sel}${via} > tr:nth-child(${[...tr.parentElement.children].indexOf(tr) + 1})`, row: true });
+                    });
+                } else blocks.push({ el, sel, brk: el.matches('.page-break, .mce-pagebreak') || !!el.querySelector('.mce-pagebreak') });
+            });
+            const bodyTop = () => body.getBoundingClientRect().top;
+            const moveTo = (b, target) => {
+                const cs = getComputedStyle(b.row ? (b.el.cells[0] || b.el) : b.el);
+                const base = parseFloat(b.row ? cs.paddingTop : cs.marginTop) || 0;
+                let extra = 0;
+                for (let k = 0; k < 4; k++) {
+                    const d = target - (b.el.getBoundingClientRect().top - bodyTop());
+                    if (Math.abs(d) < 0.5) break;
+                    extra += d;
+                    rules.set(b.sel, b.row ? `${b.sel} > td, ${b.sel} > th { padding-top: ${base + extra}px !important; }` : `${b.sel} { margin-top: ${base + extra}px !important; }`);
+                    write();
+                }
+            };
+            let sheet = 0, breakNext = false;
+            const tol = content * 0.015 + mmToPx(2);
+            const startOf = k => k * (H + GAP);
+            for (const b of blocks) {
+                if (b.brk) { breakNext = true; continue; }
+                const r = b.el.getBoundingClientRect();
+                if (!r.height) continue;
+                let y0 = r.top - bodyTop(), y1 = r.bottom - bodyTop();
+                while (y0 >= startOf(sheet + 1) - 1) sheet++;
+                const end = startOf(sheet) + content;
+                // (a little over is allowed: the browser's letters run about 1.5% taller than the printout's)
+                if (breakNext || (y1 > end + tol && y0 > startOf(sheet) + 1 && y1 - y0 <= content)) {
+                    sheet++;
+                    moveTo(b, startOf(sheet));
+                    breakNext = false;
+                }
+            }
+            const last = body.getBoundingClientRect().bottom - bodyTop();
+            const count = Math.max(1, Math.floor(Math.max(0, last - 1) / (H + GAP)) + 1, sheet + 1);
+            body.style.minHeight = (startOf(count - 1) + content) + 'px';
+            page.style.minHeight = (startOf(count - 1) + H) + 'px';
+
+            // the sheets, and on sheets after the first the header and footer again (numbered)
+            const numbered = (html, n) => html.replace(/(<span[^>]*data-sys="page_number"[^>]*>)[\s\S]*?<\/span>/g, `$1${n}</span>`).replace(/(<span[^>]*data-sys="page_count"[^>]*>)[\s\S]*?<\/span>/g, `$1${count}</span>`);
+            let layer = '';
+            for (let k = 0; k < count; k++) {
+                layer += `<div class="doc-sheet" style="top: ${startOf(k)}px; height: ${H}px;"><span class="doc-sheet-no">Page ${k + 1} of ${count}</span></div>`;
+                if (k === 0) continue;
+                if (g.hh) layer += `<div class="doc-copy" style="top: calc(${startOf(k)}px + ${g.m[0]}mm); left: ${g.bleed ? 0 : g.m[3]}mm; right: ${g.bleed ? 0 : g.m[1]}mm; height: ${g.hh}mm;">${numbered(document.getElementById('docHeader').innerHTML, k + 1)}</div>`;
+                if (g.fh) layer += `<div class="doc-copy" style="top: calc(${startOf(k)}px + ${g.h - g.m[2] - g.fh}mm); left: ${g.m[3]}mm; right: ${g.m[1]}mm; height: ${g.fh}mm;">${numbered(document.getElementById('docFooter').innerHTML, k + 1)}</div>`;
+            }
+            document.getElementById('docSheets').innerHTML = layer;
+            fbDoc.pagesShown = count;
+        } finally { docPaginating = false; }
     }
 
     function closeDocEditor() {
@@ -4128,8 +4245,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return humanize(name).replace(/^./, c => c.toUpperCase());
     }
 
-    async function convertPdfToDocument() {
-        if (fbDoc && !confirm('Make the document again from the official PDF? What is in the document now is replaced (Undo in the editor or Back in History can bring it back).')) return;
+    async function convertPdfToDocument(ask = true) {
+        if (ask && fbDoc && !confirm('Make the document again from the official PDF? What is in the document now is replaced (Undo in the editor or Back in History can bring it back).')) return;
         showAlert('success', 'Reading the official PDF and copying it into the document…');
         if (!(await ensurePdfLoaded())) { showAlert('error', 'The official PDF could not be opened.'); return; }
         pdRows = scanPdfRows();
@@ -4137,11 +4254,12 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         try { made = await pdfToDocument(); }
         catch (err) { showAlert('error', 'Could not copy the PDF: ' + err.message); return; }
         fbDoc = made;
+        fbDocStale = false;
         fbFormMode = 'document';
         setDirty(true);
         render();
         renderFormMode();
-        if (docEditors) { docEditors.header.setContent(fbDoc.header); docEditors.body.setContent(fbDoc.body); docEditors.footer.setContent(fbDoc.footer); setDocPaper(fbDoc.paper, false); }
+        if (docEditors) { docEditors.header.setContent(fbDoc.header); docEditors.body.setContent(fbDoc.body); docEditors.footer.setContent(fbDoc.footer); setDocPaper(fbDoc.paper, false); setTimeout(paginateDoc, 600); }
         else await openDocEditor();
         showAlert('success', 'The official PDF is now a Word-style document. It is a close copy: check it, edit anything like in Word, then Save form. Green tags are the PDF\'s blanks (they print what the PDF printed).');
     }
@@ -4338,14 +4456,19 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
     // The pictures stored in a page of the PDF and where each is drawn (fractions of the page)
     async function pdfPictures(pageNum) {
-        pdfPictures.cache = pdfPictures.cache || {};
-        if (pdfPictures.cache[pageNum]) return pdfPictures.cache[pageNum];
+        const cache = pdfPictures.cache || (pdfPictures.cache = new WeakMap());
+        if (!cache.has(pdPdfDoc)) cache.set(pdPdfDoc, {});
+        const mine = cache.get(pdPdfDoc);
+        if (mine[pageNum]) return mine[pageNum];
         const page = await pdPdfDoc.getPage(pageNum), vp = page.getViewport({ scale: 1 }), ops = await page.getOperatorList(), O = pdfjsLib.OPS;
         const mul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
-        let ctm = [1, 0, 0, 1, 0, 0];
+        let ctm = [1, 0, 0, 1, 0, 0], inAnnot = 0;
         const stack = [], found = [];
         ops.fnArray.forEach((fn, k) => {
             const a = ops.argsArray[k];
+            if (fn === O.beginAnnotation) inAnnot++;
+            else if (fn === O.endAnnotation) inAnnot = Math.max(0, inAnnot - 1);
+            else if (inAnnot && (fn === O.paintImageXObject || fn === O.paintInlineImageXObject)) return;
             if (fn === O.save) stack.push(ctm);
             else if (fn === O.restore) ctm = stack.pop() || ctm;
             else if (fn === O.transform) ctm = mul(ctm, a);
@@ -4377,7 +4500,18 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             } else continue;
             f.canvas = c;
         }
-        return (pdfPictures.cache[pageNum] = found.filter(f => f.canvas));
+        return (mine[pageNum] = found.filter(f => f.canvas));
+    }
+
+    // One of the PDF's own pictures as an image file (at most 1400 px across, its see-through parts kept)
+    function ownPictureSrc(own) {
+        const max = 1400, k = Math.min(1, max / Math.max(own.canvas.width, own.canvas.height));
+        const c = document.createElement('canvas'), g = c.getContext('2d');
+        c.width = Math.max(1, Math.round(own.canvas.width * k)); c.height = Math.max(1, Math.round(own.canvas.height * k));
+        g.imageSmoothingQuality = 'high';
+        g.translate(own.flipX ? c.width : 0, own.flipY ? c.height : 0); g.scale(own.flipX ? -1 : 1, own.flipY ? -1 : 1);
+        g.drawImage(own.canvas, 0, 0, c.width, c.height);
+        return c.toDataURL('image/png');
     }
 
     // A picture of the PDF as an image file: the PDF's own picture when one is drawn there (sharp, its see-through parts
@@ -4386,20 +4520,141 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const area = q => q.w * q.h, overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
         let own = null;
         try { own = (await pdfPictures(pageNum)).filter(f => overlap(f, r) > area(r) * 0.5 && area(f) < area(r) * 3).sort((a, b) => overlap(b, r) - overlap(a, r))[0]; } catch (e) { own = null; }
-        if (own) {
-            const max = 1400, k = Math.min(1, max / Math.max(own.canvas.width, own.canvas.height));
-            const c = document.createElement('canvas'), g = c.getContext('2d');
-            c.width = Math.max(1, Math.round(own.canvas.width * k)); c.height = Math.max(1, Math.round(own.canvas.height * k));
-            g.imageSmoothingQuality = 'high';
-            g.translate(own.flipX ? c.width : 0, own.flipY ? c.height : 0); g.scale(own.flipX ? -1 : 1, own.flipY ? -1 : 1);
-            g.drawImage(own.canvas, 0, 0, c.width, c.height);
-            return { src: c.toDataURL('image/png'), rect: { x: own.x, y: own.y, w: own.w, h: own.h } };
-        }
+        if (own) return { src: ownPictureSrc(own), rect: { x: own.x, y: own.y, w: own.w, h: own.h } };
         const page = await pdPdfDoc.getPage(pageNum), vp = page.getViewport({ scale: 3 });
         const c = document.createElement('canvas');
         c.width = Math.max(1, Math.ceil(r.w * vp.width)); c.height = Math.max(1, Math.ceil(r.h * vp.height));
         await page.render({ canvasContext: c.getContext('2d'), viewport: vp, transform: [1, 0, 0, 1, -r.x * vp.width, -r.y * vp.height] }).promise;
         return { src: c.toDataURL('image/png'), rect: null };
+    }
+
+    // The PDF's own drawing (not its form fields'): straight lines, thin filled bars (how Word draws table borders),
+    // shaded areas and rounded boxes, as fractions of the page; line widths in pt
+    async function pdfVectors(pageNum) {
+        const cache = pdfVectors.cache || (pdfVectors.cache = new WeakMap());
+        if (!cache.has(pdPdfDoc)) cache.set(pdPdfDoc, {});
+        const mine = cache.get(pdPdfDoc);
+        if (mine[pageNum]) return mine[pageNum];
+        const page = await pdPdfDoc.getPage(pageNum), vp = page.getViewport({ scale: 1 }), ops = await page.getOperatorList(), O = pdfjsLib.OPS;
+        const mul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+        const toHex = a => typeof a[0] === 'string' ? a[0].toLowerCase() : hex([a[0], a[1], a[2]]);
+        const whiteish = c => { const v = parseInt(String(c).slice(1), 16); return ((v >> 16) & 255) + ((v >> 8) & 255) + (v & 255) > 735; };
+        const pt = (m, x, y) => { const q = vp.convertToViewportPoint(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]); return [q[0] / vp.width, q[1] / vp.height]; };
+        const out = { h: [], v: [], fills: [], rounded: [] }, stack = [];
+        let st = { ctm: [1, 0, 0, 1, 0, 0], lw: 1, stroke: '#000000', fill: '#000000' }, path = null, inAnnot = 0;
+        const fillOps = [O.fill, O.eoFill], bothOps = [O.fillStroke, O.eoFillStroke, O.closeFillStroke, O.closeEOFillStroke];
+        ops.fnArray.forEach((fn, k) => {
+            const a = ops.argsArray[k];
+            if (fn === O.beginAnnotation) { inAnnot++; return; }
+            if (fn === O.endAnnotation) { inAnnot = Math.max(0, inAnnot - 1); return; }
+            if (fn === O.save) { stack.push({ ...st }); return; }
+            if (fn === O.restore) { st = stack.pop() || st; return; }
+            if (fn === O.transform) { st.ctm = mul(st.ctm, a); return; }
+            if (fn === O.paintFormXObjectBegin) { stack.push({ ...st }); if (a && a[0]) st.ctm = mul(st.ctm, a[0]); return; }
+            if (fn === O.paintFormXObjectEnd) { st = stack.pop() || st; return; }
+            if (fn === O.setLineWidth) { st.lw = a[0]; return; }
+            if (fn === O.setGState) { (a[0] || []).forEach(e => { if (e && e[0] === 'LW') st.lw = e[1]; }); return; }
+            if (fn === O.setStrokeRGBColor) { st.stroke = toHex(a); return; }
+            if (fn === O.setFillRGBColor) { st.fill = toHex(a); return; }
+            if (fn === O.constructPath) { path = { ops: a[0], args: a[1], ctm: st.ctm }; return; }
+            const paint = fn === O.stroke || fn === O.closeStroke ? 's' : fillOps.includes(fn) ? 'f' : bothOps.includes(fn) ? 'fs' : null;
+            if (!paint) { if (fn === O.endPath) path = null; return; }
+            if (!path || inAnnot) { path = null; return; }
+            const subs = [], A = path.args;
+            let sub = null, j = 0;
+            path.ops.forEach(op => {
+                if (op === O.moveTo) { sub = { pts: [[A[j], A[j + 1]]], curve: false }; subs.push(sub); j += 2; }
+                else if (op === O.lineTo) { if (!sub) { sub = { pts: [[A[j], A[j + 1]]], curve: false }; subs.push(sub); } sub.pts.push([A[j], A[j + 1]]); j += 2; }
+                else if (op === O.curveTo) { if (sub) { sub.curve = true; sub.pts.push([A[j + 4], A[j + 5]]); } j += 6; }
+                else if (op === O.curveTo2 || op === O.curveTo3) { if (sub) { sub.curve = true; sub.pts.push([A[j + 2], A[j + 3]]); } j += 4; }
+                else if (op === O.closePath) { if (sub) sub.pts.push(sub.pts[0]); }
+                else if (op === O.rectangle) { const [x, y, w, h] = [A[j], A[j + 1], A[j + 2], A[j + 3]]; subs.push({ pts: [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]] }); sub = null; j += 4; }
+            });
+            const m = path.ctm, scale = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1, W = vp.width, H = vp.height;
+            subs.forEach(sp => {
+                const P = sp.pts.map(([x, y]) => pt(m, x, y));
+                if (P.length < 2) return;
+                const xs = P.map(q => q[0]), ys = P.map(q => q[1]);
+                const box = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+                if (sp.curve) {   // a rounded box (a curved filled shape is a drawing: the page image has it)
+                    if (paint !== 'f' && box.w > 0.03 && box.h > 0.008 && !whiteish(st.stroke)) out.rounded.push({ ...box, color: st.stroke, t: Math.max(0.3, st.lw * scale) });
+                    return;
+                }
+                if (paint !== 's' && !whiteish(st.fill) && P.every((q, i) => i === 0 || Math.abs(q[0] - P[i - 1][0]) * W < 0.5 || Math.abs(q[1] - P[i - 1][1]) * H < 0.5)) {
+                    const wPt = box.w * W, hPt = box.h * H;
+                    if (hPt <= 2.2 && wPt > 3) out.h.push({ x: box.x, y: box.y + box.h / 2, w: box.w, t: Math.max(0.3, hPt), color: st.fill });
+                    else if (wPt <= 2.2 && hPt > 3) out.v.push({ x: box.x + box.w / 2, y: box.y, h: box.h, t: Math.max(0.3, wPt), color: st.fill });
+                    else if (wPt > 3 && hPt > 3) out.fills.push({ ...box, color: st.fill });
+                }
+                if (paint !== 'f' && !whiteish(st.stroke)) {
+                    const t = Math.max(0.3, (st.lw || 0) * scale);
+                    for (let i = 1; i < P.length; i++) {
+                        const [x1, y1] = P[i - 1], [x2, y2] = P[i], dx = Math.abs(x2 - x1) * W, dy = Math.abs(y2 - y1) * H;
+                        if (dy < 0.6 && dx > 2) out.h.push({ x: Math.min(x1, x2), y: (y1 + y2) / 2, w: Math.abs(x2 - x1), t, color: st.stroke });
+                        else if (dx < 0.6 && dy > 2) out.v.push({ x: (x1 + x2) / 2, y: Math.min(y1, y2), h: Math.abs(y2 - y1), t, color: st.stroke });
+                    }
+                }
+            });
+            path = null;
+        });
+        // pieces of one line (end to end, or drawn twice) are one line
+        const join = (list, a, b, len) => {
+            const res = [];
+            list.sort((p1, p2) => p1[a] - p2[a] || p1[b] - p2[b]).forEach(l => {
+                const r = res.find(q => Math.abs(q[a] - l[a]) < 0.0015 && l[b] <= q[b] + q[len] + 0.003);
+                if (r) { r[len] = Math.max(r[b] + r[len], l[b] + l[len]) - r[b]; r.t = Math.max(r.t, l.t); }
+                else res.push({ ...l });
+            });
+            return res;
+        };
+        out.h = join(out.h, 'y', 'x', 'w');
+        out.v = join(out.v, 'x', 'y', 'h');
+        return (mine[pageNum] = out);
+    }
+
+    // Grids: drawn lines that meet. Each is a table whose cells join where the PDF draws no line between them
+    // → [{ x, y, w, h, X, Y, cells: [{ r, c, rs, cs, x0, x1, y0, y1, top, right, bottom, left }], segs, color, t }]
+    function findGrids(hl, vl) {
+        const tol = 0.004, all = [...hl.map(l => ({ o: 'h', l })), ...vl.map(l => ({ o: 'v', l }))];
+        const parent = all.map((_, i) => i), find = i => parent[i] === i ? i : (parent[i] = find(parent[i]));
+        hl.forEach((h, i) => vl.forEach((v, j) => {
+            if (v.x >= h.x - tol && v.x <= h.x + h.w + tol && h.y >= v.y - tol && h.y <= v.y + v.h + tol) parent[find(i)] = find(hl.length + j);
+        }));
+        const groups = new Map();
+        all.forEach((a, i) => { const k = find(i); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(a); });
+        const cluster = vals => { const out = []; vals.sort((a, b) => a - b).forEach(v => { if (!out.length || v - out[out.length - 1] > 0.0035) out.push(v); }); return out; };
+        const grids = [];
+        groups.forEach(g => {
+            const hs = g.filter(a => a.o === 'h').map(a => a.l), vs = g.filter(a => a.o === 'v').map(a => a.l);
+            if (hs.length < 2 || vs.length < 2) return;
+            const X = cluster(vs.map(v => v.x)), Y = cluster(hs.map(h => h.y));
+            if (X.length < 2 || Y.length < 2) return;
+            const covered = (segs, from, to) => segs.reduce((sum, q) => sum + Math.max(0, Math.min(to, q[1]) - Math.max(from, q[0])), 0) >= (to - from) * 0.6;
+            const VA = X.map(x => vs.filter(v => Math.abs(v.x - x) < 0.0035).map(v => [v.y - 0.002, v.y + v.h + 0.002]));
+            const HA = Y.map(y => hs.filter(h => Math.abs(h.y - y) < 0.0035).map(h => [h.x - 0.002, h.x + h.w + 0.002]));
+            const hasV = (j, i) => covered(VA[j], Y[i], Y[i + 1]), hasH = (i, j) => covered(HA[i], X[j], X[j + 1]);
+            const nr = Y.length - 1, nc = X.length - 1, taken = Y.map(() => X.map(() => false)), cells = [];
+            const share = (n, f) => { let k = 0; for (let q = 0; q < n; q++) if (f(q)) k++; return k / n >= 0.5; };
+            for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) {
+                if (taken[i][j]) continue;
+                let cs = 1, rs = 1;
+                while (j + cs < nc && !hasV(j + cs, i) && !taken[i][j + cs]) cs++;
+                const open = r => { for (let c = j; c < j + cs; c++) if (hasH(r, c) || taken[r][c]) return false; return true; };
+                while (i + rs < nr && open(i + rs)) rs++;
+                for (let a = i; a < i + rs; a++) for (let b = j; b < j + cs; b++) taken[a][b] = true;
+                cells.push({ r: i, c: j, rs, cs, x0: X[j], x1: X[j + cs], y0: Y[i], y1: Y[i + rs],
+                    top: share(cs, q => hasH(i, j + q)), bottom: share(cs, q => hasH(i + rs, j + q)), left: share(rs, q => hasV(j, i + q)), right: share(rs, q => hasV(j + cs, i + q)) });
+            }
+            // lines of the grid that are no cell's border (an answer line touching a table's side) stay lines, in their cell
+            const isBorderH = h => cells.some(c => ((c.top && Math.abs(c.y0 - h.y) < 0.0035) || (c.bottom && Math.abs(c.y1 - h.y) < 0.0035)) && Math.min(c.x1, h.x + h.w) - Math.max(c.x0, h.x) > Math.min(h.w, c.x1 - c.x0) * 0.6);
+            const isBorderV = v => cells.some(c => ((c.left && Math.abs(c.x0 - v.x) < 0.0035) || (c.right && Math.abs(c.x1 - v.x) < 0.0035)) && Math.min(c.y1, v.y + v.h) - Math.max(c.y0, v.y) > Math.min(v.h, c.y1 - c.y0) * 0.6);
+            const segs = [...hs.filter(isBorderH), ...vs.filter(isBorderV)], colours = {};
+            segs.forEach(q => { if (q.color) colours[q.color] = (colours[q.color] || 0) + 1; });
+            const ts = segs.map(q => q.t).filter(Boolean).sort((a, b) => a - b);
+            grids.push({ x: X[0], y: Y[0], w: X[nc] - X[0], h: Y[nr] - Y[0], X, Y, cells, segs,
+                color: Object.keys(colours).sort((a, b) => colours[b] - colours[a])[0] || null, t: ts.length ? ts[Math.floor(ts.length / 2)] : null });
+        });
+        return grids;
     }
 
     // ---- the copy ----
@@ -4424,7 +4679,8 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             return colourOf.get(key);
         };
         const gapSpan = w => w > 2.5 ? `<span style="display: inline-block; width: ${mm(w)}mm;">&nbsp;</span>` : ' ';
-        const answerStyle = (b, room = Infinity, bare = false) => `display: inline-block; width: ${mm(Math.max(6, Math.min(b.w * mmW, room)))}mm;${bare ? ' border-bottom: 0;' : ''} font-family: arial, helvetica, sans-serif; font-size: 8pt; line-height: 1;`;
+        // bare: no underline (true), or none when the answer stands on a border at that level (a number)
+        const answerStyle = (b, room = Infinity, bare = false) => `display: inline-block; width: ${mm(Math.max(6, Math.min(b.w * mmW, room)))}mm;${(typeof bare === 'number' ? b.y + b.h >= bare - 0.005 : bare) ? ' border-bottom: 0;' : ''} font-family: arial, helvetica, sans-serif; font-size: 8pt; line-height: 1;`;
         const wordsMm = t => t.labels.reduce((sum, l) => sum + textWidthOnPage(1, l.str, { font: l.font || 'Times', size: l.size || 10, bold: !!l.bold, italic: !!l.italic }) * mmW * 1.06 + 0.9, 0);
         // A part's words (each piece in its font / size / weight / colour), the space before its blank, and the blank
         const partHtml = (page, t, opts = {}) => {
@@ -4433,8 +4689,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const room = opts.slot ? opts.slot - wordsMm(t) - (t.labels.length ? 1.5 : 0.4) : Infinity;
             const words = tileText(t).replace(/[:*]+$/, '').replace(/^\(\s*\)\s*/, '').trim();
             const name = b && b.kind === 'field' ? (pdfUsage()[b.name] ? pdfBlankLabel(b.name) : (words && words.length <= 40 ? words : pdfBlankLabel(b.name))) : '';
+            const tickSpot = (c, wMm) => `<span class="sl-field sl-check" contenteditable="false" data-pdf-field="${esc(c.name)}" data-label="${esc(words || 'Tick')}" style="padding: 0 ${mm(Math.max(0.3, (Math.max(2, wMm ?? c.w * mmW) - 1) / 2))}mm;${c.underline ? ' border-bottom: 0.75pt solid #000000;' : ''}">[✓]</span>`;   // inline (a box of its own width may start a new line)
             const spot = b && b.kind === 'field' && !b.sig
-                ? `<span class="sl-field${b.check ? ' sl-check' : ''}" contenteditable="false" data-pdf-field="${esc(b.name)}" data-label="${esc(b.check ? (words || 'Tick') : name)}" style="${b.check ? `display: inline-block; width: ${mm(Math.max(3, b.w * mmW))}mm; text-align: center;` : answerStyle(b, room, opts.bare)}">[${esc(b.check ? '✓' : name)}]</span>` : null;
+                ? (b.check ? tickSpot(b, Math.max(3, b.w * mmW)) : `<span class="sl-field" contenteditable="false" data-pdf-field="${esc(b.name)}" data-label="${esc(name)}" style="${answerStyle(b, room, opts.bare)}">[${esc(name)}]</span>`) : null;
+            // tick boxes drawn inside a text's ( ) go there, each in its own pair
+            const ticks = [...(b && b.check && b.kind === 'field' ? [b] : []), ...(t.ticks || [])], placed = new Set();
             if (opts.pageNumbers && /^\s*\d+\s+of\s+\d+\s*$/.test(tileText(t)) && !b)
                 return docSpan({ sys: 'page_number', label: DOC_SYS.page_number }) + ' of ' + docSpan({ sys: 'page_count', label: DOC_SYS.page_count });
             let inBrackets = false, html = '', prev = null, spotEnd = -1;
@@ -4442,11 +4701,25 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 const prevEnd = prev ? Math.max(prev.x + prev.w, spotEnd) : 0;
                 const touching = prev && Math.abs((l.y + l.h / 2) - (prev.y + prev.h / 2)) < Math.max(l.h, prev.h) * 0.6 && l.x - prevEnd < (l.size || 10) * 0.12 / pageWpt && l.x >= prev.x;
                 let text = esc(l.str);
-                if (spot && b.check && !inBrackets && /\(\s*\)/.test(text)) { text = text.replace(/\(\s*\)/, '(' + spot + ')'); inBrackets = true; }
+                if (ticks.length && /\(\s*\)/.test(l.str)) {
+                    const per = l.w / Math.max(1, l.str.length);
+                    text = '';
+                    let at = 0;
+                    for (const m of l.str.matchAll(/\(\s*\)/g)) {
+                        const cx = l.x + (m.index + m[0].length / 2) * per;
+                        const c = ticks.filter(q => !placed.has(q)).sort((a, z) => Math.abs(a.x + a.w / 2 - cx) - Math.abs(z.x + z.w / 2 - cx))[0];
+                        text += esc(l.str.slice(at, m.index));
+                        if (c && Math.abs(c.x + c.w / 2 - cx) < 0.03) { placed.add(c); text += '(' + tickSpot(c, Math.max(2, (m[0].length - 2) * per * mmW * 0.8)) + ')'; }
+                        else text += esc(m[0]);
+                        at = m.index + m[0].length;
+                    }
+                    text += esc(l.str.slice(at));
+                    if (b && placed.has(b)) inBrackets = true;
+                }
                 else if (spot && b.check && !inBrackets && /\(\s*$/.test(text)) {
                     // the tick fills the room between ( and the ) after it
                     const close = t.labels[k + 1], room = close && close.x > l.x + l.w ? (close.x - (l.x + l.w)) * mmW - 0.4 : null;
-                    text += room ? spot.replace(/width: [\d.]+mm/, `width: ${mm(Math.max(2, room))}mm`) : spot;
+                    text += room ? tickSpot(b, Math.max(2, room)) : spot;
                     inBrackets = true; spotEnd = room ? close.x : b.x + b.w;
                 }
                 const st = [`font-family: ${DOC_FONTS[l.font] || DOC_FONTS.Times}`, `font-size: ${Math.round((l.size || 10) * 2) / 2}pt`];
@@ -4458,12 +4731,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 prev = l;
                 if (spotEnd > 0 && !/\(\s*$/.test(l.str)) spotEnd = -1;
             });
+            (t.ticks || []).filter(c => !placed.has(c)).forEach(c => { html += ' ' + tickSpot(c); });   // no ( ) for it: after the words
+            if (b && !inBrackets && b.check && b.kind === 'field' && t.labels.length && b.x + b.w / 2 < t.labels[0].x) return spot + gapSpan((t.labels[0].x - (b.x + b.w)) * mmW) + html;
             if (b && !inBrackets) {
                 const before = prev ? gapSpan(Math.min((b.x - (prev.x + prev.w)) * mmW - 1, room - Math.min(b.w * mmW, room) - 1)) : '';
                 let piece;
                 if (b.kind === 'box') { const f = findField(b.key); piece = f ? docSpan({ qk: f.key, label: f.label }).replace('contenteditable="false"', `contenteditable="false" style="${answerStyle(b, room, opts.bare)}"`) : ''; }
                 else if (b.kind === 'line' || b.sig) piece = `<span style="display: inline-block; width: ${mm(Math.max(6, Math.min(b.w * mmW, room)))}mm; border-bottom: 0.75pt solid #000000;">&nbsp;</span>`;
-                else piece = b.check ? '(' + spot + ')' : spot;
+                else piece = spot;
                 html += before + piece;
             }
             return html;
@@ -4473,6 +4748,20 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         let layout = null, headerMm = 0, footerMm = 0;
         for (const p of pdPages) {
             const ink = pageInk(p);
+            // the PDF's own lines when it draws them (exact, the faint ones too); else what the page image shows
+            const vec = await pdfVectors(p.num).catch(() => null);
+            const ownPics = (await pdfPictures(p.num).catch(() => [])).filter(f => f.w > 0.01 && f.h > 0.006 && f.w * f.h < 0.6);
+            if (vec && vec.h.length + vec.v.length >= 2) {
+                const underline = l => p.texts.some(t => l.y >= t.y + t.h * 0.55 && l.y <= t.y + t.h + 0.004 && l.x >= t.x - 0.004 && l.x + l.w <= t.x + t.w + 0.004);
+                const seen = (l, list, a, b, len) => list.some(m => Math.abs(m[a] - l[a]) < 0.004 && Math.min(m[b] + m[len], l[b] + l[len]) - Math.max(m[b], l[b]) > l[len] * 0.5);
+                const inPic = l => [...ink.images, ...ownPics].some(r => l.x >= r.x - 0.005 && l.x + (l.w || 0) <= r.x + r.w + 0.005 && l.y >= r.y - 0.005 && l.y + (l.h || 0) <= r.y + r.h + 0.005);
+                const unders = l => p.texts.some(t => t.str.includes('_') && l.y >= t.y - 0.004 && l.y <= t.y + t.h + 0.006 && l.x < t.x + t.w && l.x + l.w > t.x);
+                ink.hLines = [...vec.h.filter(l => !underline(l)), ...ink.hLines.filter(l => !seen(l, vec.h, 'y', 'x', 'w') && !inPic(l) && !unders(l))];
+                ink.vLines = [...vec.v, ...ink.vLines.filter(l => !seen(l, vec.v, 'x', 'y', 'h') && !inPic(l))];
+                ink.rounded = vec.rounded;
+                ink.fills = vec.fills;
+                ink.boxes = vec.rounded.length ? [] : ink.boxes.filter(b => b.rounded);
+            }
             const rows = pdRows.filter(r => r.page === p.num && r.tiles.length);
             // printed ____ answer lines (not fields) join their line as blanks: on their own, or after a label
             // ("Place of Birth: ______"), with the pieces that touch joined into one
@@ -4497,6 +4786,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     if (!ink.hLines.some(l => Math.abs(l.y - y) < 0.008 && Math.min(l.x + l.w, t.x + t.w) - Math.max(l.x, t.x) > t.w * 0.5)) ink.hLines.push({ x: t.x, y, w: t.w });
                     return;
                 }
+                // a tick box drawn on the line: the line is the box's
+                const tick = r.tiles.find(x => x.blank && x.blank.check && x.blank.x < t.x + t.w && x.blank.x + x.blank.w > t.x);
+                if (tick && t.w < 0.06) { tick.blank.underline = true; return; }
                 // answers drawn on the line: the line runs on under them, so each answer reaches the next one (or the line's end)
                 const on = r.tiles.filter(x => x.blank && !x.blank.check && x.blank.x < t.x + t.w && x.blank.x + x.blank.w > t.x).sort((a, b) => a.blank.x - b.blank.x);
                 if (!on.length) { if (t.w >= 0.015) r.tiles.push({ labels: [], blank: { kind: 'line', x: t.x, y: t.y, w: t.w, h: t.h } }); return; }
@@ -4513,38 +4805,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             const inBand = r => band && (r.top + r.bot) / 2 >= band.y && (r.top + r.bot) / 2 <= band.y + band.h;
             const footerTop = 0.925, inFooter = y => p.num === 1 && y > footerTop;
 
-            // ruled tables: lines crossed by the same 3+ border lines (between their words), and lines next to them that they cross
-            // a table's column lines across a line: the lines (grey too) the page scan found crossing it, or else dark strokes seen there
-            const colsAt = (r, mid, words) => {
-                const found = ink.vLines.filter(v => v.y <= mid && v.y + v.h >= mid).map(v => v.x + 0.5 / ink.W);
-                const xs = (found.length >= 3 ? found : [...verticalLinesAt(p, mid + 0.001, mid - 0.001, words ? r : null), ...found])
-                    .filter(x => !words || !r.tiles.flatMap(t => t.labels).some(l => x > l.x + 0.002 && x < l.x + l.w - 0.002)).sort((a, b) => a - b);
-                return xs.filter((x, k) => k === 0 || x - xs[k - 1] > 0.006);
-            };
-            const ruled = rows.map(r => {
-                const mid = (r.top + r.bot) / 2, xs = colsAt(r, mid, true);
-                if (xs.length < 3) return null;
-                const inside = r.tiles.every(t => { const c = tileParts(t)[0].x + 0.002; return c >= xs[0] - 0.01 && c <= xs[xs.length - 1]; });
-                return inside ? xs : null;
-            });
-            const sameCols = (a, b) => a && b && a.length === b.length && a.every((x, k) => Math.abs(x - b[k]) < 0.008);
-            for (let changed = true; changed;) {
-                changed = false;
-                rows.forEach((r, k) => {
-                    if (ruled[k]) return;
-                    const cols = ruled[k - 1] && Math.abs(rows[k - 1].bot - r.top) < 0.03 ? ruled[k - 1] : ruled[k + 1] && Math.abs(r.bot - rows[k + 1].top) < 0.03 ? ruled[k + 1] : null;
-                    if (!cols) return;
-                    const mid = (r.top + r.bot) / 2, xs = colsAt(r, mid, false);
-                    if (cols.every(x => xs.some(v => Math.abs(v - x) < 0.008))) { ruled[k] = cols; changed = true; }
-                });
-            }
-
-            // pieces of the page, each with where it is
-            const pieces = [];
+            // what is used up (the letterhead's words and lines)
             const usedLines = new Set(), usedRows = new Set();
             // the letterhead (the header): the band, its pictures and its words
             const pictures = [];
-            for (const im of ink.images) { const cut = await cutPicture(p.num, im); pictures.push({ ...im, ...(cut.rect || {}), src: cut.src }); }
+            const overlapArea = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+            ownPics.forEach(f => pictures.push({ x: f.x, y: f.y, w: f.w, h: f.h, src: ownPictureSrc(f) }));
+            for (const im of ink.images) {
+                if (ownPics.some(f => overlapArea(f, im) > im.w * im.h * 0.4)) continue;
+                const cut = await cutPicture(p.num, im);
+                pictures.push({ ...im, ...(cut.rect || {}), src: cut.src });
+            }
             if (band) {
                 const hRows = rows.filter(inBand), hPics = pictures.filter(im => im.y < band.y + band.h && im.y + im.h > band.y);
                 hRows.forEach(r => usedRows.add(r));
@@ -4556,7 +4827,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 hPics.filter(im => im.x + im.w <= textLeft + 0.02).sort((a, b) => a.x - b.x).forEach(im => {
                     im.used = true;
                     const above = Math.max(0, band.y - im.y), overflow = Math.max(0, im.y + im.h - (band.y + band.h));
-                    cells.push(`<td style="width: ${mm(im.w * mmW)}mm; padding: 0 0 0 ${mm((im.x - edge) * mmW)}mm; vertical-align: top;"><img src="${im.src}" alt="" width="${Math.round(im.w * mmW * 96 / 25.4)}" style="margin-top: ${mm((im.y - band.y) * mmH)}mm; margin-bottom: -${mm((above + overflow) * mmH)}mm;"></td>`);
+                    cells.push(`<td style="width: ${mm(im.w * mmW)}mm; padding: 0 0 0 ${mm((im.x - edge) * mmW)}mm; vertical-align: top;"><img src="${im.src}" alt="" width="${Math.round(im.w * mmW * 96 / 25.4)}" height="${Math.max(1, Math.round(im.h * mmH * 96 / 25.4))}" style="margin-top: ${mm((im.y - band.y) * mmH)}mm; margin-bottom: -${mm((above + overflow) * mmH)}mm;"></td>`);
                     edge = im.x + im.w;
                 });
                 let cursor = band.y, inner = '';
@@ -4581,81 +4852,224 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 band.top = band.y - upH; band.bottom = band.y + band.h + downH;
                 layout = layout || { bleed, top: band.top };
                 ink.hLines.forEach(l => { if (l.y >= band.top - 0.004 && l.y <= band.bottom + 0.004) usedLines.add(l); });
+                pictures.forEach(im => { if (!im.used && im.y >= band.top - 0.006 && im.y + im.h <= band.bottom + 0.006 && im.w > 0.3) im.used = true; });
             }
 
-            // boxes (not tables): the words inside them go with them
-            const tableTops = rows.filter((r, k) => ruled[k]).map(r => r.top);
-            const boxes = ink.boxes.filter(bx => !(band && bx.y < band.y + band.h) && !tableTops.some(t => t >= bx.y - 0.02 && t <= bx.y + bx.h));
-            boxes.forEach(bx => {
-                ink.hLines.forEach(l => { if (Math.abs(l.y - bx.y) < 0.006 || Math.abs(l.y - (bx.y + bx.h)) < 0.006) usedLines.add(l); });
-                const inside = q => q.x + q.w / 2 >= bx.x && q.x + q.w / 2 <= bx.x + bx.w && q.y + q.h / 2 >= bx.y && q.y + q.h / 2 <= bx.y + bx.h;
-                bx.rows = [];
-                rows.forEach(r => {
-                    if (usedRows.has(r)) return;
-                    const mine = r.tiles.filter(t => tileParts(t).every(inside));
-                    if (!mine.length) return;
-                    if (mine.length === r.tiles.length) { bx.rows.push(r); usedRows.add(r); }
-                    else { r.tiles = r.tiles.filter(t => !mine.includes(t)); bx.rows.push({ ...r, tiles: mine, top: Math.min(...mine.flatMap(tileParts).map(q => q.y)), bot: Math.max(...mine.flatMap(tileParts).map(q => q.y + q.h * 0.8)) }); }
+            // ---- tables (grids of lines), boxes, and what is inside them ----
+            const bandBottom = band ? (band.bottom || band.y + band.h) : -1;
+            const grids = findGrids(ink.hLines.filter(l => !usedLines.has(l)), ink.vLines.filter(l => !(band && l.y + l.h <= bandBottom + 0.004)));
+            grids.forEach(g => g.segs.forEach(l => usedLines.add(l)));
+            const tables = grids.filter(g => g.cells.length > 1);
+            const boxes = grids.filter(g => g.cells.length === 1).map(g => ({ x: g.x, y: g.y, w: g.w, h: g.h, rounded: false, color: g.color, t: g.t }));
+            [...(ink.rounded || []), ...ink.boxes.filter(b => b.rounded)].forEach(b => {
+                if (band && b.y < band.y + band.h) return;
+                if (tables.some(g => b.x >= g.x - 0.005 && b.x + b.w <= g.x + g.w + 0.005 && b.y >= g.y - 0.005 && b.y + b.h <= g.y + g.h + 0.005)) return;   // a table's cell, not a box
+                if (!boxes.some(o => Math.abs(o.x - b.x) < 0.012 && Math.abs(o.y - b.y) < 0.012)) boxes.push({ ...b, rounded: true });
+            });
+            boxes.forEach(bx => ink.hLines.forEach(l => { if ((Math.abs(l.y - bx.y) < 0.006 || Math.abs(l.y - (bx.y + bx.h)) < 0.006) && l.x >= bx.x - 0.012 && l.x + l.w <= bx.x + bx.w + 0.012) usedLines.add(l); }));
+            // shaded cells
+            tables.forEach(g => g.cells.forEach(c => {
+                const area = (c.x1 - c.x0) * (c.y1 - c.y0);
+                const f = (ink.fills || []).find(f => Math.max(0, Math.min(f.x + f.w, c.x1) - Math.max(f.x, c.x0)) * Math.max(0, Math.min(f.y + f.h, c.y1) - Math.max(f.y, c.y0)) > area * 0.7);
+                if (f) c.fill = f.color;
+            }));
+
+            // every word, blank, picture and loose line goes where it is: in a box, in a table's cell, or on the page
+            const ext = parts => ({ x0: Math.min(...parts.map(q => q.x)), x1: Math.max(...parts.map(q => q.x + q.w)), y0: Math.min(...parts.map(q => q.y)), y1: Math.max(...parts.map(q => q.y + q.h)) });
+            const containers = [...boxes.map(b => ({ kind: 'box', ref: b, x0: b.x, x1: b.x + b.w, y0: b.y, y1: b.y + b.h })), ...tables.map(g => ({ kind: 'grid', ref: g, x0: g.x, x1: g.x + g.w, y0: g.y, y1: g.y + g.h }))]
+                .sort((a, b) => (a.x1 - a.x0) * (a.y1 - a.y0) - (b.x1 - b.x0) * (b.y1 - b.y0));
+            containers.forEach(c => { c.items = []; if (c.kind === 'grid') c.ref.cells.forEach(cell => { cell.items = []; }); });
+            const onPage = [];
+            const holderAt = (x, y) => {
+                const c = containers.find(q => x >= q.x0 && x <= q.x1 && y >= q.y0 && y <= q.y1);
+                if (!c) return onPage;
+                if (c.kind === 'box') return c.items;
+                const cells = c.ref.cells, mid = q => [(q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2];
+                const cell = cells.find(q => x >= q.x0 && x <= q.x1 && y >= q.y0 && y <= q.y1)
+                    || cells.slice().sort((a, b) => Math.hypot(mid(a)[0] - x, mid(a)[1] - y) - Math.hypot(mid(b)[0] - x, mid(b)[1] - y))[0];
+                return cell.items;
+            };
+            const fieldUnder = l => rows.some(r => r.tiles.some(t => t.blank && t.blank.kind !== 'line' && l.x < t.blank.x + t.blank.w && l.x + l.w > t.blank.x && l.y >= t.blank.y - 0.004 && l.y <= t.blank.y + t.blank.h + 0.008));
+            // words that leave no ink on the page (hidden, covered, or erased in the designer) are not copied
+            const inked = q => {
+                const c = p.canvas, W = c.width, H = p.source.height;
+                const x0 = Math.max(0, Math.floor(q.x * W)), x1 = Math.min(W - 1, Math.ceil((q.x + q.w) * W)), y0 = Math.max(0, Math.floor(q.y * H)), y1 = Math.min(c.height - 1, Math.ceil((q.y + q.h) * H));
+                if (x1 - x0 < 2 || y1 - y0 < 2) return true;
+                const d = c.getContext('2d').getImageData(x0, y0, x1 - x0 + 1, y1 - y0 + 1).data, bg = [d[0], d[1], d[2]];
+                let n = 0;
+                for (let i = 0; i < d.length && n <= 3; i += 4) if (Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > 150) n++;
+                return n > 3;
+            };
+            rows.forEach(r => {
+                if (usedRows.has(r)) return;
+                r.tiles.forEach(t0 => {
+                    const seen = t0.labels.filter(inked), t = seen.length === t0.labels.length ? t0 : { ...t0, labels: seen };
+                    if (!t.labels.length && !t.blank) return;
+                    // a tile across two cells of a table is split: each word and blank goes to its own
+                    const groups = new Map();
+                    const add = (part, blank) => {
+                        const list = holderAt(part.x + part.w / 2, part.y + part.h / 2), g = groups.get(list) || { labels: [], blank: null };
+                        if (blank) g.blank = part; else g.labels.push(part);
+                        groups.set(list, g);
+                    };
+                    t.labels.forEach(l => add(l, false));
+                    if (t.blank) add(t.blank, true);
+                    groups.forEach((g, list) => {
+                        const sub = groups.size === 1 ? t : { ...t, labels: g.labels, blank: g.blank };
+                        if (tileParts(sub).length) list.push({ kind: 'tile', t: sub, row: r, ...ext(tileParts(sub)) });
+                    });
                 });
-                // a box beside other lines floats there (a photo box); one alone takes its place in the flow
-                bx.float = rows.some(r => !usedRows.has(r) && r.bot > bx.y && r.top < bx.y + bx.h && rowRight(r) < bx.x);
-                pieces.push({ kind: 'box', top: bx.y, h: bx.h, box: bx, footer: inFooter(bx.y) });
             });
-            // ruled tables (their rows exactly as tall as the PDF's, from its horizontal border lines)
-            for (let k = 0; k < rows.length; k++) {
-                if (!ruled[k] || usedRows.has(rows[k])) continue;
-                const group = [rows[k]];
-                while (rows[k + 1] && sameCols(ruled[k + 1], ruled[k]) && !usedRows.has(rows[k + 1])) group.push(rows[++k]);
-                group.forEach(r => usedRows.add(r));
-                const xs = ruled[k], gTop = group[0].top, gBot = group[group.length - 1].bot;
-                let ys = ink.hLines.filter(l => l.y >= gTop - 0.025 && l.y <= gBot + 0.025 && l.x <= xs[0] + 0.01 && l.x + l.w >= xs[xs.length - 1] - 0.01).map(l => l.y).sort((a, b) => a - b);
-                ys = ys.filter((y, i) => i === 0 || y - ys[i - 1] > 0.004);
-                ink.hLines.forEach(l => { if (ys.some(y => Math.abs(l.y - y) < 0.004)) usedLines.add(l); });
-                if (ys.length < 2) ys = [gTop - 0.003, ...group.map((r, i) => group[i + 1] ? (r.bot + group[i + 1].top) / 2 : r.bot + 0.003)];
-                pieces.push({ kind: 'table', top: ys[0], h: ys[ys.length - 1] - ys[0], xs, ys, group, footer: inFooter(gTop) });
-            }
-            // standalone drawn lines (signature lines, "for:" lines): those on one level make one row
-            const loose = ink.hLines.filter(l => !usedLines.has(l) && l.w < 0.85 && !rows.some(r => r.tiles.some(t => t.blank && t.blank.kind !== 'line'
-                && l.x < t.blank.x + t.blank.w && l.x + l.w > t.blank.x && l.y >= t.blank.y - 0.004 && l.y <= t.blank.y + t.blank.h + 0.008)));
-            loose.sort((a, b) => a.y - b.y || a.x - b.x).forEach(l => {
-                const same = pieces.find(q => q.kind === 'lines' && Math.abs(q.top + q.h - l.y) < 0.004);
-                if (same) same.lines.push(l); else pieces.push({ kind: 'lines', top: l.y - 0.012, h: 0.012, lines: [l], footer: inFooter(l.y) });
-            });
-            // rules across the page
-            ink.hLines.filter(l => !usedLines.has(l) && l.w >= 0.85).forEach(l => pieces.push({ kind: 'rule', top: l.y - 0.002, h: 0.004, line: l, footer: inFooter(l.y) }));
-            // pictures not in the letterhead
-            pictures.filter(im => !im.used).forEach(im => pieces.push({ kind: 'pic', top: im.y, h: im.h, pic: im, footer: inFooter(im.y) }));
-            // the lines of words
-            for (let k = 0; k < rows.length; k++) {
-                const r = rows[k];
-                if (usedRows.has(r) || !r.tiles.length) continue;
-                const gi = pdRows.indexOf(r), block = gi >= 0 && r.tiles.length === 1 ? paragraphRows(gi) : [gi];
-                const group = block.length > 1 && block[0] === gi ? block.map(b => pdRows[b]).filter(g => !usedRows.has(g)) : [r];
-                group.forEach(g => usedRows.add(g));
-                pieces.push({ kind: group.length > 1 ? 'para' : (r.tiles.length > 1 ? 'cols' : 'line'), top: r.top, h: group[group.length - 1].bot - r.top, group, footer: inFooter(r.top) });
-            }
-            pieces.sort((a, b) => a.top - b.top);
+            pictures.filter(im => !im.used).forEach(im => holderAt(im.x + im.w / 2, im.y + im.h / 2).push({ kind: 'pic', pic: im, solid: true, x0: im.x, x1: im.x + im.w, y0: im.y, y1: im.y + im.h }));
+            ink.hLines.filter(l => !usedLines.has(l) && !fieldUnder(l)).forEach(l => holderAt(l.x + l.w / 2, l.y).push({ kind: 'hline', line: l, x0: l.x, x1: l.x + l.w, y0: l.y - 0.001, y1: l.y + 0.001 }));
+            containers.forEach(c => onPage.push({ kind: c.kind, [c.kind]: c.ref, solid: true, x0: c.x0, x1: c.x1, y0: c.y0, y1: c.y1 }));
 
-            // the page's margins come from what is on it
-            const lefts = pieces.map(q => q.kind === 'table' ? q.xs[0] : q.kind === 'box' ? q.box.x : q.kind === 'lines' ? Math.min(...q.lines.map(l => l.x)) : q.kind === 'pic' ? q.pic.x : q.kind === 'rule' ? q.line.x : rowLeft(q.group[0]));
-            const rights = pieces.map(q => q.kind === 'table' ? q.xs[q.xs.length - 1] : q.kind === 'box' ? q.box.x + q.box.w : q.kind === 'lines' ? Math.max(...q.lines.map(l => l.x + l.w)) : q.kind === 'pic' ? q.pic.x + q.pic.w : q.kind === 'rule' ? q.line.x + q.line.w : Math.max(...q.group.map(rowRight)));
-            const left = Math.max(0.02, Math.min(...lefts)), right = Math.min(0.99, Math.max(...rights));
-            const footPieces = pieces.filter(q => q.footer), footTop = footPieces.length ? Math.min(...footPieces.map(q => q.top)) : null;
-            const lastBottom = Math.max(...pieces.map(q => q.top + q.h));
+            // ---- the page cut where nothing crosses: into strips one under another; a strip with something tall in it
+            // (a logo, a box) beside words, into columns side by side ----
+            const cutTree = list => {
+                if (list.length <= 1) return { type: 'flow', items: list };
+                const vy = it => it.kind === 'tile' ? [it.y0 + (it.y1 - it.y0) * 0.2, it.y1 - (it.y1 - it.y0) * 0.2] : [it.y0, it.y1];
+                const strips = [];
+                let bottom = -1;
+                list.slice().sort((a, b) => vy(a)[0] - vy(b)[0]).forEach(it => {
+                    const [a, b] = vy(it);
+                    if (!strips.length || a > bottom) { strips.push([it]); bottom = b; } else { strips[strips.length - 1].push(it); bottom = Math.max(bottom, b); }
+                });
+                if (strips.length > 1) return { type: 'stack', children: strips.map(cutTree) };
+                const cols = [];
+                let edge = -1;
+                list.slice().sort((a, b) => a.x0 - b.x0).forEach(it => {
+                    if (!cols.length || it.x0 > edge + 0.004) { cols.push({ items: [it], x0: it.x0, x1: it.x1 }); edge = it.x1; }
+                    else { const c = cols[cols.length - 1]; c.items.push(it); c.x1 = Math.max(c.x1, it.x1); edge = Math.max(edge, it.x1); }
+                });
+                const lineCount = c => new Set(c.items.filter(i => i.kind === 'tile').map(i => i.row)).size;
+                if (cols.length > 1 && (cols.some(c => c.items.some(i => i.solid)) || cols.every(c => lineCount(c) >= 2)))
+                    return { type: 'side', items: list, cols: cols.map(c => ({ x0: c.x0, x1: c.x1, node: cutTree(c.items) })) };
+                return { type: 'flow', items: list };
+            };
+            // what one run of the page holds, as pieces to write: lines of words (a paragraph's together), pictures, lines, boxes, tables
+            const makePieces = (list, footer) => {
+                const out = [], byRow = new Map();
+                list.filter(i => i.kind === 'tile').forEach(i => { if (!byRow.has(i.row)) byRow.set(i.row, []); byRow.get(i.row).push(i.t); });
+                const lines = [];
+                const splitLevels = t => {
+                    if (t.labels.length < 2) return [t];
+                    const lv = [];
+                    t.labels.slice().sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2)).forEach(l => {
+                        const v = lv.find(q => Math.min(q.y1, l.y + l.h) - Math.max(q.y0, l.y) >= Math.min(q.y1 - q.y0, l.h) * 0.4);
+                        if (v) { v.labels.push(l); v.y0 = Math.min(v.y0, l.y); v.y1 = Math.max(v.y1, l.y + l.h); } else lv.push({ y0: l.y, y1: l.y + l.h, labels: [l] });
+                    });
+                    if (lv.length === 1) return [t];
+                    const out = lv.map(v => ({ ...t, labels: v.labels.sort((a, b) => a.x - b.x), blank: null }));
+                    if (t.blank) {   // the blank goes with the level it is on (or the nearest)
+                        const c = t.blank.y + t.blank.h / 2;
+                        const k = lv.map((v, i) => [Math.abs((v.y0 + v.y1) / 2 - c), i]).sort((a, b) => a[0] - b[0])[0][1];
+                        out[k].blank = t.blank;
+                    }
+                    return out;
+                };
+                byRow.forEach((tiles, r) => {
+                    const levels = [];
+                    tiles.flatMap(splitLevels).map(t => ({ t, ...ext(t.labels.length ? t.labels : tileParts(t)) })).sort((a, b) => (a.y0 + a.y1) - (b.y0 + b.y1)).forEach(it => {
+                        const lv = levels.find(v => Math.min(v.y1, it.y1) - Math.max(v.y0, it.y0) >= Math.min(v.y1 - v.y0, it.y1 - it.y0) * 0.4);
+                        if (lv) { lv.tiles.push(it.t); lv.y0 = Math.min(lv.y0, it.y0); lv.y1 = Math.max(lv.y1, it.y1); } else levels.push({ y0: it.y0, y1: it.y1, tiles: [it.t] });
+                    });
+                    const byX = list => list.sort((a, b) => tileParts(a)[0].x - tileParts(b)[0].x);
+                    levels.forEach(v => lines.push({ ...r, tiles: byX(v.tiles), top: v.y0, bot: v.y1 }));
+                });
+                lines.sort((a, b) => a.top - b.top);
+                lines.forEach(line => {
+                    line.tiles = line.tiles.filter(c => {
+                        if (c.labels.length || !c.blank || !c.blank.check) return true;
+                        const cx = c.blank.x + c.blank.w / 2;
+                        const host = line.tiles.find(t => t !== c && t.labels.some(l => cx >= l.x && cx <= l.x + l.w && /\(\s*\)/.test(l.str)));
+                        if (!host) return true;
+                        host.ticks = [...(host.ticks || []), c.blank];
+                        return false;
+                    });
+                });
+                // a paragraph: lines one after another in the same letters and from the same left side (its first may be indented),
+                // all but its last reaching its right side
+                const plain = r => r.tiles.length === 1 && !r.tiles[0].blank;
+                const groups = [];
+                lines.forEach(r => {
+                    const g = groups[groups.length - 1], prev = g && g[g.length - 1];
+                    const join = prev && plain(r) && plain(prev) && Math.abs(sizeOf(r) - sizeOf(prev)) < 0.6 && r.top - prev.top > sizeOf(r) * 0.6 / pageHpt && r.top - prev.top < sizeOf(r) * 1.75 / pageHpt
+                        && (Math.abs(rowLeft(r) - rowLeft(prev)) < 0.012 || (g.length === 1 && rowLeft(prev) - rowLeft(r) > 0 && rowLeft(prev) - rowLeft(r) < 0.08));
+                    if (join) g.push(r); else groups.push([r]);
+                });
+                groups.forEach(g => {
+                    const maxR = Math.max(...g.map(rowRight));
+                    const ok = g.length > 1 && g.slice(0, -1).every(r => rowRight(r) >= maxR - 0.025);
+                    (ok ? [g] : g.map(r => [r])).forEach(gg => out.push({ kind: gg.length > 1 ? 'para' : (gg[0].tiles.length > 1 ? 'cols' : 'line'), top: gg[0].top, h: gg[gg.length - 1].bot - gg[0].top, group: gg, footer }));
+                });
+                list.forEach(i => {
+                    if (i.kind === 'pic') out.push({ kind: 'pic', top: i.y0, h: i.y1 - i.y0, pic: i.pic, footer });
+                    else if (i.kind === 'box' || i.kind === 'grid') out.push({ kind: i.kind, top: i.y0, h: i.y1 - i.y0, [i.kind]: i[i.kind], footer });
+                    else if (i.kind === 'hline') {
+                        const l = i.line;
+                        if (l.w >= 0.85) { out.push({ kind: 'rule', top: l.y - 0.002, h: 0.004, line: l, footer }); return; }
+                        const same = out.find(q => q.kind === 'lines' && Math.abs(q.top + q.h - l.y) < 0.004);
+                        if (same) same.lines.push(l); else out.push({ kind: 'lines', top: l.y - 0.012, h: 0.012, lines: [l], footer });
+                    }
+                });
+                return out.sort((a, b) => a.top - b.top);
+            };
+            const piecesOf = (node, footer) => {
+                if (node.type === 'flow') return makePieces(node.items, footer);
+                if (node.type === 'side') {
+                    const y0 = Math.min(...node.items.map(i => i.y0)), y1 = Math.max(...node.items.map(i => i.y1));
+                    return [{ kind: 'side', top: y0, h: y1 - y0, footer, cols: node.cols.map(c => ({ x0: c.x0, x1: c.x1, pieces: piecesOf(c.node, footer) })) }];
+                }
+                const out = [];
+                let flow = [];
+                const flush = () => { if (flow.length) out.push(...makePieces(flow, footer)); flow = []; };
+                node.children.forEach(ch => { if (ch.type === 'flow') flow.push(...ch.items); else { flush(); out.push(...piecesOf(ch, footer)); } });
+                flush();
+                return out;
+            };
+            const isFoot = it => p.num === 1 && (it.y0 + it.y1) / 2 > footerTop;
+            containers.forEach(c => {
+                const footer = isFoot(c);
+                if (c.kind === 'box') c.ref.pieces = piecesOf(cutTree(c.items), footer);
+                else c.ref.cells.forEach(cell => { cell.pieces = piecesOf(cutTree(cell.items), footer); });
+            });
+            const footItems = onPage.filter(isFoot), bodyItems = onPage.filter(it => !isFoot(it));
+
+            // the page's margins come from what is on it (the bottom one a little smaller: printed letters run a little
+            // taller than the PDF's, so a full page still fits; with a footer, the footer's place sets it)
+            const left = onPage.length ? Math.max(0.02, Math.min(...onPage.map(i => i.x0))) : 0.08, right = onPage.length ? Math.min(0.99, Math.max(...onPage.map(i => i.x1))) : 0.92;
+            const lastBottom = onPage.length ? Math.max(...onPage.map(i => i.y1)) : 0.9;
             if (p.num === 1) {
-                const top = layout ? layout.top : Math.min(...pieces.map(q => q.top));
-                layout = { margins: [mm(top * mmH), mm((1 - right) * mmW), mm(Math.max(3, (1 - lastBottom) * mmH - 1)), mm(left * mmW)], bleed: !!(layout && layout.bleed), top };
+                const top = layout ? layout.top : (onPage.length ? Math.min(...onPage.map(i => i.y0)) : 0.08);
+                layout = { margins: [mm(top * mmH), mm((1 - right) * mmW), mm(Math.max(1, (1 - lastBottom) * mmH - 6)), mm(left * mmW)], bleed: !!(layout && layout.bleed), top };
             }
-            const widthMm = (right - left) * mmW;
 
-            // writing the pieces in order; each one's space above = where it is minus where the one before ended
-            const write = (list, start) => {
+            // a table: a row of no height holding the columns' widths, then its rows; each cell's content written in the cell
+            const gridHtml = (g, gapCss, left) => {
+                const padX = 0.8;
+                const side = on => on ? `${mm(Math.max(0.4, Math.min(2.5, g.t || 0.75)))}pt solid ${g.color || '#000000'}` : '0';
+                let rowsHtml = `<tr>${g.X.slice(1).map((x, k) => `<td style="width: ${mm((x - g.X[k]) * mmW)}mm; height: 0; padding: 0; border: 0; font-size: 1pt; line-height: 0;"></td>`).join('')}</tr>`;
+                for (let i = 0; i < g.Y.length - 1; i++) {
+                    rowsHtml += '<tr>' + g.cells.filter(c => c.r === i).sort((a, b) => a.c - b.c).map(c => {
+                        const inner = write(c.pieces || [], c.y0, { left: c.x0 + padX / mmW, right: c.x1 - padX / mmW, bare: c.bottom ? c.y1 : false, cell: true });
+                        return `<td${c.rs > 1 ? ` rowspan="${c.rs}"` : ''}${c.cs > 1 ? ` colspan="${c.cs}"` : ''} style="${c.rs === 1 ? `height: ${mm(Math.max(1, (c.y1 - c.y0) * mmH - Math.max(0.4, Math.min(2.5, g.t || 0.75)) * ptMm))}mm; ` : ''}padding: 0 ${padX}mm; vertical-align: top; border-top: ${side(c.top)}; border-right: ${side(c.right)}; border-bottom: ${side(c.bottom)}; border-left: ${side(c.left)};${c.fill ? ` background-color: ${c.fill};` : ''}">${inner || '&nbsp;'}</td>`;
+                    }).join('') + '</tr>';
+                }
+                return `<table style="${gapCss}margin-left: ${mm((g.x - left) * mmW)}mm; border-collapse: collapse; width: ${mm(g.w * mmW)}mm;"><tbody>${rowsHtml}</tbody></table>`;
+            };
+
+            // writing the pieces in order, in a frame (the page, a table's cell, a column): each one's space above = where it
+            // is minus where the one before ended; its indent = where it is minus the frame's left side
+            const write = (list, start, fr) => {
+                const { left, right } = fr;
                 let cursor = start * mmH, html = '';
                 const gap = topMm => { const g = mm(topMm - cursor); return `margin: 0; margin-top: ${Math.max(-4, g)}mm; `; };
+                const lineCss = (l, colour) => `${mm(Math.max(0.4, Math.min(2.5, l.t || 0.75)))}pt solid ${l.color || colour}`;
                 list.forEach(q => {
-                    if (q.kind === 'rule') { html += `<hr style="${gap(q.line.y * mmH)}border: 0; border-top: 0.75pt solid #888888;">`; cursor = q.line.y * mmH + 0.3; return; }
+                    if (q.kind === 'rule') { html += `<hr style="${gap(q.line.y * mmH)}border: 0; border-top: ${lineCss(q.line, '#888888')};">`; cursor = q.line.y * mmH + 0.3; return; }
                     if (q.kind === 'pic') {
-                        const img = `<img src="${q.pic.src}" alt="" width="${Math.round(q.pic.w * mmW * 96 / 25.4)}">`;
+                        const img = `<img src="${q.pic.src}" alt="" width="${Math.round(q.pic.w * mmW * 96 / 25.4)}" height="${Math.max(1, Math.round(q.pic.h * mmH * 96 / 25.4))}">`;
                         html += `<p style="${gap(q.top * mmH)}margin-left: ${mm((q.pic.x - left) * mmW)}mm; line-height: 0;">${img}</p>`;
                         cursor = (q.top + q.h) * mmH;
                         return;
@@ -4666,58 +5080,35 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                         const bare = 'padding: 0; font-size: 1pt; line-height: 1pt;';
                         q.lines.sort((a, b) => a.x - b.x).forEach(l => {
                             if (l.x - x > 0.005) cells += `<td style="width: ${mm((l.x - x) * mmW)}mm; ${bare}"></td>`;
-                            cells += `<td style="width: ${mm(l.w * mmW)}mm; border-bottom: 0.75pt solid #000000; height: 3mm; ${bare}"></td>`;
+                            cells += `<td style="width: ${mm(l.w * mmW)}mm; border-bottom: ${lineCss(l, '#000000')}; height: 3mm; ${bare}"></td>`;
                             x = l.x + l.w;
                         });
                         if (right - x > 0.005) cells += `<td style="${bare}"></td>`;
                         const top = (q.top + q.h) * mmH - 3;
-                        html += `<table style="${gap(top)}border-collapse: collapse; width: 100%;"><tbody><tr>${cells}</tr></tbody></table>`;
+                        html += `<table style="${gap(top)}border-collapse: collapse; width: ${mm((right - left) * mmW)}mm;"><tbody><tr>${cells}</tr></tbody></table>`;
                         cursor = top + 3;
                         return;
                     }
-                    if (q.kind === 'table') {
-                        const cols = q.xs.slice(1).map((x, c) => ({ x0: q.xs[c], x1: x }));
-                        // the borders' colour: the darkest pixel across the first column line, halfway down
-                        const edge = (() => {
-                            const c = p.canvas, x = Math.round(q.xs[0] * c.width), y = Math.round((q.ys[0] + q.ys[1]) / 2 * p.source.height);
-                            const d = c.getContext('2d').getImageData(Math.max(0, x - 3), y, 7, 1).data;
-                            let best = [255, 255, 255];
-                            for (let k = 0; k < d.length; k += 4) if (d[k] + d[k + 1] + d[k + 2] < best[0] + best[1] + best[2]) best = [d[k], d[k + 1], d[k + 2]];
-                            return hex(best);
-                        })();
-                        const rowsHtml = q.ys.slice(1).map((y, i) => {
-                            const y0 = q.ys[i], inRow = q.group.filter(g => (g.top + g.bot) / 2 > y0 && (g.top + g.bot) / 2 < y);
-                            const cellsHtml = cols.map(c => {
-                                const tiles = inRow.flatMap(g => g.tiles).filter(t => { const x = tileParts(t)[0].x + 0.003; return x >= c.x0 - 0.005 && x < c.x1; });
-                                const content = tiles.map(t => partHtml(p.num, t, { pageNumbers: q.footer, bare: true })).join(' ');   // the cell's borders are its lines
-                                const lh = inRow.length ? Math.max(...inRow.map(sizeOf)) * 1.15 : 10;
-                                // words against the right side of their cell, or in its middle, stay there
-                                let align = '';
-                                if (tiles.length) {
-                                    const t0 = Math.min(...tiles.flatMap(tileParts).map(q2 => q2.x)), t1 = Math.max(...tiles.flatMap(tileParts).map(q2 => q2.x + q2.w));
-                                    const before = t0 - c.x0, after = c.x1 - t1;
-                                    if (before > 0.02 && after < before / 3) align = ' text-align: right;';
-                                    else if (before > 0.02 && Math.abs(before - after) < 0.012) align = ' text-align: center;';
-                                }
-                                return `<td style="width: ${mm((c.x1 - c.x0) * mmW - 2.4 - 0.3)}mm; height: ${mm((y - y0) * mmH - 0.6)}mm; padding: 0 1.2mm; vertical-align: middle; line-height: ${mm(lh)}pt; border: 0.75pt solid ${edge};${align}">${content || '&nbsp;'}</td>`;
-                            }).join('');
-                            return `<tr>${cellsHtml}</tr>`;
+                    if (q.kind === 'grid') { html += gridHtml(q.grid, gap(q.top * mmH), left); cursor = (q.top + q.h) * mmH; return; }
+                    if (q.kind === 'side') {
+                        // columns side by side: a table with no lines, each column written in its own cell
+                        const edges = q.cols.map((c, k) => k === 0 ? left : c.x0);
+                        const cells = q.cols.map((c, k) => {
+                            const a = edges[k], b = k + 1 < q.cols.length ? edges[k + 1] : right;
+                            return `<td style="width: ${mm((b - a) * mmW)}mm; padding: 0; border: 0; vertical-align: top;">${write(c.pieces, q.top, { left: a, right: b }) || '&nbsp;'}</td>`;
                         }).join('');
-                        html += `<table border="1" style="${gap(q.top * mmH)}margin-left: ${mm((q.xs[0] - left) * mmW)}mm; border-collapse: collapse; width: ${mm((q.xs[q.xs.length - 1] - q.xs[0]) * mmW)}mm;"><tbody>${rowsHtml}</tbody></table>`;
+                        html += `<table style="${gap(q.top * mmH)}border-collapse: collapse; width: ${mm((right - left) * mmW)}mm;"><tbody><tr>${cells}</tr></tbody></table>`;
                         cursor = (q.top + q.h) * mmH;
                         return;
                     }
                     if (q.kind === 'box') {
-                        const bx = q.box, inner = write(bx.rows.map(r => ({ kind: r.tiles.length > 1 ? 'cols' : 'line', top: r.top, h: r.bot - r.top, group: [r] })), bx.y);
-                        const centred = bx.rows.length && bx.rows.every(r => Math.abs((rowLeft(r) + rowRight(r)) / 2 - (bx.x + bx.w / 2)) < 0.03);
-                        const boxCss = `border: 0.75pt solid #777777;${bx.rounded ? ' border-radius: 2.5mm;' : ''} width: ${mm(bx.w * mmW)}mm;`;
-                        const cell = `<td style="height: ${mm(bx.h * mmH - 0.6)}mm; padding: 0 1.5mm; vertical-align: ${centred ? 'middle' : 'top'};${centred ? ' text-align: center;' : ''}">${centred ? inner.replace(/margin-top: -?[\d.]+mm; /g, '').replace(/margin-left: -?[\d.]+mm; /g, '') : inner}</td>`;
-                        if (bx.float) {
-                            const text = bx.rows.map(r => r.tiles.map(t => partHtml(p.num, t)).join(' ')).join('<br>');
-                            html += `<div style="float: right; margin: 0; margin-top: ${mm(Math.max(0, bx.y * mmH - cursor))}mm; margin-right: ${mm((right - bx.x - bx.w) * mmW)}mm; ${boxCss} height: ${mm(bx.h * mmH)}mm; text-align: center; line-height: ${mm(bx.h * mmH)}mm;">${text || '&nbsp;'}</div>`;
-                            return;   // the lines beside it go on as before
-                        }
-                        html += `<table style="${gap(bx.y * mmH)}margin-left: ${mm((bx.x - left) * mmW)}mm; border-collapse: separate; ${boxCss}"><tbody><tr>${cell}</tr></tbody></table>`;
+                        const bx = q.box, padX = 1.5;
+                        const rowsIn = (bx.pieces || []).filter(x => x.group).flatMap(x => x.group);
+                        const centred = rowsIn.length && rowsIn.every(r => Math.abs((rowLeft(r) + rowRight(r)) / 2 - (bx.x + bx.w / 2)) < 0.03);
+                        let inner = write(bx.pieces || [], bx.y, { left: bx.x + padX / mmW, right: bx.x + bx.w - padX / mmW });
+                        if (centred) inner = inner.replace(/margin-top: -?[\d.]+mm; /g, '').replace(/margin-left: -?[\d.]+mm; /g, '');
+                        const css = `border: ${lineCss(bx, '#777777')};${bx.rounded ? ' border-radius: 2.5mm;' : ''} width: ${mm(bx.w * mmW)}mm;`;
+                        html += `<table style="${gap(bx.y * mmH)}margin-left: ${mm((bx.x - left) * mmW)}mm; border-collapse: separate; border-spacing: 0; ${css}"><tbody><tr><td style="height: ${mm(bx.h * mmH - 0.6)}mm; padding: 0 ${padX}mm; vertical-align: ${centred ? 'middle' : 'top'};${centred ? ' text-align: center;' : ''}">${inner || '&nbsp;'}</td></tr></tbody></table>`;
                         cursor = (bx.y + bx.h) * mmH;
                         return;
                     }
@@ -4726,37 +5117,39 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     if (q.kind === 'para') {
                         const pitch = (q.group[q.group.length - 1].top - g0.top) / (q.group.length - 1) * pageHpt;
                         const top = ((g0.top + g0.bot) / 2) * mmH - pitch * ptMm / 2;
-                        html += `<p style="${gap(top)}margin-left: ${mm((rowLeft(g0) - left) * mmW)}mm; line-height: ${mm(pitch)}pt; text-align: justify;">${q.group.map(g => partHtml(p.num, g.tiles[0], { pageNumbers: q.footer })).join(' ')}</p>`;
+                        const maxR = Math.max(...q.group.map(rowRight));   // it wraps where the PDF's lines end
+                        html += `<p style="${gap(top)}margin-left: ${mm((Math.min(...q.group.map(rowLeft)) - left) * mmW)}mm; margin-right: ${mm(Math.max(0, (right - maxR) * mmW - 1))}mm; line-height: ${mm(pitch)}pt; text-align: justify;">${q.group.map(g => partHtml(p.num, g.tiles[0], { bare: fr.bare, pageNumbers: q.footer })).join(' ')}</p>`;
                         cursor = top + q.group.length * pitch * ptMm;
                         return;
                     }
-                    const lh = s0 * 1.18, top = ((g0.top + g0.bot) / 2) * mmH - lh * ptMm / 2;
+                    const lh = s0 * (fr.cell ? 1.08 : 1.18), top = ((g0.top + g0.bot) / 2) * mmH - lh * ptMm / 2;   // a table's lines sit closer
                     if (q.kind === 'cols') {
                         const L0 = rowLeft(g0);
                         const slots = g0.tiles.map((t, j) => {
-                            const x = tileParts(t)[0].x, next = g0.tiles[j + 1] ? tileParts(g0.tiles[j + 1])[0].x : Math.max(x + 0.02, Math.min(right, Math.max(...tileParts(t).map(q2 => q2.x + q2.w)) + 0.01));
+                            const x = tileParts(t)[0].x, next = g0.tiles[j + 1] ? tileParts(g0.tiles[j + 1])[0].x : Math.max(x + 0.02, right);   // the last runs to the frame's side (printed letters run a little wider)
                             const w = (next - x) * mmW - (g0.tiles[j + 1] ? 0 : 1.5);   // the last a little short of the edge, or it goes onto a line of its own
-                            return `<span style="display: inline-block; width: ${mm(w)}mm;">${partHtml(p.num, t, { pageNumbers: q.footer, slot: w })}</span>`;
+                            return `<span style="display: inline-block; width: ${mm(w)}mm;">${partHtml(p.num, t, { bare: fr.bare, pageNumbers: q.footer, slot: w })}</span>`;
                         }).join('');
                         html += `<p style="${gap(top)}margin-left: ${mm((L0 - left) * mmW)}mm; line-height: ${mm(lh)}pt; white-space: nowrap;">${slots}</p>`;
                     } else {
-                        const L0 = rowLeft(g0), R0 = rowRight(g0), cx = (L0 + R0) / 2;
-                        const centre = Math.abs(cx - (left + right) / 2) < 0.03 && R0 - L0 < (right - left) * 0.85;
-                        html += `<p style="${gap(top)}${centre ? 'text-align: center; ' : `margin-left: ${mm((L0 - left) * mmW)}mm; `}line-height: ${mm(lh)}pt; white-space: nowrap;">${partHtml(p.num, g0.tiles[0], { pageNumbers: q.footer, slot: (right - L0) * mmW - 1.5 })}</p>`;
+                        const L0 = rowLeft(g0), R0 = rowRight(g0), cx = (L0 + R0) / 2, wide = right - left;
+                        const centre = Math.abs(cx - (left + right) / 2) < Math.min(0.03, wide * 0.08) && R0 - L0 < wide * 0.85;
+                        const toRight = !centre && right - R0 < Math.max(0.012, wide * 0.06) && L0 - left > wide * 0.25;
+                        const place = centre ? 'text-align: center; ' : toRight ? 'text-align: right; ' : `margin-left: ${mm((L0 - left) * mmW)}mm; `;
+                        html += `<p style="${gap(top)}${place}line-height: ${mm(lh)}pt; white-space: nowrap;">${partHtml(p.num, g0.tiles[0], { bare: fr.bare, pageNumbers: q.footer, slot: (right - L0) * mmW - 1.5 })}</p>`;
                     }
                     cursor = top + lh * ptMm;
                 });
                 return html;
             };
-            const bodyPieces = pieces.filter(q => !q.footer);
-            const bodyStart = p.num === 1 && band ? (band.bottom || band.y + band.h) : (p.num === 1 ? layout.top : Math.min(...bodyPieces.map(q => q.top)));
-            parts.body += (p.num > 1 ? '<div class="page-break"></div>' : '') + write(bodyPieces, bodyStart);
-            if (p.num === 1 && footPieces.length) {
-                parts.footer = write(footPieces, footTop);
-                footerMm = mm((Math.max(...footPieces.map(q => q.top + q.h)) - footTop) * mmH);
-                layout.margins[2] = mm(Math.max(3, (1 - Math.max(...footPieces.map(q => q.top + q.h))) * mmH));
+            const bodyStart = p.num === 1 && band ? bandBottom : (p.num === 1 ? layout.top : (bodyItems.length ? Math.min(...bodyItems.map(i => i.y0)) : 0));
+            parts.body += (p.num > 1 ? '<div class="page-break"></div>' : '') + write(piecesOf(cutTree(bodyItems), false), bodyStart, { left, right });
+            if (p.num === 1 && footItems.length) {
+                const footTop = Math.min(...footItems.map(i => i.y0)), footBot = Math.max(...footItems.map(i => i.y1));
+                parts.footer = write(piecesOf(cutTree(footItems), true), footTop, { left, right });
+                footerMm = mm((footBot - footTop) * mmH);
+                layout.margins[2] = mm(Math.max(3, (1 - footBot) * mmH));
             }
-            if (p.num === 1 && !band && layout) layout.top = Math.min(...pieces.map(q => q.top));
         }
         const { top, ...kept } = layout || { margins: [15, 15, 15, 15], bleed: false };
         return { ...parts, paper, header_mm: headerMm || 0, footer_mm: footerMm || 0, layout: kept };
