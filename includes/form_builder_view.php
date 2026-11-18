@@ -98,7 +98,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     /* the Word-style ribbon */
     .pd-ribbon { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 4px; border-radius: 12px; background: #f1f5f9; }
     .pd-ribbon select { height: 32px; padding: 0 6px; border-radius: 8px; border: 1px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 700; color: #0f172a; cursor: pointer; }
-    .pd-ribbon #rbFont { width: 104px; } .pd-ribbon #rbSize { width: 64px; }
+    .pd-ribbon #rbFont { width: 104px; } .pd-ribbon #rbSize { width: 64px; height: 32px; padding: 0 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; font-size: 12px; font-weight: 700; }
     .pd-ribbon .rb { min-width: 32px; height: 32px; padding: 0 8px; border-radius: 8px; font-size: 13px; color: #334155; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
     .pd-ribbon .rb:hover:not(:disabled) { background: #e2e8f0; }
     .pd-ribbon .rb.on { background: #0f172a; color: #fff; }
@@ -254,8 +254,15 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .content-mode .pd-edit.insert { outline: 1.5px dashed #7c3aed; outline-offset: -1px; background: rgba(124, 58, 237, 0.05); }
     .content-mode .pd-edit.insert.sel { outline: 2.5px solid #7c3aed; background: rgba(124, 58, 237, 0.1); cursor: pointer; }
     .pd-insert-tag { position: absolute; top: 2px; left: 4px; font: 900 9px/1.4 'Plus Jakarta Sans', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #6d28d9; background: rgba(255,255,255,.9); padding: 0 4px; border-radius: 4px; }
-    .pd-break { position: absolute; left: 0; right: 0; border-top: 2px dashed #2563eb; z-index: 5; pointer-events: none; }
-    .pd-break span { position: absolute; right: 8px; top: -11px; padding: 1px 8px; border-radius: 999px; background: #2563eb; color: #fff; font: 800 10px/18px 'Plus Jakarta Sans', sans-serif; white-space: nowrap; }
+    /* where printing starts a new page: drawn as the edge between two sheets */
+    .pd-break { position: absolute; left: -10px; right: -10px; height: 10px; transform: translateY(-50%); z-index: 5; pointer-events: none;
+        background: #475569; box-shadow: inset 0 3px 3px rgba(0, 0, 0, 0.35), inset 0 -3px 3px rgba(0, 0, 0, 0.35); }
+    .pd-break span { position: absolute; padding: 1px 8px; border-radius: 999px; background: #1e293b; color: #fff; font: 800 10px/16px 'Plus Jakarta Sans', sans-serif; white-space: nowrap; }
+    .pd-break .end { left: 14px; bottom: 100%; margin-bottom: 2px; } .pd-break .next { right: 14px; top: 100%; margin-top: 2px; background: #2563eb; }
+    .zoom-bar { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18); }
+    .zoom-bar button { min-width: 28px; height: 26px; padding: 0 6px; border-radius: 8px; font-size: 12px; font-weight: 900; color: #334155; }
+    .zoom-bar button:hover { background: #f1f5f9; }
+    .zoom-bar .zoom-val { min-width: 46px; text-align: center; font-size: 11px; font-weight: 900; color: #0f172a; }
     .pd-cutnote { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 6; padding: 6px 10px; border-radius: 10px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font: 700 11px/1.35 'Plus Jakarta Sans', sans-serif; pointer-events: none; }
     .content-mode.tool-addtext { cursor: text; }
     .pd-field.selected { outline: 3px solid #f59e0b; outline-offset: 1px; z-index: 2; }
@@ -507,16 +514,19 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <option value="Times" style="font-family:'Times New Roman',Times,serif">Times</option>
                     <option value="Courier" style="font-family:'Courier New',monospace">Courier</option>
                 </select>
-                <select id="rbSize" title="Size" onchange="ribbonSet('size', Number(this.value))"></select>
+                <input id="rbSize" type="text" inputmode="decimal" list="fbSizeList" autocomplete="off" title="Size: type one (like 8.5) or pick one · Ctrl+] / Ctrl+[ bigger / smaller"
+                    onfocus="this.select()" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }"
+                    onchange="const v = sizeValue(this.value); if (v === null) { syncRibbon(); return; } ribbonSet('size', v)">
+                <datalist id="fbSizeList"></datalist>
                 <span class="rb-sep"></span>
                 <button type="button" class="rb" data-rb="bold" title="Bold (Ctrl+B)" onmousedown="event.preventDefault()" onclick="ribbonToggle('bold')"><b>B</b></button>
                 <button type="button" class="rb" data-rb="italic" title="Italic (Ctrl+I)" onmousedown="event.preventDefault()" onclick="ribbonToggle('italic')"><i class="font-serif">I</i></button>
                 <button type="button" class="rb" data-rb="underline" title="Underline (Ctrl+U)" onmousedown="event.preventDefault()" onclick="ribbonToggle('underline')"><u>U</u></button>
                 <label class="rb rb-color" title="Text colour"><span class="font-black">A</span><span id="rbColorBar" class="rb-colorbar"></span><input type="color" id="rbColor" oninput="ribbonSet('color', this.value)"></label>
                 <span class="rb-sep"></span>
-                <button type="button" class="rb" data-rb-align="left" title="Align left" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'left')"><i class="fas fa-align-left"></i></button>
-                <button type="button" class="rb" data-rb-align="center" title="Center" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'center')"><i class="fas fa-align-center"></i></button>
-                <button type="button" class="rb" data-rb-align="right" title="Align right" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'right')"><i class="fas fa-align-right"></i></button>
+                <button type="button" class="rb" data-rb-align="left" title="Align left (Ctrl+L)" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'left')"><i class="fas fa-align-left"></i></button>
+                <button type="button" class="rb" data-rb-align="center" title="Center (Ctrl+E)" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'center')"><i class="fas fa-align-center"></i></button>
+                <button type="button" class="rb" data-rb-align="right" title="Align right (Ctrl+R)" onmousedown="event.preventDefault()" onclick="ribbonSet('align', 'right')"><i class="fas fa-align-right"></i></button>
                 <span class="rb-sep"></span>
                 <button type="button" class="rb rb-wide" title="Insert something under the selected line" onmousedown="event.preventDefault()" onclick="openInsertMenu(event)"><i class="fas fa-plus"></i> Insert <i class="fas fa-caret-down text-[9px]"></i></button>
             </div>
@@ -554,7 +564,13 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <div id="pdHistory" class="space-y-2"></div>
             </div>
         </aside>
-        <div class="flex-1 min-h-0 min-w-0 flex flex-col">
+        <div class="flex-1 min-h-0 min-w-0 flex flex-col relative">
+            <div class="zoom-bar absolute right-5 bottom-4 z-20" role="group" aria-label="Zoom">
+                <button type="button" onclick="setPdZoom(pdZoom - 0.1)" title="Zoom out (Ctrl + mouse wheel)">−</button>
+                <span id="pdZoomVal" class="zoom-val">100%</span>
+                <button type="button" onclick="setPdZoom(pdZoom + 0.1)" title="Zoom in (Ctrl + mouse wheel)">+</button>
+                <button type="button" onclick="setPdZoom(1)" title="Back to 100%">Fit</button>
+            </div>
             <div id="pdVersionBar" class="hidden shrink-0 px-6 py-2.5 bg-amber-300 text-amber-950 text-xs font-black flex flex-wrap items-center gap-3"></div>
             <div id="pdToast" class="hidden shrink-0 px-6 py-2 text-xs font-black"></div>
             <div id="pdHint" class="shrink-0 px-6 py-2.5 bg-slate-800 text-white text-xs font-bold flex items-center gap-2"></div>
@@ -607,6 +623,13 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     </div>
     <div class="bg-white border-t border-slate-200 px-4 py-1.5 text-[11px] font-medium text-slate-500 flex flex-wrap gap-x-5 gap-y-1">
         <span id="docStatus"></span>
+        <span title="Ctrl+B bold · Ctrl+I italic · Ctrl+U underline · Ctrl+E center · Ctrl+L left · Ctrl+R right · Ctrl+J justify · Ctrl+] / Ctrl+[ size up / down · Ctrl+Shift+&gt; / &lt; next size · Ctrl+Enter new page · Ctrl+Space clear formatting · Ctrl+M indent · Ctrl+Shift+L bullets · Ctrl+Z undo · Ctrl+Y redo · Ctrl+F find · Ctrl+P preview PDF · Ctrl+S save"><b>Word's shortcuts work</b> (Ctrl+B, Ctrl+E, Ctrl+], Ctrl+Enter… hover for all)</span>
+        <span class="ml-auto zoom-bar" role="group" aria-label="Zoom">
+            <button type="button" onclick="setDocZoom(docZoom - 0.1)" title="Zoom out (Ctrl + mouse wheel)">−</button>
+            <span id="docZoomVal" class="zoom-val">100%</span>
+            <button type="button" onclick="setDocZoom(docZoom + 0.1)" title="Zoom in (Ctrl + mouse wheel)">+</button>
+            <button type="button" onclick="setDocZoom(1)" title="Back to 100%">100%</button>
+        </span>
         <span><b>Insert answer</b> (toolbar) puts a student's answer in the text · copy from a Word file and paste (Ctrl+V) to bring a form in · <b>Table</b> menu for tables · Ctrl+Z undoes</span>
     </div>
 </div>
@@ -1016,15 +1039,46 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     };
                 });
 
-                pdPages.push({ num: n, overlay, canvas, source, fieldsOrig: fields, textsOrig: texts, fields, texts, cut: [], scale: viewport.scale, hPt: viewport.height / viewport.scale });
+                pdPages.push({ num: n, overlay, canvas, source, fieldsOrig: fields, textsOrig: texts, fields, texts, cut: [], baseScale: viewport.scale, baseW: viewport.width,
+                    get scale() { return this.baseScale * pdZoom; }, hPt: viewport.height / viewport.scale });
+                wrap.style.width = viewport.width * pdZoom + 'px';
                 paintPage(pdPages[pdPages.length - 1]);
                 bindDesignerPage(pdPages[pdPages.length - 1]);
             }
             pdDocFile = file;
+            document.getElementById('pdZoomVal').textContent = Math.round(pdZoom * 100) + '%';
         } catch (err) {
             holder.innerHTML = `<p class="text-center text-white font-black py-20">Could not open the PDF: ${esc(err.message)}</p>`;
         }
     }
+
+    // ---- zoom (both editors), kept for this browser ----
+    const zoomStore = (key, v) => { try { if (v === undefined) return Number(localStorage.getItem(key)) || 1; localStorage.setItem(key, String(v)); } catch (e) { /* no storage */ } return v ?? 1; };
+    let pdZoom = Math.min(2.5, Math.max(0.5, zoomStore('slPdZoom')));
+    // The PDF designer's pages shown bigger or smaller (what is on them keeps its place: it is placed in parts of the page)
+    function setPdZoom(z) {
+        const holder = document.getElementById('pdPages'), keep = holder && holder.scrollHeight ? (holder.scrollTop + holder.clientHeight / 2) / holder.scrollHeight : 0;
+        pdZoom = Math.round(Math.min(2.5, Math.max(0.5, z)) * 100) / 100;
+        zoomStore('slPdZoom', pdZoom);
+        pdPages.forEach(p => { p.canvas.parentElement.style.width = p.baseW * pdZoom + 'px'; });
+        document.getElementById('pdZoomVal').textContent = Math.round(pdZoom * 100) + '%';
+        if (designerOpen()) renderDesigner();
+        if (holder) holder.scrollTop = keep * holder.scrollHeight - holder.clientHeight / 2;
+    }
+    let docZoom = Math.min(2.5, Math.max(0.5, zoomStore('slDocZoom')));
+    // The Word-style document shown bigger or smaller (its pages are worked out at 100%)
+    function setDocZoom(z) {
+        docZoom = Math.round(Math.min(2.5, Math.max(0.5, z)) * 100) / 100;
+        zoomStore('slDocZoom', docZoom);
+        document.getElementById('docPage').style.zoom = docZoom;
+        document.getElementById('docZoomVal').textContent = Math.round(docZoom * 100) + '%';
+    }
+    // Ctrl + mouse wheel zooms, like Word
+    document.addEventListener('wheel', e => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        if (e.target.closest && e.target.closest('#pdPages')) { e.preventDefault(); setPdZoom(pdZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }
+        else if (e.target.closest && e.target.closest('#docScroll')) { e.preventDefault(); setDocZoom(docZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }
+    }, { passive: false });
 
     // ---------- Inserted rows and columns ----------
     // The page is cut into pieces that keep their place or move. Inserts are applied in order, each in the page as it looked
@@ -1335,7 +1389,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             paintPage(p);
             pageTall = p.maxY;
             let html = p.cut.length ? `<div class="pd-cutnote">⚠ ${p.cut.length} piece(s) of printed text no longer fit on this page: “${esc(p.cut.slice(0, 2).join('”, “'))}”${p.cut.length > 2 ? '…' : ''}. Make the inserted column narrower, or remove it.</div>` : '';
-            if (p.breakAt) html += `<div class="pd-break" style="top:${pct(p.breakAt / pageTall)}"><span>✂ A new page starts here when printed — everything below continues on it</span></div>`;
+            if (p.breakAt) html += `<div class="pd-break" style="top:${pct(p.breakAt / pageTall)}"><span class="end">▲ End of page ${p.num}</span><span class="next">▼ New page when printed: what is below continues on it</span></div>`;
+            const label = p.canvas.parentElement.querySelector('.pd-page-label');
+            if (label) label.textContent = `Page ${p.num} of ${pdPages.length}${p.breakAt ? ' · runs onto a new page' : ''}`;
 
             // Content edits are always shown, so both modes look like the final PDF
             fbEdits.filter(e => e.page === p.num && e.kind !== 'move').forEach(e => {
@@ -1441,12 +1497,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         renderDesignerQuestionList();
     }
 
-    function sizeSelect(size, handler, sizes = [6, 7, 8, 9, 10, 11, 12, 14, 16]) {
-        return `<label class="flex items-center justify-between gap-2 mt-3 text-xs font-black text-slate-500 uppercase tracking-widest">Text size
-            <select onchange="${handler}(this.value)" class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold normal-case tracking-normal">
-                <option value="">Auto (fit the box)</option>
-                ${sizes.map(s => `<option value="${s}" ${size == s ? 'selected' : ''}>${s} pt</option>`).join('')}
-            </select>
+    function sizeSelect(size, handler) {
+        return `<label class="flex items-center justify-between gap-2 mt-3 text-xs font-black text-slate-500 uppercase tracking-widest">Text size (pt)
+            ${sizeBox('', size, handler, 'w-28 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold normal-case tracking-normal', 'Auto (fits)')}
         </label>`;
     }
 
@@ -1508,7 +1561,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                         Colour <input type="color" value="${esc(edit.color || '#000000')}" oninput="updateEdit('color', this.value)" class="w-8 h-6 cursor-pointer bg-transparent">
                     </label>
                 </div>
-                ${sizeSelect(edit.size, 'setEditSize', [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32])}
+                ${sizeSelect(edit.size, 'setEditSize')}
                 <label class="flex items-start gap-2 mt-3 text-xs font-bold text-slate-600 cursor-pointer">
                     <input type="checkbox" ${edit.cover ? 'checked' : ''} onchange="updateEdit('cover', this.checked)" class="mt-0.5 accent-amber-600">
                     Cover what is printed underneath (in the colour behind it)
@@ -1566,6 +1619,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         renderEditList();
     }
 
+    function pdfTileSize() { pdfTileLive(); }
     function setEditSize(value) { updateEdit('size', value === '' ? null : Number(value)); }
 
     function deleteEdit(key) {
@@ -3056,7 +3110,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 <button type="button" onclick="closePdfTile(true)" class="w-9 h-9 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-900" title="Close"><i class="fas fa-xmark"></i></button>
             </div>`;
         if (tile.labels.length) {
-            const f = pdTile.fmt, sizes = [...new Set([6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, f.size])].sort((a, b) => a - b);
+            const f = pdTile.fmt;
             const toggle = (prop, label, mark) => `<button type="button" id="pt-${prop}" onclick="pdfTileToggle('${prop}')" aria-pressed="${f[prop]}" class="pt-fmt ${f[prop] ? 'on' : ''}">${mark} ${label}</button>`;
             body += `<label class="block ${label}">Printed words <span class="normal-case tracking-normal font-bold text-slate-400">(or click the words on the PDF and type there)</span>
                 <input id="ptText" type="text" value="${esc(pdTile.typed ?? pdTile.text)}" oninput="pdfTileLive()" class="${input} normal-case tracking-normal" onkeydown="if (event.key === 'Enter') closePdfTile(true)">
@@ -3067,7 +3121,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     <select id="ptFont" onchange="pdfTileLive()" class="${input} normal-case tracking-normal cursor-pointer">${Object.keys(PD_FONTS).map(k => `<option value="${k}" ${f.font === k ? 'selected' : ''} style="font-family:${PD_FONTS[k]}">${k === 'Times' ? 'Times (serif)' : k === 'Courier' ? 'Courier (typewriter)' : k}</option>`).join('')}</select>
                 </label>
                 <label class="block ${label}">Size
-                    <select id="ptSize" onchange="pdfTileLive()" class="${input} normal-case tracking-normal cursor-pointer">${sizes.map(n => `<option value="${n}" ${f.size === n ? 'selected' : ''}>${n} pt</option>`).join('')}</select>
+                    ${sizeBox('ptSize', f.size, 'pdfTileSize', `${input} normal-case tracking-normal`)}
                 </label>
                 <label class="block ${label} col-span-2 sm:col-span-1">Colour
                     <span class="mt-1 flex items-center gap-2 p-1.5 bg-slate-50 border border-slate-200 rounded-xl">
@@ -3147,7 +3201,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const val = id => document.getElementById(id);
         if (val('ptAlign')) pdTile.fmt.align = val('ptAlign').value;
         if (val('ptFont')) pdTile.fmt.font = val('ptFont').value;
-        if (val('ptSize')) pdTile.fmt.size = Number(val('ptSize').value);
+        if (val('ptSize') && sizeValue(val('ptSize').value)) pdTile.fmt.size = sizeValue(val('ptSize').value);
         if (val('ptColor')) { pdTile.fmt.color = val('ptColor').value; val('ptColorText').textContent = pdTile.fmt.color; }
     }
     function pdfTileToggle(prop) {
@@ -3524,7 +3578,18 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     // of what is being typed, or of the added text that is selected. Lines that run on into each other are a paragraph:
     // typed as one and wrapped again within their width; when it needs more lines, the rest of the form moves down.
     const lineHeightOf = (p, size) => size * 1.2 / p.hPt;
-    const RIBBON_SIZES = [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36];
+    const RIBBON_SIZES = [6, 7, 8, 8.5, 9, 9.5, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
+    // A size typed in a size box (8.5, 9.1, "10 pt"): a number of points, one decimal, 4 to 96; null if it is not one
+    function sizeValue(v) {
+        const n = parseFloat(String(v ?? '').replace(',', '.'));
+        return Number.isFinite(n) && n > 0 ? Math.round(Math.min(96, Math.max(4, n)) * 10) / 10 : null;
+    }
+    // A size box: type any size or pick one from the list (like Word's). onPick gets the size, or '' for none
+    function sizeBox(id, size, onPick, cls, placeholder = '') {
+        return `<input ${id ? `id="${id}" ` : ''}type="text" inputmode="decimal" list="fbSizeList" autocomplete="off" value="${size ?? ''}" placeholder="${placeholder}" title="Type a size (like 8.5) or pick one"
+            class="${cls}" onfocus="this.select()" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }"
+            onchange="const v = sizeValue(this.value); if (v === null && this.value.trim() !== '' ) { this.value = '${size ?? ''}'; return; } this.value = v ?? ''; ${onPick}(v ?? '')">`;
+    }
 
     // The look of a part's words (font, size, bold, italic, underline, alignment, colour)
     function tileFormat(row, tile) {
@@ -3733,7 +3798,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const s = pdTile;
         if (!s || !s.inline) return;
         const ctrl = ev.ctrlKey || ev.metaKey, k = ev.key.toLowerCase();
-        if (ctrl && (k === 'b' || k === 'i' || k === 'u')) { ev.preventDefault(); ribbonToggle({ b: 'bold', i: 'italic', u: 'underline' }[k]); return; }
+        if (ctrl && ribbonShortcut(ev)) return;   // Word's: bold, align, size
         if (ctrl && k === 's') return;   // save: handled by the page (it finishes typing first)
         if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finishInline(false); return; }
         if (ev.key === 'Tab') { ev.preventDefault(); finishInline(true); return; }
@@ -3786,9 +3851,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         const t = ribbonTarget(), f = t ? t.fmt : { font: 'Helvetica', size: 10, bold: false, italic: false, underline: false, align: 'left', color: '#000000' };
         bar.classList.toggle('off', !t);
         bar.title = t ? '' : 'Click words on the PDF to type, or select text you added, to format it';
-        const size = document.getElementById('rbSize');
-        const sizes = [...new Set([...RIBBON_SIZES, f.size])].sort((a, b) => a - b);
-        size.innerHTML = sizes.map(n => `<option value="${n}" ${n === f.size ? 'selected' : ''}>${n}</option>`).join('');
+        const size = document.getElementById('rbSize'), list = document.getElementById('fbSizeList');
+        if (list && !list.children.length) list.innerHTML = RIBBON_SIZES.map(n => `<option value="${n}"></option>`).join('');
+        if (document.activeElement !== size) size.value = f.size;
         document.getElementById('rbFont').value = f.font;
         ['bold', 'italic', 'underline'].forEach(k => bar.querySelector(`[data-rb="${k}"]`).classList.toggle('on', !!f[k]));
         bar.querySelectorAll('[data-rb-align]').forEach(b => b.classList.toggle('on', b.dataset.rbAlign === f.align));
@@ -3819,6 +3884,26 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     function ribbonToggle(prop) {
         const t = ribbonTarget();
         if (t) ribbonSet(prop, !t.fmt[prop]);
+    }
+    // Word's shortcuts for the words being typed or the added text selected: Ctrl+B / I / U, Ctrl+E / L / R (/ J) to align,
+    // Ctrl+] / Ctrl+[ a point bigger / smaller, Ctrl+Shift+> / < the next size of the list. True when one was used.
+    function ribbonShortcut(ev) {
+        if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return false;
+        const t = ribbonTarget();
+        if (!t) return false;
+        const k = ev.key.toLowerCase(), code = ev.code;
+        const toggles = { b: 'bold', i: 'italic', u: 'underline' }, aligns = { e: 'center', l: 'left', r: 'right', j: 'left' };
+        let done = true;
+        if (toggles[k] && !ev.shiftKey) ribbonToggle(toggles[k]);
+        else if (aligns[k]) ribbonSet('align', aligns[k]);
+        else if (code === 'BracketRight' || code === 'BracketLeft') ribbonSet('size', sizeValue(t.fmt.size + (code === 'BracketRight' ? 1 : -1)));
+        else if (ev.shiftKey && (code === 'Period' || code === 'Comma')) {
+            const up = code === 'Period', now = t.fmt.size;
+            const next = up ? RIBBON_SIZES.find(n => n > now + 0.05) : [...RIBBON_SIZES].reverse().find(n => n < now - 0.05);
+            ribbonSet('size', next ?? now);
+        } else done = false;
+        if (done) ev.preventDefault();
+        return done;
     }
 
     // ---- Insert (ribbon): under the selected line, else at the end ----
@@ -4017,9 +4102,10 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 target, inline: true, license_key: 'gpl', base_url: '../assets/lib/tinymce', suffix: '.min', promotion: false, branding: false,
                 fixed_toolbar_container: '#docToolbar', toolbar_persist: false, menubar: 'edit insert format table', toolbar_mode: 'wrap',
                 plugins: 'lists advlist table image pagebreak charmap searchreplace wordcount',
-                toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table image hr slnewpage | slanswer | removeformat',
+                toolbar: 'undo redo | blocks fontfamily fontsizeinput | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table image hr slnewpage | slanswer | removeformat',
                 font_family_formats: 'Times New Roman=times new roman,times,serif; Arial=arial,helvetica,sans-serif; Courier New=courier new,courier,monospace',
-                font_size_formats: '8pt 9pt 10pt 11pt 12pt 14pt 16pt 18pt 20pt 24pt 28pt 36pt',
+                font_size_formats: '6pt 7pt 8pt 8.5pt 9pt 9.5pt 10pt 10.5pt 11pt 12pt 14pt 16pt 18pt 20pt 24pt 28pt 36pt 48pt 72pt',
+                font_size_input_default_unit: 'pt',
                 block_formats: 'Normal text=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Small heading=h4',
                 noneditable_class: 'sl-field', extended_valid_elements: 'span[class|style|title|data-qk|data-sys|data-pdf-field|data-label|contenteditable]',
                 pagebreak_separator: '<div class="page-break"></div>', pagebreak_split_block: true,
@@ -4040,6 +4126,36 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     input.click();
                 },
                 setup: ed => {
+                    // Word's shortcuts (Ctrl+B / I / U / Z / Y and Ctrl+F are TinyMCE's own)
+                    const docSizes = [6, 7, 8, 8.5, 9, 9.5, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+                    const sizeNow = () => {
+                        const v = String(ed.queryCommandValue('FontSize') || getComputedStyle(ed.selection.getNode()).fontSize);
+                        const n = parseFloat(v);
+                        return Number.isFinite(n) ? (/pt$/.test(v) ? n : n * 0.75) : 11;
+                    };
+                    const setSize = pt => ed.execCommand('FontSize', false, sizeValue(pt) + 'pt');
+                    // the size box shows points, like Word (the browser reports pixels)
+                    ed.on('init', () => ed.addQueryValueHandler('FontSize', () => {
+                        // where the selection starts (its first letters), like Word
+                        let node = ed.selection && ed.selection.getStart();
+                        if (!node) return '';
+                        if (node.nodeType !== 1) node = node.parentElement;
+                        const first = node.querySelector && !node.style.fontSize ? node.querySelector('[style*="font-size"]') : null;
+                        if (first && ed.selection.getContent({ format: 'text' }).trim().startsWith((first.textContent || '').trim().slice(0, 3))) node = first;
+                        const set = node.closest('[style*="font-size"]'), own = set && ed.getBody().contains(set) ? set.style.fontSize : '';
+                        if (/pt$/.test(own)) return own;
+                        const px = parseFloat(getComputedStyle(node).fontSize);
+                        return Number.isFinite(px) ? Math.round(px * 0.75 * 10) / 10 + 'pt' : '';
+                    }));
+                    [['meta+e', 'JustifyCenter'], ['meta+l', 'JustifyLeft'], ['meta+r', 'JustifyRight'], ['meta+j', 'JustifyFull'],
+                        ['meta+shift+e', 'JustifyCenter'], ['meta+shift+l', 'InsertUnorderedList'], ['meta+m', 'Indent'], ['meta+shift+m', 'Outdent'],
+                        ['meta+32', 'RemoveFormat'], ['meta+13', 'mcePageBreak'], ['meta+187', 'Subscript'], ['meta+shift+187', 'Superscript']]
+                        .forEach(([keys, cmd]) => ed.addShortcut(keys, '', () => ed.execCommand(cmd)));
+                    ed.addShortcut('meta+221', 'Bigger text', () => setSize(sizeNow() + 1));
+                    ed.addShortcut('meta+219', 'Smaller text', () => setSize(sizeNow() - 1));
+                    ed.addShortcut('meta+shift+190', 'Next size', () => { const n = sizeNow(); setSize(docSizes.find(x => x > n + 0.05) ?? n); });
+                    ed.addShortcut('meta+shift+188', 'Previous size', () => { const n = sizeNow(); setSize([...docSizes].reverse().find(x => x < n - 0.05) ?? n); });
+                    ed.addShortcut('meta+p', 'Preview the PDF', () => previewDocument());
                     ed.ui.registry.addButton('slnewpage', { text: 'New page', icon: 'page-break', tooltip: 'Start a new page here (what follows goes on the next page)', onAction: () => ed.execCommand('mcePageBreak') });
                     ed.ui.registry.addMenuButton('slanswer', { text: 'Insert answer', icon: 'user', tooltip: "Put a student's answer in the text", fetch: cb => cb(answerMenu(ed)) });
                     ed.on('input change undo redo keyup ExecCommand', () => docChanged());
@@ -4057,6 +4173,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         [docEditors.header, docEditors.body, docEditors.footer].forEach(ed => ed.undoManager.clear());
         docStatus(docEditors.body);
         docEditors.body.focus();
+        setDocZoom(docZoom);
         readDocEditors();
         paginateDoc();
         setTimeout(paginateDoc, 600);   // pictures take a moment to load
@@ -4155,13 +4272,14 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     });
                 } else blocks.push({ el, sel, brk: el.matches('.page-break, .mce-pagebreak') || !!el.querySelector('.mce-pagebreak') });
             });
-            const bodyTop = () => body.getBoundingClientRect().top;
+            // measured on screen at the zoom shown; worked out at 100%
+            const Z = docZoom || 1, bodyTop = () => body.getBoundingClientRect().top;
             const moveTo = (b, target) => {
                 const cs = getComputedStyle(b.row ? (b.el.cells[0] || b.el) : b.el);
                 const base = parseFloat(b.row ? cs.paddingTop : cs.marginTop) || 0;
                 let extra = 0;
                 for (let k = 0; k < 4; k++) {
-                    const d = target - (b.el.getBoundingClientRect().top - bodyTop());
+                    const d = target - (b.el.getBoundingClientRect().top - bodyTop()) / Z;
                     if (Math.abs(d) < 0.5) break;
                     extra += d;
                     rules.set(b.sel, b.row ? `${b.sel} > td, ${b.sel} > th { padding-top: ${base + extra}px !important; }` : `${b.sel} { margin-top: ${base + extra}px !important; }`);
@@ -4175,7 +4293,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 if (b.brk) { breakNext = true; continue; }
                 const r = b.el.getBoundingClientRect();
                 if (!r.height) continue;
-                let y0 = r.top - bodyTop(), y1 = r.bottom - bodyTop();
+                let y0 = (r.top - bodyTop()) / Z, y1 = (r.bottom - bodyTop()) / Z;
                 while (y0 >= startOf(sheet + 1) - 1) sheet++;
                 const end = startOf(sheet) + content;
                 // (a little over is allowed: the browser's letters run about 1.5% taller than the printout's)
@@ -4185,7 +4303,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     breakNext = false;
                 }
             }
-            const last = body.getBoundingClientRect().bottom - bodyTop();
+            const last = (body.getBoundingClientRect().bottom - bodyTop()) / Z;
             const count = Math.max(1, Math.floor(Math.max(0, last - 1) / (H + GAP)) + 1, sheet + 1);
             body.style.minHeight = (startOf(count - 1) + content) + 'px';
             page.style.minHeight = (startOf(count - 1) + H) + 'px';
@@ -5448,6 +5566,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         if (ctrl && (key === 'y' || (key === 'z' && e.shiftKey))) { e.preventDefault(); redoChange(); }
         const inDesigner = designerOpen();
         if (!inDesigner) return;
+        if (ctrl && ribbonShortcut(e)) return;   // Word's shortcuts on the added text selected
         if (ctrl && key === 'c' && copySelection()) { e.preventDefault(); return; }
         if (ctrl && key === 'v' && pasteSelection()) { e.preventDefault(); return; }
         // Arrows nudge what is selected (Shift: further)
