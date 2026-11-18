@@ -143,8 +143,14 @@ function formDocumentFill(string $html, array $values, array $system, array $lab
             $span->setAttribute('class', $sys === 'page_number' ? 'sl-page' : 'sl-pages');   // filled by dompdf on each page
             continue;
         }
+        $is_check = str_contains(' ' . $span->getAttribute('class') . ' ', ' sl-check ');
+        if ($sample && $is_check) {   // a tick box shows where its X prints (its name would not fit between its brackets)
+            $span->appendChild($doc->createTextNode('X'));
+            $span->setAttribute('class', 'sl-tick sl-sample');
+            continue;
+        }
         if ($sample) {
-            $name = $pdf_field !== '' ? ($span->getAttribute('data-label') ?: ($labels['pdf:' . $pdf_field] ?? ucwords(trim(preg_replace('/[_\s]+/', ' ', $pdf_field)))))
+            $name =$pdf_field !== '' ? ($span->getAttribute('data-label') ?: ($labels['pdf:' . $pdf_field] ?? ucwords(trim(preg_replace('/[_\s]+/', ' ', $pdf_field)))))
                 : ($sys !== '' ? (FORM_DOCUMENT_SYSTEM_FIELDS[$sys] ?? $sys) : ($labels[$fid] ?? 'Removed question'));
             $span->appendChild($doc->createTextNode('[' . $name . ']'));
             $span->setAttribute('class', 'sl-answer sl-sample');

@@ -3904,7 +3904,13 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (toEditor) {
                 span.setAttribute('contenteditable', 'false');
                 if (span.dataset.sys) { span.textContent = '[' + (DOC_SYS[span.dataset.sys] || span.dataset.sys) + ']'; return; }
-                if (span.dataset.pdfField) { span.textContent = '[' + (span.dataset.label || pdfBlankLabel(span.dataset.pdfField)) + ']'; return; }
+                if (span.dataset.pdfField) {
+                    const label = span.dataset.label || pdfBlankLabel(span.dataset.pdfField);
+                    // a tick box shows a tick (its name on hover): its label would not fit between its ( )
+                    if (span.classList.contains('sl-check')) { span.textContent = '[✓]'; span.title = 'Tick box: ' + label; return; }
+                    span.textContent = '[' + label + ']';
+                    return;
+                }
                 const id = Number(span.dataset.fieldId), f = span.dataset.qk ? findField(span.dataset.qk) : fbFields.find(x => x.id === id);
                 span.removeAttribute('data-field-id');
                 if (f) { span.dataset.qk = f.key; span.classList.remove('sl-missing'); span.textContent = '[' + (f.label || 'Untitled question') + ']'; }
@@ -4015,7 +4021,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 font_family_formats: 'Times New Roman=times new roman,times,serif; Arial=arial,helvetica,sans-serif; Courier New=courier new,courier,monospace',
                 font_size_formats: '8pt 9pt 10pt 11pt 12pt 14pt 16pt 18pt 20pt 24pt 28pt 36pt',
                 block_formats: 'Normal text=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Small heading=h4',
-                noneditable_class: 'sl-field', extended_valid_elements: 'span[class|style|data-qk|data-sys|contenteditable]',
+                noneditable_class: 'sl-field', extended_valid_elements: 'span[class|style|title|data-qk|data-sys|data-pdf-field|data-label|contenteditable]',
                 pagebreak_separator: '<div class="page-break"></div>', pagebreak_split_block: true,
                 table_default_attributes: { border: '1' }, table_default_styles: { 'border-collapse': 'collapse', width: '100%' },
                 image_title: false, image_description: true, automatic_uploads: false, paste_data_images: true, convert_urls: false, entity_encoding: 'raw',
