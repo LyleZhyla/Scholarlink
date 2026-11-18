@@ -4174,7 +4174,11 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                         ed.undoManager.transact(() => {
                             // held by its paragraph, not inside a run of formatted words (the printout floats it only there)
                             if (mode !== 'inline' && block !== ed.getBody() && img.parentNode !== block) block.insertBefore(img, block.firstChild);
+                            // the picture's own setup is kept (a copied letterhead's seal is set to stand out of its band):
+                            // "In line with text" brings it back as it was
+                            if (!img.hasAttribute('data-sl-style')) img.setAttribute('data-sl-style', img.getAttribute('style') || '');
                             WRAPS.forEach(([k]) => img.classList.remove('sl-wrap-' + k));
+                            if (mode === 'inline') { ed.dom.setAttrib(img, 'style', img.getAttribute('data-sl-style') || null); return; }
                             ['float', 'position', 'left', 'top', 'z-index', 'display', 'margin', 'margin-left', 'margin-right', 'margin-top', 'margin-bottom', 'vertical-align']
                                 .forEach(prop => ed.dom.setStyle(img, prop, ''));
                             img.classList.add('sl-wrap-' + mode);
@@ -4285,12 +4289,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         fbDoc.header = docEditors.header.getContent();
         fbDoc.body = docEditors.body.getContent();
         fbDoc.footer = docEditors.footer.getContent();
-        const zone = id => document.getElementById(id).closest('.doc-zone');
-        if (!fbDoc.layout) {
-            const inner = id => { const el = document.getElementById(id); return [...el.children].reduce((h, c) => Math.max(h, c.offsetTop + c.offsetHeight), 0); };
-            fbDoc.header_mm = Math.round(pxToMm(inner('docHeader')) * 10) / 10;
-            fbDoc.footer_mm = Math.round(pxToMm(inner('docFooter')) * 10) / 10;
-        }
+        // the header and footer are as tall as what is in them (a copied PDF's too, after an edit there), so they never run
+        // into the text; a copied PDF's stay as measured from it while what is in them still fits
+        const inner = id => { const el = document.getElementById(id); return [...el.children].reduce((h, c) => Math.max(h, c.offsetTop + c.offsetHeight), 0); };
+        ['header', 'footer'].forEach(part => {
+            const had = fbDoc[part + '_mm'] || 0, now = Math.round(pxToMm(inner(part === 'header' ? 'docHeader' : 'docFooter')) * 10) / 10;
+            if (!fbDoc.layout) fbDoc[part + '_mm'] = now;
+            else {
+                fbDoc.layout[part + 'Base'] = fbDoc.layout[part + 'Base'] ?? had;   // the PDF's own
+                fbDoc[part + '_mm'] = Math.max(fbDoc.layout[part + 'Base'], now);
+            }
+        });
     }
     let docChangeTimer = null;
     function docChanged() {

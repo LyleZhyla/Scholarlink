@@ -43,7 +43,10 @@ function loadFormDocument(PDO $pdo, int $scholarship_id): ?array {
 // Page margins in mm (top, right, bottom, left) and whether the header runs to the paper's left and right edges
 function cleanFormDocumentLayout($layout): ?array {
     if (!is_array($layout) || !isset($layout['margins']) || !is_array($layout['margins']) || count($layout['margins']) !== 4) return null;
-    return ['margins' => array_map(fn($v) => round(max(0, min(60, (float) $v)), 1), array_values($layout['margins'])), 'bleed' => !empty($layout['bleed'])];
+    $clean = ['margins' => array_map(fn($v) => round(max(0, min(60, (float) $v)), 1), array_values($layout['margins'])), 'bleed' => !empty($layout['bleed'])];
+    // the header's / footer's height as copied from the PDF (they grow past it only while what is in them needs more)
+    foreach (['headerBase', 'footerBase'] as $k) if (isset($layout[$k]) && is_numeric($layout[$k])) $clean[$k] = round(max(0, min(130, (float) $layout[$k])), 1);
+    return $clean;
 }
 
 // ---------- cleaning what the editor sends (only formatting survives: no scripts, links or outside files) ----------
