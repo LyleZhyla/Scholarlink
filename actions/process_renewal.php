@@ -36,12 +36,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $upload_dir = '../uploads/renewals/';
     if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
 
+    // Each file is checked by its real contents (a PDF, JPG or PNG, not too big, malware-scanned) and saved with the
+    // ending that matches them, never the one in the uploader's file name
+    require_once __DIR__ . '/../includes/document_security.php';
+    $checked_ext = function (array $file): string {
+        try {
+            return inspectDocumentFile($file['tmp_name'], (string) $file['name'])['extension'];
+        } catch (RuntimeException $e) {
+            $_SESSION['error'] = 'Upload failed: ' . $e->getMessage();
+            header("Location: ../student/dashboard.php");
+            exit();
+        }
+    };
+
     // ========================================================
     // SCENARIO A: STUDENT UPLOADS APPEAL LETTER
     // ========================================================
     if ($is_appeal == 1) {
         if (isset($_FILES['appeal_file']) && $_FILES['appeal_file']['error'] == 0) {
-            $ext = pathinfo($_FILES['appeal_file']['name'], PATHINFO_EXTENSION);
+            $ext = $checked_ext($_FILES['appeal_file']);
             $appeal_path = $upload_dir . 'appeal_' . $renewal_id . '_' . time() . '.' . $ext;
             
             if (move_uploaded_file($_FILES['appeal_file']['tmp_name'], $appeal_path)) {
@@ -60,8 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     else {
         if (isset($_FILES['rog_file']) && isset($_FILES['cor_file'])) {
             
-            $rog_ext = pathinfo($_FILES['rog_file']['name'], PATHINFO_EXTENSION);
-            $cor_ext = pathinfo($_FILES['cor_file']['name'], PATHINFO_EXTENSION);
+            $rog_ext = $checked_ext($_FILES['rog_file']);
+            $cor_ext = $checked_ext($_FILES['cor_file']);
             
             $rog_path = $upload_dir . 'rog_' . $renewal_id . '_' . time() . '.' . $rog_ext;
             $cor_path = $upload_dir . 'cor_' . $renewal_id . '_' . time() . '.' . $cor_ext;

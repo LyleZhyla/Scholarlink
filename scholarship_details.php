@@ -228,12 +228,12 @@ try {
     <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <?php if(isset($_SESSION['success'])): ?>
             <div class="mb-6 p-4 rounded-xl bg-green-50 border border-green-200 text-green-800 font-bold flex items-center gap-3">
-                <i class="fas fa-check-circle text-xl"></i> <?= $_SESSION['success']; unset($_SESSION['success']); ?>
+                <i class="fas fa-check-circle text-xl"></i> <?= flashHtml($_SESSION['success']); unset($_SESSION['success']); ?>
             </div>
         <?php endif; ?>
         <?php if(isset($_SESSION['error'])): ?>
             <div class="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 font-bold flex items-center gap-3">
-                <i class="fas fa-exclamation-circle text-xl"></i> <?= $_SESSION['error']; unset($_SESSION['error']); ?>
+                <i class="fas fa-exclamation-circle text-xl"></i> <?= flashHtml($_SESSION['error']); unset($_SESSION['error']); ?>
             </div>
         <?php endif; ?>
 

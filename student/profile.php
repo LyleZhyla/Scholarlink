@@ -49,7 +49,7 @@ $profile_pic = !empty($user['ProfilePicture']) ? $user['ProfilePicture'] : 'http
 
     <?php if (isset($_SESSION['success'])): ?>
         <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-8 py-5 rounded-[2rem] mb-10 font-black text-[14px] uppercase tracking-widest flex items-center gap-4 shadow-sm">
-            <span class="text-lg">✅</span> <?= $_SESSION['success']; unset($_SESSION['success']); ?>
+            <span class="text-lg">✅</span> <?= flashHtml($_SESSION['success']); unset($_SESSION['success']); ?>
         </div>
     <?php endif; ?>
 

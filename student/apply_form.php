@@ -67,7 +67,7 @@ $vaultDocs = $vault_stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <?php if (isset($_SESSION['error'])): ?>
         <div class="max-w-4xl bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-2xl mb-6 text-sm font-bold">
-            ⚠️ <?= $_SESSION['error']; unset($_SESSION['error']); ?>
+            ⚠️ <?= flashHtml($_SESSION['error']); unset($_SESSION['error']); ?>
         </div>
     <?php endif; ?>
     <?php if (isset($_SESSION['success'])): ?>

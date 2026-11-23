@@ -103,7 +103,7 @@ try {
 
     <?php if(isset($_SESSION['error'])): ?>
         <div class="bg-red-50 text-red-700 p-4 rounded-2xl mb-6 font-bold border border-red-200 text-sm flex items-center gap-3">
-            ⚠️ <?= $_SESSION['error']; unset($_SESSION['error']); ?>
+            ⚠️ <?= flashHtml($_SESSION['error']); unset($_SESSION['error']); ?>
         </div>
     <?php endif; ?>
 

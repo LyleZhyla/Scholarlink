@@ -40,12 +40,12 @@ $providers = $pdo->query("SELECT u.UserID,u.FirstName,u.LastName,u.Organization,
 
     <?php if(isset($_SESSION['success'])): ?>
         <div class="bg-green-50 border border-green-200 text-green-700 p-4 rounded-xl mb-6 text-sm font-bold flex items-center gap-3">
-            ✅ <?= $_SESSION['success']; unset($_SESSION['success']); ?>
+            ✅ <?= flashHtml($_SESSION['success']); unset($_SESSION['success']); ?>
         </div>
     <?php endif; ?>
     <?php if(isset($_SESSION['error'])): ?>
         <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-6 text-sm font-bold flex items-center gap-3">
-            ⚠️ <?= $_SESSION['error']; unset($_SESSION['error']); ?>
+            ⚠️ <?= flashHtml($_SESSION['error']); unset($_SESSION['error']); ?>
         </div>
     <?php endif; ?>
 

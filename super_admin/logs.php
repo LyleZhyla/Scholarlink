@@ -88,12 +88,12 @@ try {
 
     <?php if(isset($_SESSION['success'])): ?>
         <div class="bg-green-50 text-green-700 p-4 rounded-2xl mb-6 font-bold border border-green-200 text-sm flex items-center gap-3 shadow-sm">
-            <span class="text-lg">✅</span> <?= $_SESSION['success']; unset($_SESSION['success']); ?>
+            <span class="text-lg">✅</span> <?= flashHtml($_SESSION['success']); unset($_SESSION['success']); ?>
         </div>
     <?php endif; ?>
     <?php if(isset($_SESSION['error'])): ?>
         <div class="bg-red-50 text-red-600 p-4 rounded-2xl mb-6 font-bold border border-red-100 text-sm flex items-center gap-3 shadow-sm">
-            <span class="text-lg">⚠️</span> <?= $_SESSION['error']; unset($_SESSION['error']); ?>
+            <span class="text-lg">⚠️</span> <?= flashHtml($_SESSION['error']); unset($_SESSION['error']); ?>
         </div>
     <?php endif; ?>
 

@@ -65,17 +65,17 @@ try {
 
                 <?php if(isset($_SESSION['error'])): ?>
                     <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl mb-6 text-sm font-bold flex items-center gap-3">
-                        ⚠️ <?php echo $_SESSION['error']; unset($_SESSION['error']); ?>
+                        ⚠️ <?php echo flashHtml($_SESSION['error']); unset($_SESSION['error']); ?>
                     </div>
                 <?php endif; ?>
                 <?php if(isset($_SESSION['success'])): ?>
                     <div class="bg-green-50 border border-green-200 text-green-700 p-4 rounded-2xl mb-6 text-sm font-bold flex items-center gap-3">
-                        ✅ <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
+                        ✅ <?php echo flashHtml($_SESSION['success']); unset($_SESSION['success']); ?>
                     </div>
                 <?php endif; ?>
                 <?php if(isset($_SESSION['info'])): ?>
                     <div class="bg-blue-50 border border-blue-200 text-blue-700 p-4 rounded-2xl mb-6 text-sm font-bold flex items-center gap-3">
-                        ℹ️ <?php echo $_SESSION['info']; unset($_SESSION['info']); ?>
+                        ℹ️ <?php echo flashHtml($_SESSION['info']); unset($_SESSION['info']); ?>
                     </div>
                 <?php endif; ?>
 

@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['document_file'])) {
     }
 
     // 3. Generate a Secure, Unique Filename
-    $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $extension = 'pdf';   // only PDFs get this far (never the uploader's own file ending)
     $clean_type = preg_replace('/[^A-Za-z0-9\-]/', '', str_replace(' ', '', $document_type));
     $new_filename = "STU-" . $student_id . "-" . $clean_type . "-" . uniqid() . "." . $extension;
 

@@ -136,7 +136,7 @@ function getProgressColor($status) {
 
     <?php if(isset($_SESSION['success'])): ?>
         <div class="bg-green-50 text-green-700 p-4 rounded-2xl mb-6 font-bold border border-green-200 text-sm flex items-center gap-3">
-            ✅ <?= $_SESSION['success']; unset($_SESSION['success']); ?>
+            ✅ <?= flashHtml($_SESSION['success']); unset($_SESSION['success']); ?>
         </div>
     <?php endif; ?>
     <?php if(isset($_SESSION['error'])): ?>

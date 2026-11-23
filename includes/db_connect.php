@@ -29,6 +29,7 @@ auditTrackRequest($pdo);
 
 // Super Admin → Security settings; signs out inactive users on every page and action
 require_once __DIR__ . '/security_settings.php';
+require_once __DIR__ . '/flash.php';   // flashHtml(): messages after an action, printed safely
 enforceSessionTimeout($pdo);
 // Refuses a signed-in user's POST that lacks the session's security token (forged cross-site requests)
 enforceCsrf($pdo);

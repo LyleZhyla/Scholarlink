@@ -124,7 +124,7 @@ try {
 
     <?php if(isset($_SESSION['success'])): ?>
         <div class="bg-green-50 border border-green-200 text-green-700 p-4 rounded-xl mb-6 text-sm font-bold flex items-center gap-3">
-            ✅ <?= $_SESSION['success']; unset($_SESSION['success']); ?>
+            ✅ <?= flashHtml($_SESSION['success']); unset($_SESSION['success']); ?>
         </div>
     <?php endif; ?>
 

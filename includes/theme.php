@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/flash.php';   // flashHtml(): messages after an action, printed safely
 // ✨ LIGHT / DARK MODE
 // themeHead()   in <head>: applies the saved choice before the page is drawn (no white flash) and adds the
 //               dark styles. Pages are built with Tailwind colour classes, so dark mode remaps those classes

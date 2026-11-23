@@ -513,6 +513,15 @@ if ($module === 'student_documents') {
                 header("Location: ../student/requirements.php"); exit();
             }
 
+            // the real contents must be what the name says (a renamed file is refused), and it is malware-scanned
+            require_once __DIR__ . '/../includes/document_security.php';
+            try {
+                $file_ext = inspectDocumentFile($file_tmp, $file_name)['extension'];
+            } catch (RuntimeException $e) {
+                $_SESSION['error'] = 'Upload failed: ' . $e->getMessage();
+                header("Location: ../student/requirements.php"); exit();
+            }
+
             $new_file_name = "APP" . $application_id . "_REQ" . $requirement_id . "_" . time() . "." . $file_ext;
             $destination = $upload_dir . $new_file_name;
 
