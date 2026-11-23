@@ -208,6 +208,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     /* ---- PDF designer ---- */
     .pd-page { position: relative; margin: 0 auto 28px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18); background: #fff; }
     .pd-page canvas { display: block; width: 100%; }
+    .pd-page canvas.pd-sharp { position: absolute; left: 0; top: 0; pointer-events: none; }   /* the page drawn again at the zoom shown */
     .pd-overlay { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
     .pd-page-label { position: absolute; top: -22px; left: 0; font-size: 10px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; color: #94a3b8; }
     .pd-field { position: absolute; border: 1.5px dashed rgba(100, 116, 139, 0.55); background: rgba(148, 163, 184, 0.06); border-radius: 2px; cursor: pointer; }
@@ -1000,6 +1001,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 canvas.width = viewport.width * ratio;
                 canvas.height = viewport.height * ratio;
                 wrap.appendChild(canvas);
+                const sharp = document.createElement('canvas');
+                sharp.className = 'pd-sharp hidden';
+                wrap.appendChild(sharp);
                 const overlay = document.createElement('div');
                 overlay.className = 'pd-overlay';
                 wrap.appendChild(overlay);
@@ -1041,7 +1045,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                     };
                 });
 
-                pdPages.push({ num: n, overlay, canvas, source, fieldsOrig: fields, textsOrig: texts, fields, texts, cut: [], baseScale: viewport.scale, baseW: viewport.width,
+                pdPages.push({ num: n, overlay, canvas, sharp, source, fieldsOrig: fields, textsOrig: texts, fields, texts, cut: [], baseScale: viewport.scale, baseW: viewport.width,
                     get scale() { return this.baseScale * pdZoom; }, hPt: viewport.height / viewport.scale });
                 wrap.style.width = viewport.width * pdZoom + 'px';
                 paintPage(pdPages[pdPages.length - 1]);
@@ -1049,6 +1053,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             }
             pdDocFile = file;
             document.getElementById('pdZoomVal').textContent = Math.round(pdZoom * 100) + '%';
+            if (pdZoom > 1.05) sharpenPages();
         } catch (err) {
             holder.innerHTML = `<p class="text-center text-white font-black py-20">Could not open the PDF: ${esc(err.message)}</p>`;
         }
@@ -1066,6 +1071,25 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         document.getElementById('pdZoomVal').textContent = Math.round(pdZoom * 100) + '%';
         if (designerOpen()) renderDesigner();
         if (holder) holder.scrollTop = keep * holder.scrollHeight - holder.clientHeight / 2;
+        clearTimeout(setPdZoom.timer);
+        setPdZoom.timer = setTimeout(sharpenPages, 300);   // once the zooming stops
+    }
+    // Zoomed in, the pages are drawn again by the PDF reader at that size, so letters and lines stay sharp
+    async function sharpenPages() {
+        if (!pdPdfDoc || !pdPages.length) return;
+        const z = pdZoom, doc = pdPdfDoc, ratio = window.devicePixelRatio || 1;
+        for (const p of pdPages) {
+            if (z <= 1.05) { p.hiSource = null; p.hiZoom = null; }
+            else if (p.hiZoom !== z) {
+                const page = await doc.getPage(p.num), vp = page.getViewport({ scale: p.baseScale * Math.min(z, 2.5) * ratio });
+                const c = document.createElement('canvas');
+                c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+                await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                if (pdZoom !== z || pdPdfDoc !== doc) return;   // zoomed again, or another PDF opened, meanwhile
+                p.hiSource = c; p.hiZoom = z;
+            }
+            paintPage(p);
+        }
     }
     let docZoom = Math.min(2.5, Math.max(0.5, zoomStore('slDocZoom')));
     // The Word-style document shown bigger or smaller (its pages are worked out at 100%)
@@ -1175,6 +1199,21 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, W, tall);
         pieces.forEach(c => ctx.drawImage(p.source, c.sx * W, c.sy * H, c.w * W, c.h * H, c.dx * W, c.dy * H, c.w * W, tallOf(c) * H));
+        // zoomed in: the same pieces from the page drawn at that zoom, shown over the normal one (which the rest still reads)
+        if (p.sharp) {
+            const hi = p.hiSource && p.hiZoom === pdZoom ? p.hiSource : null;
+            p.sharp.classList.toggle('hidden', !hi);
+            if (hi) {
+                const W2 = hi.width, H2 = hi.height, tall2 = Math.round(H2 * p.maxY);
+                if (p.sharp.width !== W2) p.sharp.width = W2;
+                if (p.sharp.height !== tall2) p.sharp.height = tall2;
+                const g = p.sharp.getContext('2d');
+                g.fillStyle = '#fff';
+                g.fillRect(0, 0, W2, tall2);
+                pieces.forEach(c => g.drawImage(hi, c.sx * W2, c.sy * H2, c.w * W2, c.h * H2, c.dx * W2, c.dy * H2, c.w * W2, tallOf(c) * H2));
+                p.sharp.style.width = '100%';
+            }
+        }
         // By its middle: a line's box reaches a little above its letters, which may already be in the piece above
         const place = r => {
             const mx = r.x + Math.min(r.w, 0.004) / 2, my = r.y + r.h / 2;
@@ -4471,14 +4510,67 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return humanize(name).replace(/^./, c => c.toUpperCase());
     }
 
+    // Copying the PDF in again keeps what the person added: each block of the document now (a line, a table, a picture)
+    // that the fresh copy does not have goes into it after the block it came after. A block of the PDF that now holds one
+    // of the form's questions keeps that question (the person's version of it is kept). Returns { html, kept }.
+    function keepAdditions(oldHtml, newHtml) {
+        const was = docParse(oldHtml), made = docParse(newHtml);
+        // its letters and numbers only (spacing between lines differs between the editor and a fresh copy; answer spots' names too)
+        const words = el => (el.textContent || '').replace(/\[[^\]]*\]/g, '').replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
+        const pairs = t => { const m = new Map(); for (let i = 0; i < t.length - 1; i++) { const k = t.slice(i, i + 2); m.set(k, (m.get(k) || 0) + 1); } return m; };
+        const alike = (a, b) => {   // letter pairs in common (Dice): 1 the same, 0 nothing alike
+            if (a === b) return 1;
+            if (a.length < 2 || b.length < 2) return 0;
+            const A = pairs(a), B = pairs(b);
+            let common = 0;
+            A.forEach((n, k) => { common += Math.min(n, B.get(k) || 0); });
+            return 2 * common / (a.length + b.length - 2);
+        };
+        const pics = el => [...el.querySelectorAll('img')].map(i => i.getAttribute('src') || '');
+        const fresh = [...made.children], used = new Set();
+        const same = (a, b) => {
+            const wa = words(a), wb = words(b);
+            if (wa || wb) {
+                return alike(wa, wb) >= 0.85;
+            }
+            const pa = pics(a), pb = pics(b);
+            return pa.length > 0 && pa.length === pb.length && pa.every((x, k) => x === pb[k]);
+        };
+        const matchOf = el => fresh.find(f => !used.has(f) && same(el, f)) || null;
+        let anchor = null, kept = 0;
+        [...was.children].forEach(el => {
+            const empty = !words(el) && !el.querySelector('img, table, .sl-field');
+            if (empty || el.matches('.page-break, .mce-pagebreak')) return;
+            const m = matchOf(el);
+            if (m) {
+                used.add(m);
+                if (el.querySelector('.sl-field[data-qk]') && !m.querySelector('.sl-field[data-qk]')) { m.replaceWith(el.cloneNode(true)); anchor = null; kept++; return; }
+                anchor = m;
+                return;
+            }
+            // the person's: after the block it came after (or first)
+            const copy = el.cloneNode(true);
+            if (anchor) anchor.after(copy); else made.prepend(copy);
+            anchor = copy;
+            kept++;
+        });
+        return { html: made.innerHTML, kept };
+    }
+
     async function convertPdfToDocument(ask = true) {
-        if (ask && fbDoc && !confirm('Make the document again from the official PDF? What is in the document now is replaced (Undo in the editor or Back in History can bring it back).')) return;
+        // asked from the button, the document is copied again from the same PDF: what the person added is kept
+        const merge = ask && !!fbDoc;
+        if (merge && !confirm('Copy the official PDF into the document again?\n\nThe parts copied from the PDF are copied fresh. What you added yourself (your own lines, questions, tables and pictures) is kept, in the same places.\n\nUndo in the editor or History can bring back the document as it is now.')) return;
+        if (merge) readDocEditors();
+        const before = merge ? { body: fbDoc.body, header: fbDoc.header, footer: fbDoc.footer } : null;
         showAlert('success', 'Reading the official PDF and copying it into the document…');
         if (!(await ensurePdfLoaded())) { showAlert('error', 'The official PDF could not be opened.'); return; }
         pdRows = scanPdfRows();
         let made;
         try { made = await pdfToDocument(); }
         catch (err) { showAlert('error', 'Could not copy the PDF: ' + err.message); return; }
+        let kept = 0;
+        if (before) ['body', 'header', 'footer'].forEach(part => { const r = keepAdditions(before[part], made[part]); made[part] = r.html; kept += r.kept; });
         fbDoc = made;
         fbDocStale = false;
         fbFormMode = 'document';
@@ -4487,7 +4579,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         renderFormMode();
         if (docEditors) { docEditors.header.setContent(fbDoc.header); docEditors.body.setContent(fbDoc.body); docEditors.footer.setContent(fbDoc.footer); setDocPaper(fbDoc.paper, false); setTimeout(paginateDoc, 600); }
         else await openDocEditor();
-        showAlert('success', 'The official PDF is now a Word-style document. It is a close copy: check it, edit anything like in Word, then Save form. Green tags are the PDF\'s blanks (they print what the PDF printed).');
+        if (made.scanned && made.scanned.length) showAlert('error', `Page${made.scanned.length > 1 ? 's' : ''} ${made.scanned.join(', ')} of this PDF ${made.scanned.length > 1 ? 'are' : 'is'} a scanned picture (a photo of the paper), so there are no typed words for the system to read. ${made.scanned.length > 1 ? 'They were' : 'It was'} copied in as a picture: click the picture, choose Wrap text → Behind text, and type or use Insert answer over it. For a copy you can edit word by word, upload the original file (made in Word, not scanned).`);
+        else if (before) showAlert('success', `The official PDF was copied in again.${kept ? ` ${kept} thing${kept === 1 ? '' : 's'} you added ${kept === 1 ? 'was' : 'were'} kept in ${kept === 1 ? 'its place' : 'their places'}.` : ''} Check it, then Save form.`);
+        else showAlert('success', 'The official PDF is now a Word-style document. It is a close copy: check it, edit anything like in Word, then Save form. Green tags are the PDF\'s blanks (they print what the PDF printed).');
     }
 
     // ---- what is printed where, from the page image ----
@@ -4974,7 +5068,17 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
 
         const parts = { header: '', body: '', footer: '' };
         let layout = null, headerMm = 0, footerMm = 0;
+        const scanned = [];
         for (const p of pdPages) {
+            // a scanned page (a photo of the paper) has no typed words to read: it is copied in whole, as a picture
+            if (p.textsOrig.filter(t => /[A-Za-z0-9]/.test(t.str)).length < 3) {
+                scanned.push(p.num);
+                const cut = await cutPicture(p.num, { x: 0, y: 0, w: 1, h: 1 });
+                const wpx = Math.round(mmW * 96 / 25.4), hpx = Math.floor(mmH * 0.995 * 96 / 25.4);   // a hair short, or it spills onto another page
+                parts.body += (p.num > 1 ? '<div class="page-break"></div>' : '') + `<p style="margin: 0; line-height: 0;"><img src="${cut.src}" alt="Page ${p.num} of the form" width="${wpx}" height="${hpx}"></p>`;
+                if (p.num === 1) layout = { margins: [0, 0, 0, 0], bleed: false, top: 0 };
+                continue;
+            }
             const ink = pageInk(p);
             // the PDF's own lines when it draws them (exact, the faint ones too); else what the page image shows
             const vec = await pdfVectors(p.num).catch(() => null);
@@ -5409,7 +5513,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             }
         }
         const { top, ...kept } = layout || { margins: [15, 15, 15, 15], bleed: false };
-        return { ...parts, paper, header_mm: headerMm || 0, footer_mm: footerMm || 0, layout: kept };
+        return { ...parts, paper, header_mm: headerMm || 0, footer_mm: footerMm || 0, layout: kept, scanned };
     }
 
     // ================= HISTORY: earlier versions of the form =================
