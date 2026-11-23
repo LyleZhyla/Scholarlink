@@ -12,6 +12,12 @@ if (!isset($_SESSION['logged_in'])) {
 // Kung Admin, kunin ang ID sa URL. Kung Student, sariling ID lang.
 if ($_SESSION['role'] === 'Student') {
     $user_id = $_SESSION['user_id'];
+    // a student only ever has their own vault: asking for someone else's is refused (and logged as such)
+    if (isset($_GET['user_id']) && (int) $_GET['user_id'] !== (int) $user_id) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Forbidden']);
+        exit();
+    }
 } else {
     $user_id = (int) ($_GET['user_id'] ?? 0);
     if ($_SESSION['role'] === 'External_Admin') {

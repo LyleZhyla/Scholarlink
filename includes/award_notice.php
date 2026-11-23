@@ -220,10 +220,11 @@ function awardNoticeForApplication(PDO $pdo, int $application_id): ?array {
 }
 
 // Called whenever an application becomes Approved: portal notification + email with the notice attached
-function notifyAwardee(PDO $pdo, int $application_id): void {
+// Returns whether the email went out: true sent, false failed, null when the student has no email address
+function notifyAwardee(PDO $pdo, int $application_id): ?bool {
     try {
         $copy = awardNoticeForApplication($pdo, $application_id);
-        if (!$copy) return;
+        if (!$copy) return null;
         $app = $copy['app'];
         $name = awardDisplayName($copy['scholarship'], $copy['notice']);
         $deadline = $copy['notice']['SubmissionDeadline'] ? ' on or before ' . date('F j, Y', strtotime($copy['notice']['SubmissionDeadline'])) : '';
@@ -235,14 +236,13 @@ function notifyAwardee(PDO $pdo, int $application_id): void {
         $pdo->prepare("INSERT INTO notifications (UserID, Title, Message, Type) VALUES (?, ?, ?, 'success')")
             ->execute([$app['UserID'], 'Application Approved! 🏆', $msg]);
 
-        if (!empty($app['Email'])) {
-            require_once __DIR__ . '/email_config.php';
-            if (function_exists('sendAwardNoticeEmail')) {
-                sendAwardNoticeEmail($app['Email'], $app['FirstName'], $name, $copy['notice'], $copy['pdf'], $copy['filename']);
-            }
-        }
+        if (empty($app['Email'])) return null;
+        require_once __DIR__ . '/email_config.php';
+        return function_exists('sendAwardNoticeEmail')
+            && (bool) sendAwardNoticeEmail($app['Email'], $app['FirstName'], $name, $copy['notice'], $copy['pdf'], $copy['filename']);
     } catch (Throwable $e) {
         // A failed email or PDF must never undo the approval
         error_log('Approval notice failed for application ' . $application_id . ': ' . $e->getMessage());
+        return false;
     }
 }

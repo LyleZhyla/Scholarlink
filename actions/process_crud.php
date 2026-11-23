@@ -328,7 +328,9 @@ if ($module === 'student_apply') {
                 }
 
                 // 1. Insert Base Application Data
-                $sql = "INSERT INTO application (UserID, ScholarshipID, Status, DateSubmitted, GPA, TermID) 
+                // All of it or nothing: if a document is refused, no half-submitted application is left behind
+                $pdo->beginTransaction();
+                $sql = "INSERT INTO application (UserID, ScholarshipID, Status, DateSubmitted, GPA, TermID)
                         VALUES (:uid, :sid, 'Submitted', NOW(), :gpa, (SELECT TermID FROM academic_terms WHERE Status = 'Active' ORDER BY TermID DESC LIMIT 1))";
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute(['uid' => $user_id, 'sid' => $scholarship_id, 'gpa' => $gpa]);
@@ -350,9 +352,23 @@ if ($module === 'student_apply') {
 
                 snapshotApplicationVersion($pdo, (int) $new_app_id, 'Submitted', $user_id);
                 logAudit($pdo, $user_id, 'Application Submitted', "Submitted application #$new_app_id");
+                $pdo->commit();
                 $_SESSION['success'] = "Application submitted successfully!";
             }
-        } catch (Throwable $e) { $_SESSION['error'] = "Application Error: " . $e->getMessage(); }
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                // the files already saved for it go too (their records are undone with the application)
+                $saved = [];
+                if (!empty($new_app_id)) {
+                    $files = $pdo->prepare('SELECT FilePath FROM submitted_document WHERE ApplicationID = ?');
+                    $files->execute([$new_app_id]);
+                    $saved = $files->fetchAll(PDO::FETCH_COLUMN);
+                }
+                $pdo->rollBack();
+                foreach ($saved as $path) if (is_string($path) && str_starts_with($path, '../uploads/documents/')) @unlink(__DIR__ . '/' . $path);
+            }
+            $_SESSION['error'] = "Application Error: " . $e->getMessage() . ' Nothing was submitted: please fix it and submit again.';
+        }
         
         header("Location: ../student/applications.php");
         exit();
@@ -390,6 +406,15 @@ if ($module === 'student_apply') {
                 exit();
             }
 
+            // All of it or nothing (a refused document leaves the application as it was)
+            $files_of = function () use ($pdo, $app_id) {
+                $q = $pdo->prepare('SELECT FilePath FROM submitted_document WHERE ApplicationID = ?');
+                $q->execute([$app_id]);
+                return $q->fetchAll(PDO::FETCH_COLUMN);
+            };
+            $files_before = $files_of();
+            $pdo->beginTransaction();
+
             // 1. Update Base Application Data
             $stmt = $pdo->prepare("UPDATE application SET GPA = :gpa, LastSavedAt = NOW() WHERE ApplicationID = :aid AND UserID = :uid");
             $stmt->execute(['gpa' => $gpa, 'aid' => $app_id, 'uid' => $user_id]);
@@ -417,9 +442,18 @@ if ($module === 'student_apply') {
             assignApplicationConfigurationVersion($pdo, (int) $app_id, $user_id);
             snapshotApplicationVersion($pdo, (int) $app_id, $resubmitted ? 'Resubmitted' : 'Updated', $user_id);
             logAudit($pdo, $user_id, $resubmitted ? 'Application Resubmitted' : 'Application Updated', "Updated application #$app_id");
+            $pdo->commit();
             $_SESSION['success'] = $resubmitted ? "Corrected application resubmitted successfully!" : "Application updated successfully!";
         } catch (Throwable $e) {
-            $_SESSION['error'] = "Update Error: " . $e->getMessage(); 
+            if ($pdo->inTransaction()) {
+                // the files saved by this attempt go (earlier files stay: they are the application's)
+                $new_files = array_diff($files_of(), $files_before ?? []);
+                $pdo->rollBack();
+                foreach ($new_files as $path) if (is_string($path) && str_starts_with($path, '../uploads/documents/')) @unlink(__DIR__ . '/' . $path);
+                $_SESSION['error'] = "Update Error: " . $e->getMessage() . ' Your application was left as it was: please fix it and save again.';
+            } else {
+                $_SESSION['error'] = "Update Error: " . $e->getMessage();
+            }
         }
         
         header("Location: ../student/applications.php");
@@ -713,17 +747,19 @@ if ($module === 'applications' && $action === 'update_status') {
             $info_stmt->execute(['aid' => $app_id]);
             $info = $info_stmt->fetch();
 
+            $emailed = null;   // true sent, false failed, null no email address
             if ($info && $status === 'Approved') {
                 // ✨ Approved: the student gets their Approval Notice (email with PDF + portal notification)
                 require_once '../includes/award_notice.php';
-                notifyAwardee($pdo, (int) $app_id);
+                $emailed = notifyAwardee($pdo, (int) $app_id);
             } elseif ($info) {
                 // ✨ LIGTAS NA EMAIL SENDER: Hindi magka-crash ang system kahit walang internet o SMTP!
                 try {
                     if (!empty($info['Email']) && function_exists('sendScholarshipEmail')) {
-                        sendScholarshipEmail($info['Email'], $info['FirstName'], $info['scholarship_name'], $status);
+                        $emailed = (bool) sendScholarshipEmail($info['Email'], $info['FirstName'], $info['scholarship_name'], $status);
                     }
                 } catch (Exception $mail_e) {
+                    $emailed = false;
                     error_log("Email sending failed: " . $mail_e->getMessage());
                 }
 
@@ -766,7 +802,9 @@ if ($module === 'applications' && $action === 'update_status') {
                     }
                 }
             }
-            $_SESSION['success'] = "Status updated to $status and student notified via email & portal.";
+            // say what really reached the student (an email that could not be sent is not claimed)
+            $_SESSION['success'] = "Status updated to $status. " . ($emailed === true ? 'The student was notified by email and in the portal.'
+                : ($emailed === false ? 'The student was notified in the portal, but the email could not be sent (check the email settings).' : 'The student was notified in the portal.'));
         } catch (Exception $e) {
             $_SESSION['error'] = "Error: " . $e->getMessage();
         }
@@ -1201,13 +1239,13 @@ if ($module === 'applications' && $action === 'final_decision') {
                 if ($status === 'Approved') {
                     // ✨ The student gets their Approval Notice (email with PDF + portal notification)
                     require_once '../includes/award_notice.php';
-                    notifyAwardee($pdo, (int) $application_id);
+                    $emailed = notifyAwardee($pdo, (int) $application_id);
                 } else {
                     $notif_stmt = $pdo->prepare("INSERT INTO notifications (UserID, Title, Message, Type) VALUES (?, ?, ?, 'danger')");
                     $notif_stmt->execute([$info['UserID'], 'Application Update', "Your application for {$info['Name']} has been reviewed and marked as $status. You may file a formal appeal from My Applications until $appeal_deadline."]);
 
                     if (!empty($info['Email'])) {
-                        sendScholarshipEmail($info['Email'], $info['FirstName'], $info['Name'], $status);
+                        $emailed = (bool) sendScholarshipEmail($info['Email'], $info['FirstName'], $info['Name'], $status);
                     }
                 }
 
@@ -1233,8 +1271,9 @@ if ($module === 'applications' && $action === 'final_decision') {
                 }
             }
 
+            $told = ($emailed ?? null) === true ? 'by email and in the portal' : (($emailed ?? null) === false ? 'in the portal (the email could not be sent: check the email settings)' : 'in the portal');
             if($status === 'Approved') {
-                $_SESSION['success'] = "Application officially Approved! The student is now a Scholar and has been notified via email.";
+                $_SESSION['success'] = "Application officially Approved! The student is now a Scholar and has been notified $told.";
             } else {
                 $_SESSION['success'] = "Application has been $status. The student was notified of the appeal deadline ($appeal_deadline).";
             }

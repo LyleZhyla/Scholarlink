@@ -8,6 +8,7 @@ require_once '../includes/form_document.php';
 use mikehaertl\pdftk\Pdf;
 
 if (!isset($_SESSION['user_id']) || !isset($_GET['app_id'])) {
+    http_response_code(isset($_SESSION['user_id']) ? 400 : 401);   // a refusal is a refusal (the audit log records it as failed)
     exit('Unauthorized access or missing application ID.');
 }
 
@@ -36,6 +37,7 @@ try {
     $data = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$data) {
+        http_response_code(404);
         exit('Application not found or you do not have permission to view it.');
     }
 
@@ -230,6 +232,7 @@ try {
     }
 
 } catch (Exception $e) {
+    http_response_code(500);
     exit('An error occurred while generating the PDF: ' . $e->getMessage());
 }
 ?>
