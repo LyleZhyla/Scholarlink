@@ -55,7 +55,9 @@ function sanitizeFormDocumentHtml(string $html): string {
     $allowed = ['p', 'br', 'span', 'strong', 'b', 'em', 'i', 'u', 's', 'sub', 'sup', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
         'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption', 'colgroup', 'col', 'img', 'div', 'hr', 'blockquote'];
     $drop = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'select', 'textarea', 'link', 'meta', 'svg', 'math', 'template', 'noscript', 'video', 'audio', 'canvas'];
-    $attrs = ['style', 'class', 'colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'border', 'cellpadding', 'cellspacing', 'src', 'alt', 'start', 'type', 'data-field-id', 'data-qi', 'data-sys', 'data-label', 'data-pdf-field'];
+    $attrs = ['style', 'class', 'colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'border', 'cellpadding', 'cellspacing', 'src', 'alt', 'start', 'type', 'data-field-id', 'data-qi', 'data-sys', 'data-label', 'data-pdf-field',
+        'data-sl-style',   // a picture's own look before it was wrapped (to bring it back), cleaned like style
+        'data-sl-copy'];   // a part copied from the PDF: a fingerprint of its words when copied (edited since if they differ)
     $styles = ['color', 'background-color', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'text-align', 'vertical-align', 'line-height',
         'width', 'height', 'min-width', 'max-width', 'min-height', 'display', 'border-radius', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color', 'border-width', 'border-style',
         'border-collapse', 'border-spacing', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
@@ -92,7 +94,9 @@ function sanitizeFormDocumentHtml(string $html): string {
                     $keep = array_values(array_intersect(preg_split('/\s+/', $value), ['sl-field', 'page-break', 'sl-missing', 'sl-check',
                         'sl-wrap-inline', 'sl-wrap-square', 'sl-wrap-tight', 'sl-wrap-through', 'sl-wrap-topbottom', 'sl-wrap-behind', 'sl-wrap-front']));
                     $keep ? $child->setAttribute('class', implode(' ', $keep)) : $child->removeAttribute('class');
-                } elseif ($name === 'style') {
+                } elseif ($name === 'data-sl-copy') {
+                    if (!preg_match('/^[a-z0-9]{1,16}$/', $value)) $child->removeAttribute($a->name);
+                } elseif ($name === 'style' || $name === 'data-sl-style') {
                     $kept = [];
                     foreach (explode(';', $value) as $decl) {
                         if (!str_contains($decl, ':')) continue;
@@ -105,7 +109,8 @@ function sanitizeFormDocumentHtml(string $html): string {
                         if (($prop === 'left' || $prop === 'top') && !preg_match('/^-?[0-9.]+(mm|pt|px|cm|in|%)?$/i', $val)) continue;
                         $kept[] = $prop . ': ' . $val;
                     }
-                    $kept ? $child->setAttribute('style', implode('; ', $kept)) : $child->removeAttribute('style');
+                    if ($name === 'data-sl-style') $child->setAttribute($name, implode('; ', $kept));   // empty: it had none
+                    else $kept ? $child->setAttribute('style', implode('; ', $kept)) : $child->removeAttribute('style');
                 } elseif (in_array($name, ['data-field-id', 'data-qi'], true)) {
                     if (!ctype_digit($value)) $child->removeAttribute($a->name);
                 } elseif ($name === 'data-pdf-field') {

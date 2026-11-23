@@ -193,6 +193,7 @@ function auditTrackRequest(PDO $pdo): void {
     $details = auditRequestDetails($pdo);
 
     register_shutdown_function(function () use ($pdo, $script, $activity, $last_id, $user_at_start, $had_error, $details) {
+        if (!empty($GLOBALS['AUDIT_SKIP_REQUEST'])) return;   // the script chose to log nothing (a repeat it already logged)
         $user_id = $_SESSION['user_id'] ?? $user_at_start;
         try {
             // The script wrote its own, more specific entry (for this user or this computer), or the

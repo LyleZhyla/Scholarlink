@@ -45,9 +45,17 @@ try {
 } catch (Throwable $e) {
     fail('Could not make the preview: ' . $e->getMessage(), 500);
 }
-// Its own entry (the request is JSON, so the automatic one would not know which scholarship it was)
-logAudit($pdo, (int) $_SESSION['user_id'], 'Preview Form Document',
-    "Previewed the Word-style application form of {$authority['ScholarshipName']} (#$scholarship_id)");
+// Its own entry (the request is JSON, so the automatic one would not know which scholarship it was). The editor's
+// "Printed pages" panel makes the pages again as the person types: logged once per scholarship every 15 minutes
+$live = !empty($payload['live']);
+$key = 'live_preview_logged_' . $scholarship_id;
+if ($live && isset($_SESSION[$key]) && time() - (int) $_SESSION[$key] < 900) {
+    $GLOBALS['AUDIT_SKIP_REQUEST'] = true;
+} else {
+    if ($live) $_SESSION[$key] = time();
+    logAudit($pdo, (int) $_SESSION['user_id'], 'Preview Form Document',
+        ($live ? 'Viewed the printed pages of' : 'Previewed') . " the Word-style application form of {$authority['ScholarshipName']} (#$scholarship_id)");
+}
 header('Content-Type: application/pdf');
 header('Content-Disposition: inline; filename="Form_preview.pdf"');
 header('Content-Length: ' . strlen($pdf));

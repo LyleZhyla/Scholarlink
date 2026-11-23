@@ -144,6 +144,12 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     .doc-page table[border="1"] td, .doc-page table[border="1"] th { border: 0.75pt solid #000; }
     .doc-page img { display: inline; max-width: 100%; }
     .doc-page img.sl-wrap-behind, .doc-page img.sl-wrap-front { cursor: move; }
+    #docCrop .crop-stage { position: relative; display: inline-block; cursor: crosshair; user-select: none; touch-action: none; }
+    #docCrop .crop-stage img { display: block; max-width: min(760px, 80vw); max-height: 60vh; }
+    #docCrop .crop-box { position: absolute; border: 2px solid #2563eb; box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55); cursor: move; }
+    #docCrop .crop-box span { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid #2563eb; border-radius: 3px; }
+    #docCrop .crop-box .nw { left: -7px; top: -7px; cursor: nwse-resize; } #docCrop .crop-box .ne { right: -7px; top: -7px; cursor: nesw-resize; }
+    #docCrop .crop-box .sw { left: -7px; bottom: -7px; cursor: nesw-resize; } #docCrop .crop-box .se { right: -7px; bottom: -7px; cursor: nwse-resize; }
     .doc-page img.sl-wrap-behind { opacity: 0.92; }
     .doc-page hr { border-top: 1px solid #000; margin: 6pt 0; }
     .doc-page .page-break, .doc-page .mce-pagebreak { display: block; width: 100%; height: 0; border: 0; border-top: 2px dashed #94a3b8; margin: 2pt 0; }
@@ -611,18 +617,30 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                 </select>
             </label>
             <button type="button" onclick="convertPdfToDocument()" title="Make the document again from the official PDF" class="px-4 py-2 rounded-xl border border-blue-200 bg-white text-[11px] font-black uppercase tracking-widest text-blue-700 hover:bg-blue-50"><i class="fas fa-wand-magic-sparkles"></i> Copy the PDF in</button>
+            <button type="button" id="docPrintToggle" onclick="togglePrintPane()" title="See the real printed pages beside the document, kept up to date as you type" class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase tracking-widest text-slate-700 hover:border-slate-900"><i class="fas fa-table-columns"></i> Printed pages</button>
             <button type="button" onclick="previewDocument()" class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-[11px] font-black uppercase tracking-widest text-slate-700 hover:border-slate-900"><i class="fas fa-eye"></i> Preview PDF</button>
             <button type="button" onclick="closeDocEditor()" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-blue-600">Done</button>
         </div>
     </div>
     <div id="docToolbar" class="bg-white border-y border-slate-200 min-h-[42px]"><p id="docToolbarHint" class="px-4 py-3 text-xs font-bold text-slate-500"><i class="fas fa-i-cursor"></i> Click in the page to type. The toolbar appears here.</p></div>
-    <div id="docScroll" class="flex-1 min-h-0 overflow-auto py-8 px-4">
+    <div class="flex-1 min-h-0 flex">
+    <div id="docScroll" class="flex-1 min-w-0 overflow-auto py-8 px-4">
         <div id="docPage" class="doc-page">
             <div id="docSheets" class="doc-sheets"></div>
             <div class="doc-zone" data-zone="Header"><div id="docHeader" class="doc-part"></div></div>
             <div id="docBody" class="doc-part doc-body"></div>
             <div class="doc-zone" data-zone="Footer"><div id="docFooter" class="doc-part"></div></div>
         </div>
+    </div>
+    <!-- the real printed pages (the same PDF a student gets, answer spots shown by name), beside the document -->
+    <aside id="docPrintPane" class="hidden w-[400px] max-w-[45vw] shrink-0 bg-slate-600 border-l border-slate-400 flex-col min-h-0">
+        <div class="flex items-center gap-2 px-3 py-2 bg-white border-b border-slate-200">
+            <p class="text-[11px] font-black text-slate-700 uppercase tracking-widest">Printed pages</p>
+            <span id="docPrintInfo" class="text-[11px] font-semibold text-slate-500 truncate"></span>
+            <button type="button" onclick="refreshPrintPane()" title="Make the printed pages again now" class="ml-auto px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-black text-slate-700 hover:border-slate-900"><i class="fas fa-rotate"></i></button>
+        </div>
+        <div id="docPrintPages" class="flex-1 min-h-0 overflow-auto p-3 space-y-3"></div>
+    </aside>
     </div>
     <div class="bg-white border-t border-slate-200 px-4 py-1.5 text-[11px] font-medium text-slate-500 flex flex-wrap gap-x-5 gap-y-1">
         <span id="docStatus"></span>
@@ -634,6 +652,20 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             <button type="button" onclick="setDocZoom(1)" title="Back to 100%">100%</button>
         </span>
         <span><b>Insert answer</b> (toolbar) puts a student's answer in the text · copy from a Word file and paste (Ctrl+V) to bring a form in · <b>Table</b> menu for tables · Ctrl+Z undoes</span>
+    </div>
+</div>
+
+<!-- Crop a picture of the Word-style document -->
+<div id="docCrop" class="hidden fixed inset-0 z-[10000] bg-slate-900/70 items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Crop the picture">
+    <div class="bg-white rounded-2xl shadow-2xl p-5 max-w-[95vw]">
+        <p class="text-sm font-black text-slate-900">Crop the picture</p>
+        <p class="text-xs font-semibold text-slate-500 mb-3">Drag on the picture to choose the part to keep. Drag the box to move it, or its corners to resize it.</p>
+        <div class="text-center bg-slate-100 rounded-xl p-3 overflow-auto max-h-[68vh]"><div id="docCropStage" class="crop-stage"></div></div>
+        <div class="flex flex-wrap justify-end gap-2 mt-4">
+            <button type="button" onclick="cropReset()" class="px-4 py-2 rounded-xl border border-slate-200 text-[11px] font-black uppercase tracking-widest text-slate-700 hover:border-slate-900">Whole picture</button>
+            <button type="button" onclick="closeCrop()" class="px-4 py-2 rounded-xl border border-slate-200 text-[11px] font-black uppercase tracking-widest text-slate-700 hover:border-slate-900">Cancel</button>
+            <button type="button" id="docCropApply" onclick="applyCrop()" class="px-5 py-2 rounded-xl bg-blue-700 text-white text-[11px] font-black uppercase tracking-widest hover:bg-blue-800"><i class="fas fa-crop-simple"></i> Crop</button>
+        </div>
     </div>
 </div>
 
@@ -4250,9 +4282,10 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
                             cb(WRAPS.map(([k, label]) => ({ type: 'togglemenuitem', text: label, active: now === k, onAction: () => setWrap(ed.selection.getNode(), k) })));
                         },
                     });
+                    ed.ui.registry.addButton('slcrop', { text: 'Crop', icon: 'crop', tooltip: 'Keep only part of the picture', onAction: () => openCrop(ed, ed.selection.getNode()) });
                     ed.ui.registry.addContextToolbar('slimage', {
                         predicate: n => n.nodeName === 'IMG' && !n.classList.contains('mce-pagebreak'),
-                        items: 'slwrap | alignleft aligncenter alignright | image', position: 'node', scope: 'node',
+                        items: 'slwrap slcrop | alignleft aligncenter alignright | image', position: 'node', scope: 'node',
                     });
                     // a picture behind / in front of the text: press and drag it anywhere
                     const behindAt = (x, y) => {
@@ -4312,6 +4345,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         setDocZoom(docZoom);
         readDocEditors();
         paginateDoc();
+        try { if (localStorage.getItem('slPrintPane')) togglePrintPane(true); } catch (e) { /* no storage */ }
         setTimeout(paginateDoc, 600);   // pictures take a moment to load
     }
 
@@ -4349,6 +4383,7 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
             if (JSON.stringify([fbDoc.header, fbDoc.body, fbDoc.footer]) !== before) { setDirty(true); renderFormMode(); }
             if (docEditors) docStatus(tinymce.activeEditor || docEditors.body);
             paginateDoc();
+            printPaneSoon();
         }, 250);
     }
 
@@ -4362,6 +4397,131 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         Object.assign(document.getElementById('docPage').style, { width: mmToPx(w) + 'px', minHeight: mmToPx(h) + 'px', padding: m.map(v => v + 'mm').join(' ') });
         renderFormMode();
         paginateDoc();
+    }
+
+    // ---- crop a picture (Word's Crop): the part kept becomes the picture, shown at the same scale ----
+    let docCropState = null;   // { ed, img, box: { x, y, w, h } as parts of the picture }
+    function openCrop(ed, img) {
+        if (!img || img.nodeName !== 'IMG') return;
+        const stage = document.getElementById('docCropStage');
+        stage.innerHTML = `<img src="${img.getAttribute('src')}" alt="" draggable="false"><div class="crop-box"><span class="nw"></span><span class="ne"></span><span class="sw"></span><span class="se"></span></div>`;
+        docCropState = { ed, img, box: { x: 0, y: 0, w: 1, h: 1 } };
+        const modal = document.getElementById('docCrop');
+        modal.classList.remove('hidden'); modal.classList.add('flex');
+        const pic = stage.querySelector('img');
+        if (pic.complete) drawCrop(); else pic.onload = drawCrop;
+        stage.onpointerdown = e => {
+            e.preventDefault();
+            const r = pic.getBoundingClientRect(), b0 = { ...docCropState.box };
+            const at = ev => ({ x: Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height)) });
+            const whole = b0.w > 0.99 && b0.h > 0.99;   // nothing chosen yet: a drag anywhere draws the box
+            const p0 = at(e), handle = e.target.tagName === 'SPAN' ? e.target.className : e.target.classList.contains('crop-box') && !whole ? 'move' : 'new';
+            stage.setPointerCapture(e.pointerId);
+            stage.onpointermove = ev => {
+                const p1 = at(ev), dx = p1.x - p0.x, dy = p1.y - p0.y;
+                let { x, y, w, h } = b0;
+                if (handle === 'new') { x = Math.min(p0.x, p1.x); y = Math.min(p0.y, p1.y); w = Math.abs(dx); h = Math.abs(dy); }
+                else if (handle === 'move') { x = Math.min(1 - w, Math.max(0, x + dx)); y = Math.min(1 - h, Math.max(0, y + dy)); }
+                else {
+                    let x1 = x + w, y1 = y + h;
+                    if (handle.includes('w')) x = Math.min(x1 - 0.02, x + dx); else x1 = Math.max(x + 0.02, x1 + dx);
+                    if (handle.includes('n')) y = Math.min(y1 - 0.02, y + dy); else y1 = Math.max(y + 0.02, y1 + dy);
+                    x = Math.max(0, x); y = Math.max(0, y); w = Math.min(1, x1) - x; h = Math.min(1, y1) - y;
+                }
+                docCropState.box = { x, y, w, h };
+                drawCrop();
+            };
+            stage.onpointerup = () => { stage.onpointermove = null; if (docCropState.box.w < 0.02 || docCropState.box.h < 0.02) cropReset(); };
+        };
+    }
+    function drawCrop() {
+        const stage = document.getElementById('docCropStage'), pic = stage.querySelector('img'), el = stage.querySelector('.crop-box');
+        if (!docCropState || !pic || !el) return;
+        const { x, y, w, h } = docCropState.box, W = pic.clientWidth, H = pic.clientHeight;
+        Object.assign(el.style, { left: x * W + 'px', top: y * H + 'px', width: w * W + 'px', height: h * H + 'px' });
+        document.getElementById('docCropApply').disabled = w > 0.995 && h > 0.995;
+    }
+    function cropReset() { if (docCropState) { docCropState.box = { x: 0, y: 0, w: 1, h: 1 }; drawCrop(); } }
+    function closeCrop() {
+        const modal = document.getElementById('docCrop');
+        modal.classList.add('hidden'); modal.classList.remove('flex');
+        document.getElementById('docCropStage').onpointerdown = null;
+        docCropState = null;
+    }
+    function applyCrop() {
+        const st = docCropState;
+        if (!st) return;
+        const pic = document.querySelector('#docCropStage img'), { x, y, w, h } = st.box;
+        const nw = pic.naturalWidth, nh = pic.naturalHeight, sx = Math.round(x * nw), sy = Math.round(y * nh);
+        const cw = Math.max(1, Math.round(w * nw)), ch = Math.max(1, Math.round(h * nh));
+        const c = document.createElement('canvas');
+        c.width = cw; c.height = ch;
+        c.getContext('2d').drawImage(pic, sx, sy, cw, ch, 0, 0, cw, ch);
+        const src = /^data:image\/jpe?g/i.test(pic.src) ? c.toDataURL('image/jpeg', 0.92) : c.toDataURL('image/png');
+        // shown at the same scale as before: a smaller part, a smaller picture
+        const img = st.img, shownW = img.getBoundingClientRect().width / (docZoom || 1) || Number(img.getAttribute('width')) || nw;
+        const shownH = img.getBoundingClientRect().height / (docZoom || 1) || Number(img.getAttribute('height')) || nh;
+        st.ed.undoManager.transact(() => {
+            st.ed.dom.setAttribs(img, { src, 'data-mce-src': src, width: Math.max(1, Math.round(shownW * w)), height: Math.max(1, Math.round(shownH * h)) });
+            st.ed.dom.setStyles(img, { width: '', height: '' });
+        });
+        st.ed.nodeChanged();
+        docChanged();
+        closeCrop();
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && docCropState) closeCrop(); });
+
+    // ---- the real printed pages, beside the document ----
+    // The printout itself (actions/preview_form_document.php, answer spots shown by name), drawn page by page with the PDF
+    // reader; made again a moment after typing stops while the panel is open, so page breaks are exactly the printed ones
+    let docPrintBusy = false, docPrintAgain = false, docPrintTimer = null;
+    function togglePrintPane(show) {
+        const pane = document.getElementById('docPrintPane');
+        const open = show ?? pane.classList.contains('hidden');
+        pane.classList.toggle('hidden', !open); pane.classList.toggle('flex', open);
+        document.getElementById('docPrintToggle').classList.toggle('bg-blue-50', open);
+        try { localStorage.setItem('slPrintPane', open ? '1' : ''); } catch (e) { /* no storage */ }
+        if (open) refreshPrintPane();
+    }
+    function printPaneSoon() {
+        if (document.getElementById('docPrintPane').classList.contains('hidden')) return;
+        clearTimeout(docPrintTimer);
+        docPrintTimer = setTimeout(refreshPrintPane, 2500);
+    }
+    async function refreshPrintPane() {
+        const pane = document.getElementById('docPrintPane');
+        if (!fbDoc || pane.classList.contains('hidden')) return;
+        if (docPrintBusy) { docPrintAgain = true; return; }
+        docPrintBusy = true;
+        const info = document.getElementById('docPrintInfo'), holder = document.getElementById('docPrintPages');
+        info.textContent = 'Making the pages…';
+        try {
+            const res = await fetch('../actions/preview_form_document.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scholarship_id: FB_SCHOLARSHIP_ID, live: true, document: docForServer(), labels: Object.fromEntries(fbFields.map((f, i) => [i, f.label || 'Untitled question'])),
+                    pdf_labels: Object.fromEntries(activeTemplate().fields.map(f => [f.name, pdfBlankLabel(f.name)])) }) });
+            if (!res.ok) throw new Error(await res.text());
+            const doc = await pdfjsLib.getDocument({ data: await res.arrayBuffer() }).promise;
+            const width = Math.max(200, holder.clientWidth - 24), ratio = window.devicePixelRatio || 1, canvases = [];
+            for (let n = 1; n <= doc.numPages; n++) {
+                const page = await doc.getPage(n), vp = page.getViewport({ scale: width / page.getViewport({ scale: 1 }).width * ratio });
+                const c = document.createElement('canvas');
+                c.width = vp.width; c.height = vp.height; c.style.width = width + 'px'; c.className = 'block bg-white shadow-lg mx-auto';
+                await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                const wrap = document.createElement('div');
+                wrap.innerHTML = `<p class="text-[10px] font-black text-white/80 uppercase tracking-widest mb-1">Page ${n} of ${doc.numPages}</p>`;
+                wrap.appendChild(c);
+                canvases.push(wrap);
+            }
+            const keep = holder.scrollTop;
+            holder.replaceChildren(...canvases);
+            holder.scrollTop = keep;
+            info.textContent = `${doc.numPages} page${doc.numPages === 1 ? '' : 's'} · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+        } catch (err) {
+            info.textContent = 'Could not make the pages: ' + String(err.message || err).slice(0, 120);
+        } finally {
+            docPrintBusy = false;
+            if (docPrintAgain) { docPrintAgain = false; refreshPrintPane(); }
+        }
     }
 
     // ---- pages, as printed ----
@@ -4510,9 +4670,92 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         return humanize(name).replace(/^./, c => c.toUpperCase());
     }
 
+    // ---- reading a scanned page (text recognition, Tesseract.js, loaded from the internet the first time) ----
+    const fewWords = p => p.textsOrig.filter(t => /[A-Za-z0-9]/.test(t.str)).length < 3;
+    // nothing printed on it at all (a PDF's empty last page)
+    function blankPage(p) {
+        if (p.blankChecked !== undefined) return p.blankChecked;
+        const c = p.source, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, step = 4 * 5;
+        let ink = 0, n = 0;
+        for (let i = 0; i < d.length; i += step) { n++; if (d[i] + d[i + 1] + d[i + 2] < 600) ink++; }
+        return (p.blankChecked = ink / n < 0.0005);
+    }
+    const isScannedPage = p => fewWords(p) && !blankPage(p);
+    let ocrLoading = null;
+    function loadTextReader() {
+        if (window.Tesseract) return Promise.resolve();
+        return ocrLoading || (ocrLoading = new Promise((ok, bad) => {
+            const sc = document.createElement('script');
+            sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+            sc.onload = ok;
+            sc.onerror = () => { ocrLoading = null; bad(new Error('the text reader could not be downloaded (no internet?)')); };
+            document.head.appendChild(sc);
+        }));
+    }
+    // The scanned pages' words, read from the page drawn at 300 dpi, put where the PDF's own words would be (for this copy only)
+    async function readScannedPages(pages) {
+        await loadTextReader();
+        const worker = await Tesseract.createWorker('eng', 1, {
+            logger: m => { if (m.status === 'recognizing text') showAlert('success', `Reading the scanned page with text recognition… ${Math.round(m.progress * 100)}%`); },
+        });
+        const done = [];
+        try {
+            for (const p of pages) {
+                showAlert('success', `Reading page ${p.num} with text recognition (the first time takes longer: the reader is downloaded)…`);
+                const page = await pdPdfDoc.getPage(p.num), vp1 = page.getViewport({ scale: 1 });
+                const vp = page.getViewport({ scale: 2480 / vp1.width });
+                const c = document.createElement('canvas');
+                c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+                await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                const { data } = await worker.recognize(c, {}, { blocks: true });
+                const W = c.width, H = c.height, ptPerPx = p.hPt / H, items = [];
+                const lines = (data.blocks || []).flatMap(b => b.paragraphs || []).flatMap(pa => pa.lines || []);
+                // a word's letter size from its own height: capitals / tall letters reach about 0.7 of it, small letters about
+                // 0.47, with a letter below the line about 0.92 (Times); a line's size is the middle of its words'
+                const sizeOfWord = w => {
+                    const t = w.text, h = w.bbox.y1 - w.bbox.y0, tall = /[A-Z0-9bdfhklt!?\/]/.test(t), low = /[gjpqy,;()\[\]]/.test(t);
+                    return h / (tall && low ? 0.92 : tall ? 0.7 : low ? 0.68 : 0.47);
+                };
+                const middle = list => { const v = [...list].sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : 0; };
+                lines.forEach(line => {
+                    const lh = line.bbox.y1 - line.bbox.y0;
+                    const lineSize = middle((line.words || []).filter(w => w.confidence >= 60 && w.text.length >= 2).map(sizeOfWord));
+                    // words on a line close together are one phrase (as a PDF stores them); a wide gap starts another
+                    let cur = null;
+                    // unsure bits of one or two letters are marks in a picture (a seal's letters), not words
+                    const real = w => w.confidence >= 35 && /[\p{L}\p{N}]/u.test(w.text)
+                        && !(w.text.replace(/[^\p{L}\p{N}]/gu, '').length <= 2 && w.confidence < 80 && !/^\(?\d+[.)]?$/.test(w.text));
+                    (line.words || []).filter(real).forEach(w => {
+                        const gap = cur ? w.bbox.x0 - cur.x1 : Infinity;
+                        if (cur && gap < lh * 0.6) { cur.str += ' ' + w.text; cur.x1 = w.bbox.x1; cur.y0 = Math.min(cur.y0, w.bbox.y0); cur.y1 = Math.max(cur.y1, w.bbox.y1); }
+                        else { if (cur) items.push(cur); cur = { str: w.text, x0: w.bbox.x0, x1: w.bbox.x1, y0: w.bbox.y0, y1: w.bbox.y1, bold: !!w.is_bold, line: lh, em: lineSize || sizeOfWord(w) }; }
+                    });
+                    if (cur) items.push(cur);
+                });
+                p.ocrKeep = p.textsOrig;
+                p.textsOrig = items.map(it => {
+                    // placed as a PDF's words are: its box as tall as its letters' size, its bottom on the words' bottom
+                    const em = it.em, h = em / H;
+                    return { str: it.str, x: it.x0 / W, y: (it.y1 - em * 0.95) / H, w: (it.x1 - it.x0) / W, h, size: Math.max(6, Math.min(40, Math.round(em * ptPerPx * 2) / 2)), font: 'Times', bold: it.bold, italic: false, ocr: true };
+                });
+                paintPage(p);
+                done.push(p);
+            }
+        } finally { await worker.terminate(); }
+        return done;
+    }
+
     // Copying the PDF in again keeps what the person added: each block of the document now (a line, a table, a picture)
     // that the fresh copy does not have goes into it after the block it came after. A block of the PDF that now holds one
     // of the form's questions keeps that question (the person's version of it is kept). Returns { html, kept }.
+    // A part copied from the PDF carries a fingerprint of its words (data-sl-copy): if they differ now, the person edited it
+    const docWords = el => (el.textContent || '').replace(/\[[^\]]*\]/g, '').replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
+    const docPrint = el => { let h = 5381; for (const ch of docWords(el)) h = ((h * 33) ^ ch.codePointAt(0)) >>> 0; return h.toString(36); };
+    function stampCopied(html) {
+        const body = docParse(html);
+        [...body.children].forEach(el => { if (!el.matches('.page-break, .mce-pagebreak')) el.setAttribute('data-sl-copy', docPrint(el)); });
+        return body.innerHTML;
+    }
     function keepAdditions(oldHtml, newHtml) {
         const was = docParse(oldHtml), made = docParse(newHtml);
         // its letters and numbers only (spacing between lines differs between the editor and a fresh copy; answer spots' names too)
@@ -4541,12 +4784,26 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         [...was.children].forEach(el => {
             const empty = !words(el) && !el.querySelector('img, table, .sl-field');
             if (empty || el.matches('.page-break, .mce-pagebreak')) return;
+            const stamp = el.getAttribute('data-sl-copy'), edited = !!stamp && stamp !== docPrint(el);
             const m = matchOf(el);
             if (m) {
                 used.add(m);
-                if (el.querySelector('.sl-field[data-qk]') && !m.querySelector('.sl-field[data-qk]')) { m.replaceWith(el.cloneNode(true)); anchor = null; kept++; return; }
+                // the person's version stays: they edited this copied part, or put one of the form's questions in it
+                if (edited || (el.querySelector('.sl-field[data-qk]') && !m.querySelector('.sl-field[data-qk]'))) {
+                    const mine = el.cloneNode(true);
+                    m.replaceWith(mine); anchor = mine; kept++; return;
+                }
                 anchor = m;
                 return;
+            }
+            // a copied part edited so much it no longer looks like any: it stands for the fresh part in its place
+            if (stamp) {
+                const next = anchor ? anchor.nextElementSibling : made.firstElementChild;
+                if (next && !used.has(next) && alike(docWords(el), docWords(next)) >= 0.4) {
+                    used.add(next);
+                    const mine = el.cloneNode(true);
+                    next.replaceWith(mine); anchor = mine; kept++; return;
+                }
             }
             // the person's: after the block it came after (or first)
             const copy = el.cloneNode(true);
@@ -4560,15 +4817,28 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
     async function convertPdfToDocument(ask = true) {
         // asked from the button, the document is copied again from the same PDF: what the person added is kept
         const merge = ask && !!fbDoc;
-        if (merge && !confirm('Copy the official PDF into the document again?\n\nThe parts copied from the PDF are copied fresh. What you added yourself (your own lines, questions, tables and pictures) is kept, in the same places.\n\nUndo in the editor or History can bring back the document as it is now.')) return;
+        if (merge && !confirm('Copy the official PDF into the document again?\n\nThe parts copied from the PDF are copied fresh. What you added yourself (your own lines, questions, tables and pictures) and the copied parts you changed are kept, in the same places.\n\nUndo in the editor or History can bring back the document as it is now.')) return;
         if (merge) readDocEditors();
         const before = merge ? { body: fbDoc.body, header: fbDoc.header, footer: fbDoc.footer } : null;
         showAlert('success', 'Reading the official PDF and copying it into the document…');
         if (!(await ensurePdfLoaded())) { showAlert('error', 'The official PDF could not be opened.'); return; }
+        // scanned pages: their words can be read by text recognition (or the page is copied as a picture)
+        const scans = pdPages.filter(isScannedPage);
+        let read = [];
+        if (scans.length && confirm(`Page${scans.length > 1 ? 's' : ''} ${scans.map(p => p.num).join(', ')} of this PDF ${scans.length > 1 ? 'are' : 'is'} a scanned picture, with no typed words.\n\nRead the words with text recognition, so they can be edited? The first time, the reader is downloaded (about 15 MB, needs internet); then it takes about half a minute a page. It can misread some words: check them after.\n\nCancel: the page is copied in as a picture instead.`)) {
+            try { read = await readScannedPages(scans); }
+            catch (err) { showAlert('error', 'Text recognition could not run: ' + err.message + '. The page is copied in as a picture.'); }
+        }
         pdRows = scanPdfRows();
         let made;
         try { made = await pdfToDocument(); }
         catch (err) { showAlert('error', 'Could not copy the PDF: ' + err.message); return; }
+        finally {
+            // the words read stay in this copy only (the PDF designer shows the scan as it is)
+            read.forEach(p => { p.textsOrig = p.ocrKeep; delete p.ocrKeep; paintPage(p); });
+            if (read.length) pdRows = scanPdfRows();
+        }
+        ['body', 'header', 'footer'].forEach(part => { made[part] = stampCopied(made[part]); });
         let kept = 0;
         if (before) ['body', 'header', 'footer'].forEach(part => { const r = keepAdditions(before[part], made[part]); made[part] = r.html; kept += r.kept; });
         fbDoc = made;
@@ -4579,8 +4849,9 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         renderFormMode();
         if (docEditors) { docEditors.header.setContent(fbDoc.header); docEditors.body.setContent(fbDoc.body); docEditors.footer.setContent(fbDoc.footer); setDocPaper(fbDoc.paper, false); setTimeout(paginateDoc, 600); }
         else await openDocEditor();
-        if (made.scanned && made.scanned.length) showAlert('error', `Page${made.scanned.length > 1 ? 's' : ''} ${made.scanned.join(', ')} of this PDF ${made.scanned.length > 1 ? 'are' : 'is'} a scanned picture (a photo of the paper), so there are no typed words for the system to read. ${made.scanned.length > 1 ? 'They were' : 'It was'} copied in as a picture: click the picture, choose Wrap text → Behind text, and type or use Insert answer over it. For a copy you can edit word by word, upload the original file (made in Word, not scanned).`);
-        else if (before) showAlert('success', `The official PDF was copied in again.${kept ? ` ${kept} thing${kept === 1 ? '' : 's'} you added ${kept === 1 ? 'was' : 'were'} kept in ${kept === 1 ? 'its place' : 'their places'}.` : ''} Check it, then Save form.`);
+        if (read.length && !(made.scanned && made.scanned.length)) showAlert('success', `Page${read.length > 1 ? 's' : ''} ${read.map(p => p.num).join(', ')} ${read.length > 1 ? 'were' : 'was'} read with text recognition and copied in. It can misread some words or miss some lines: check the document against the PDF, fix anything, then Save form.`);
+        else if (made.scanned && made.scanned.length) showAlert('error', `Page${made.scanned.length > 1 ? 's' : ''} ${made.scanned.join(', ')} of this PDF ${made.scanned.length > 1 ? 'are' : 'is'} a scanned picture (a photo of the paper), so there are no typed words for the system to read. ${made.scanned.length > 1 ? 'They were' : 'It was'} copied in as a picture: click the picture, choose Wrap text → Behind text, and type or use Insert answer over it. For a copy you can edit word by word, upload the original file (made in Word, not scanned).`);
+        else if (before) showAlert('success', `The official PDF was copied in again.${kept ? ` ${kept} of your own addition${kept === 1 ? '' : 's'} and change${kept === 1 ? '' : 's'} ${kept === 1 ? 'was' : 'were'} kept in place.` : ''} Check it, then Save form.`);
         else showAlert('success', 'The official PDF is now a Word-style document. It is a close copy: check it, edit anything like in Word, then Save form. Green tags are the PDF\'s blanks (they print what the PDF printed).');
     }
 
@@ -5070,8 +5341,10 @@ $default_template = defaultPdfTemplate($scholarship['Name']);
         let layout = null, headerMm = 0, footerMm = 0;
         const scanned = [];
         for (const p of pdPages) {
-            // a scanned page (a photo of the paper) has no typed words to read: it is copied in whole, as a picture
-            if (p.textsOrig.filter(t => /[A-Za-z0-9]/.test(t.str)).length < 3) {
+            // an empty page is left out; a scanned page (a photo of the paper) has no typed words to read: it is copied in
+            // whole, as a picture
+            if (fewWords(p) && blankPage(p) && !p.fieldsOrig.length) continue;
+            if (fewWords(p)) {
                 scanned.push(p.num);
                 const cut = await cutPicture(p.num, { x: 0, y: 0, w: 1, h: 1 });
                 const wpx = Math.round(mmW * 96 / 25.4), hpx = Math.floor(mmH * 0.995 * 96 / 25.4);   // a hair short, or it spills onto another page
