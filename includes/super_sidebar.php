@@ -26,6 +26,8 @@
                 ['manage_applications.php', '📂', 'Manage Applications'],
                 ['appeals.php',             '⚖️', 'Appeals'],
                 ['benefits.php',            '💳', 'Benefits'],
+                ['semester.php',            '📅', 'Semester'],
+                ['manage_renewals.php',     '🔄', 'Renewals'],
             ],
             'People' => [
                 ['users.php',               '👥', 'Users'],

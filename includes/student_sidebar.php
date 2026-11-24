@@ -63,6 +63,9 @@
         <a href="benefits.php" class="nav-link <?= getSidebarClass('benefits.php') ?>">
             <span class="icon-box">💳</span><span class="sidebar-text">Benefits</span>
         </a>
+        <a href="renewal.php" class="nav-link <?= getSidebarClass('renewal.php') ?>">
+            <span class="icon-box">🔄</span><span class="sidebar-text">Renewal</span>
+        </a>
         <?php sidebarGroupEnd(); sidebarGroup('My Account'); ?>
         <a href="profile.php" data-tour="nav-profile" class="nav-link <?= getSidebarClass('profile.php') ?>">
             <span class="icon-box">👤</span>

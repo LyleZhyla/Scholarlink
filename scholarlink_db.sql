@@ -18,16 +18,20 @@ DROP TABLE IF EXISTS `academic_terms`;
 CREATE TABLE `academic_terms` (
   `TermID` int(11) NOT NULL AUTO_INCREMENT,
   `TermName` varchar(100) NOT NULL,
+  `Semester` varchar(30) DEFAULT NULL,
+  `SchoolYear` varchar(20) DEFAULT NULL,
   `Status` enum('Active','Ended') NOT NULL DEFAULT 'Active',
   `StartDate` date NOT NULL,
   `EndDate` date DEFAULT NULL,
+  `RenewalDeadline` date DEFAULT NULL,
+  `StartedBy` int(11) DEFAULT NULL,
   PRIMARY KEY (`TermID`)
 ) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 LOCK TABLES `academic_terms` WRITE;
 /*!40000 ALTER TABLE `academic_terms` DISABLE KEYS */;
-INSERT INTO `academic_terms` VALUES (1,'2nd Semester AY 2026-2027','Ended','2026-08-25','2026-08-28'),(2,'1st Semester AY 2027-2028','Ended','2026-08-28','2026-08-28'),(3,'2nd Semester AY 2027-2028','Ended','2026-08-28','2026-08-28'),(4,'1st Semester AY 2025-2026','Ended','2026-08-28','2026-08-28'),(5,'2nd Semester AY 2025-2026','Ended','2026-08-28','2026-08-28'),(7,'1st Semester AY 2025-2026','Ended','2026-08-28','2026-08-28'),(8,'1st Semester AY 2026-2027','Ended','2026-08-28','2026-08-28'),(9,'1st Semester AY 2026-2027','Active','2026-08-28',NULL);
+INSERT INTO `academic_terms` VALUES (1,'2nd Semester AY 2026-2027',NULL,NULL,'Ended','2026-08-25','2026-08-28',NULL,NULL),(2,'1st Semester AY 2027-2028',NULL,NULL,'Ended','2026-08-28','2026-08-28',NULL,NULL),(3,'2nd Semester AY 2027-2028',NULL,NULL,'Ended','2026-08-28','2026-08-28',NULL,NULL),(4,'1st Semester AY 2025-2026',NULL,NULL,'Ended','2026-08-28','2026-08-28',NULL,NULL),(5,'2nd Semester AY 2025-2026',NULL,NULL,'Ended','2026-08-28','2026-08-28',NULL,NULL),(7,'1st Semester AY 2025-2026',NULL,NULL,'Ended','2026-08-28','2026-08-28',NULL,NULL),(8,'1st Semester AY 2026-2027',NULL,NULL,'Ended','2026-08-28','2026-08-28',NULL,NULL),(9,'1st Semester AY 2026-2027',NULL,NULL,'Active','2026-08-28',NULL,NULL,NULL);
 /*!40000 ALTER TABLE `academic_terms` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `ai_document_analyses`;
@@ -508,7 +512,7 @@ CREATE TABLE `disaster_recovery_settings` (
 
 LOCK TABLES `disaster_recovery_settings` WRITE;
 /*!40000 ALTER TABLE `disaster_recovery_settings` DISABLE KEYS */;
-INSERT INTO `disaster_recovery_settings` VALUES (1,1,24,24.00,4.00,NULL,30,NULL,NULL,'2026-11-23 14:24:19');
+INSERT INTO `disaster_recovery_settings` VALUES (1,1,24,24.00,4.00,NULL,30,NULL,NULL,'2026-11-24 05:13:57');
 /*!40000 ALTER TABLE `disaster_recovery_settings` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `document_requirement`;
@@ -781,7 +785,7 @@ CREATE TABLE `privacy_retention_policies` (
 
 LOCK TABLES `privacy_retention_policies` WRITE;
 /*!40000 ALTER TABLE `privacy_retention_policies` DISABLE KEYS */;
-INSERT INTO `privacy_retention_policies` VALUES (1,'applications','Withdrawn or closed applications',1825,'Final closure or withdrawal date','Anonymize','Scholarship administration, institutional records rules, and applicable sponsor requirements',1,NULL,'2026-11-23 14:24:19'),(2,'uploaded_documents','Uploaded application documents',1825,'Application final closure date','Secure Delete','Data minimization after the scholarship transaction and required verification period',1,NULL,'2026-11-23 14:24:19'),(3,'rejected_applicants','Rejected or disqualified applicants',730,'Final rejection/disqualification date after appeal period','Anonymize','Defend decisions during the appeal/complaint period, then minimize personal data',1,NULL,'2026-11-23 14:24:19'),(4,'scholar_records','Approved scholar and benefit records',3650,'End of scholarship or final benefit release','Review Only','Long-term institutional, sponsor, accounting, and government reporting obligations',1,NULL,'2026-11-23 14:24:19'),(5,'audit_logs','Security and activity audit logs',2555,'Activity date','Secure Delete','Security accountability, investigation, and institutional audit requirements',1,NULL,'2026-11-23 14:24:19'),(6,'backups','Database backup files',30,'Backup creation date','Secure Delete','Recovery window balanced with storage limitation and exposure risk',1,NULL,'2026-11-23 14:24:19');
+INSERT INTO `privacy_retention_policies` VALUES (1,'applications','Withdrawn or closed applications',1825,'Final closure or withdrawal date','Anonymize','Scholarship administration, institutional records rules, and applicable sponsor requirements',1,NULL,'2026-11-24 05:13:57'),(2,'uploaded_documents','Uploaded application documents',1825,'Application final closure date','Secure Delete','Data minimization after the scholarship transaction and required verification period',1,NULL,'2026-11-24 05:13:57'),(3,'rejected_applicants','Rejected or disqualified applicants',730,'Final rejection/disqualification date after appeal period','Anonymize','Defend decisions during the appeal/complaint period, then minimize personal data',1,NULL,'2026-11-24 05:13:57'),(4,'scholar_records','Approved scholar and benefit records',3650,'End of scholarship or final benefit release','Review Only','Long-term institutional, sponsor, accounting, and government reporting obligations',1,NULL,'2026-11-24 05:13:57'),(5,'audit_logs','Security and activity audit logs',2555,'Activity date','Secure Delete','Security accountability, investigation, and institutional audit requirements',1,NULL,'2026-11-24 05:13:57'),(6,'backups','Database backup files',30,'Backup creation date','Secure Delete','Recovery window balanced with storage limitation and exposure risk',1,NULL,'2026-11-24 05:13:57');
 /*!40000 ALTER TABLE `privacy_retention_policies` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `profile_change_requests`;
@@ -821,6 +825,50 @@ LOCK TABLES `program` WRITE;
 /*!40000 ALTER TABLE `program` DISABLE KEYS */;
 INSERT INTO `program` VALUES (1,'BS Agriculture'),(2,'Bachelor of Animal Science (BAS)'),(3,'BS Forestry'),(4,'BS Food Technology'),(5,'AB Economics'),(6,'BS Psychology'),(7,'BS Development Communication'),(8,'BS Business Administration'),(9,'BS Entrepreneurship'),(10,'BS Agribusiness'),(11,'BS Tourism Management'),(12,'Bachelor of Elementary Education (BEEd)'),(13,'Bachelor of Secondary Education (BSEd)'),(14,'Bachelor of Early Childhood Education (BECEd)'),(15,'Bachelor of Technology and Livelihood Education (BTLEd)'),(16,'BS Agricultural and Biosystems Engineering'),(17,'BS Geodetic Engineering'),(18,'BS Information Technology (BSIT)'),(19,'Doctor of Veterinary Medicine (DVM)');
 /*!40000 ALTER TABLE `program` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `renewal_requirements`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `renewal_requirements` (
+  `RequirementID` int(11) NOT NULL AUTO_INCREMENT,
+  `TermID` int(11) DEFAULT NULL,
+  `ScholarshipID` int(11) DEFAULT NULL,
+  `Name` varchar(150) NOT NULL,
+  `Description` varchar(500) DEFAULT NULL,
+  `IsActive` tinyint(1) NOT NULL DEFAULT 1,
+  `CreatedBy` int(11) DEFAULT NULL,
+  `CreatedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`RequirementID`),
+  KEY `idx_term` (`TermID`),
+  KEY `idx_scholarship` (`ScholarshipID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `renewal_requirements` WRITE;
+/*!40000 ALTER TABLE `renewal_requirements` DISABLE KEYS */;
+/*!40000 ALTER TABLE `renewal_requirements` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `renewal_submissions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `renewal_submissions` (
+  `SubmissionID` int(11) NOT NULL AUTO_INCREMENT,
+  `RenewalID` int(11) NOT NULL,
+  `RequirementID` int(11) NOT NULL,
+  `FilePath` varchar(255) NOT NULL,
+  `OriginalFileName` varchar(255) DEFAULT NULL,
+  `MimeType` varchar(100) DEFAULT NULL,
+  `FileSize` int(11) DEFAULT NULL,
+  `FileChecksum` char(64) DEFAULT NULL,
+  `UploadedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`SubmissionID`),
+  UNIQUE KEY `uniq_renewal_requirement` (`RenewalID`,`RequirementID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `renewal_submissions` WRITE;
+/*!40000 ALTER TABLE `renewal_submissions` DISABLE KEYS */;
+/*!40000 ALTER TABLE `renewal_submissions` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `restoration_drills`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -905,6 +953,25 @@ CREATE TABLE `scholar_renewals` (
 LOCK TABLES `scholar_renewals` WRITE;
 /*!40000 ALTER TABLE `scholar_renewals` DISABLE KEYS */;
 /*!40000 ALTER TABLE `scholar_renewals` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `scholar_term_benefits`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `scholar_term_benefits` (
+  `TermBenefitID` int(11) NOT NULL AUTO_INCREMENT,
+  `ApplicationID` int(11) NOT NULL,
+  `TermID` int(11) NOT NULL,
+  `Amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `AddedBy` int(11) DEFAULT NULL,
+  `AddedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`TermBenefitID`),
+  UNIQUE KEY `uniq_application_term` (`ApplicationID`,`TermID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `scholar_term_benefits` WRITE;
+/*!40000 ALTER TABLE `scholar_term_benefits` DISABLE KEYS */;
+/*!40000 ALTER TABLE `scholar_term_benefits` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `scholarship`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1271,6 +1338,53 @@ LOCK TABLES `security_rate_limits` WRITE;
 /*!40000 ALTER TABLE `security_rate_limits` DISABLE KEYS */;
 /*!40000 ALTER TABLE `security_rate_limits` ENABLE KEYS */;
 UNLOCK TABLES;
+DROP TABLE IF EXISTS `semester_emails`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `semester_emails` (
+  `EmailID` int(11) NOT NULL AUTO_INCREMENT,
+  `TermID` int(11) NOT NULL,
+  `RenewalID` int(11) NOT NULL,
+  `Status` enum('Queued','Sent','Failed','No Email') NOT NULL DEFAULT 'Queued',
+  `SentAt` datetime DEFAULT NULL,
+  PRIMARY KEY (`EmailID`),
+  UNIQUE KEY `uniq_term_renewal` (`TermID`,`RenewalID`),
+  KEY `idx_term_status` (`TermID`,`Status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `semester_emails` WRITE;
+/*!40000 ALTER TABLE `semester_emails` DISABLE KEYS */;
+/*!40000 ALTER TABLE `semester_emails` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `student_term_cor`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `student_term_cor` (
+  `CorID` int(11) NOT NULL AUTO_INCREMENT,
+  `UserID` int(11) NOT NULL,
+  `TermID` int(11) NOT NULL,
+  `FilePath` varchar(255) NOT NULL,
+  `OriginalFileName` varchar(255) DEFAULT NULL,
+  `MimeType` varchar(100) DEFAULT NULL,
+  `FileSize` int(11) DEFAULT NULL,
+  `FileChecksum` char(64) DEFAULT NULL,
+  `AIStatus` enum('Verified','Needs Review','Rejected') NOT NULL DEFAULT 'Needs Review',
+  `AIRemarks` text DEFAULT NULL,
+  `SemesterFound` varchar(120) DEFAULT NULL,
+  `UploadedAt` datetime NOT NULL DEFAULT current_timestamp(),
+  `ReviewedBy` int(11) DEFAULT NULL,
+  `ReviewedAt` datetime DEFAULT NULL,
+  PRIMARY KEY (`CorID`),
+  UNIQUE KEY `uniq_student_term` (`UserID`,`TermID`),
+  KEY `idx_term_status` (`TermID`,`AIStatus`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `student_term_cor` WRITE;
+/*!40000 ALTER TABLE `student_term_cor` DISABLE KEYS */;
+/*!40000 ALTER TABLE `student_term_cor` ENABLE KEYS */;
+UNLOCK TABLES;
 DROP TABLE IF EXISTS `submitted_document`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1500,7 +1614,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'superadmin','admin@tau.edu.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','System','Admin',NULL,NULL,'Super_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'IT Department',NULL,NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(2,'internal01','scholarships@tau.edu.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Office of','Student Affairs',NULL,NULL,'Internal_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'OSA',NULL,NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(3,'ched_eval','region3@ched.gov.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Regional','Evaluator',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'CHED Region III',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(17,'tarlac_lgu','lgu@tarlaccity.gov.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Tarlac City','LGU',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Tarlac City Government',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(18,'dost_ro3','region3@dost.gov.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','DOST','Region III',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Department of Science and Technology',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(19,'da_acef','acef@da.gov.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Dept. of','Agriculture',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'DA - ACEF',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(20,'philchema','hr@philchema.com','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Philchema','Inc.',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Philchema Inc.',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(21,'bounty_cares','foundation@bounty.com','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Bounty Cares','Foundation',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Bounty Cares Foundation Inc.',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(22,'ncaf_admin','info@ncaf.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Ninoy & Cory','Aquino Foundation',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Ninoy and Cory Aquino Foundation Inc.',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(23,'gep_reg3','reg3@gep.org.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Geodetic','Engineers',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Geodetic Engineers of the Phil.',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(24,'tau_alumni','alumni@tau.edu.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','TAU','Alumni Assoc',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'TAU Alumni and Friends',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(25,'tarlac_sponsors','sponsors@tarlac.ph','$2y$10$KVoxe7cJ0YaAwh.iVObobeYWuUPMcCfB8bwx8Q3gQPLJNBcy0NZ8.','Private','Benefactors',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Tarlac Private Foundations Coalition',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL);
+INSERT INTO `users` VALUES (1,'superadmin','admin@tau.edu.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','System','Admin',NULL,NULL,'Super_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'IT Department',NULL,NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(2,'internal01','scholarships@tau.edu.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Office of','Student Affairs',NULL,NULL,'Internal_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'OSA',NULL,NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(3,'ched_eval','region3@ched.gov.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Regional','Evaluator',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'CHED Region III',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(17,'tarlac_lgu','lgu@tarlaccity.gov.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Tarlac City','LGU',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Tarlac City Government',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(18,'dost_ro3','region3@dost.gov.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','DOST','Region III',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Department of Science and Technology',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(19,'da_acef','acef@da.gov.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Dept. of','Agriculture',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'DA - ACEF',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(20,'philchema','hr@philchema.com','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Philchema','Inc.',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Philchema Inc.',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(21,'bounty_cares','foundation@bounty.com','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Bounty Cares','Foundation',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Bounty Cares Foundation Inc.',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(22,'ncaf_admin','info@ncaf.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Ninoy & Cory','Aquino Foundation',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Ninoy and Cory Aquino Foundation Inc.',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(23,'gep_reg3','reg3@gep.org.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Geodetic','Engineers',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Geodetic Engineers of the Phil.',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(24,'tau_alumni','alumni@tau.edu.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','TAU','Alumni Assoc',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'TAU Alumni and Friends',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL),(25,'tarlac_sponsors','sponsors@tarlac.ph','$2y$10$50n1qGt1KZz0ZbLcMS9ENOOdOf2RMCSMpBpWzDmcQ/3fYBgbInBsW','Private','Benefactors',NULL,NULL,'External_Admin','Active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Tarlac Private Foundations Coalition',NULL,NULL,NULL,NULL,NULL,'Not Specified',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No','No',NULL,NULL,0,'Filipino',NULL,0,NULL,1,'Active',NULL,NULL,NULL,NULL);
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

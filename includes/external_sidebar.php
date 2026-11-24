@@ -28,6 +28,7 @@
                 ['manage_applications.php', '🗂️', 'Masterlist'],
                 ['appeals.php',             '⚖️', 'Appeals'],
                 ['benefits.php',            '💳', 'Benefits'],
+                ['renewal_requirements.php', '🔄', 'Renewal Requirements'],
             ],
         ];
 

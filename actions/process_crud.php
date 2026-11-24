@@ -39,7 +39,7 @@ $allowed_roles = [
     'logs'              => ['Super_Admin'],
     'security'          => ['Super_Admin'],
     'academic_terms'    => ['Internal_Admin'],
-    'renewals'          => ['Internal_Admin'],
+    'renewals'          => ['Internal_Admin', 'Super_Admin'],
     'applications'      => [
         'score'          => ['External_Admin', 'Super_Admin'],
         'update_status'  => $all_admins,
@@ -1711,9 +1711,10 @@ if (isset($_POST['module']) && $_POST['module'] === 'renewals') {
         $decision = $_POST['decision']; // 'Renewed', 'Appeal_Requested', or 'Dropped'
         $admin_notes = $_POST['admin_notes'] ?? '';
 
+        $renewals_page = ($_SESSION['role'] === 'Super_Admin' ? '../super_admin/' : '../internal_admin/') . 'manage_renewals.php';
         if (!in_array($decision, ['Renewed', 'Appeal_Requested', 'Dropped'], true)) {
             $_SESSION['error'] = "Invalid renewal decision.";
-            header("Location: ../internal_admin/manage_renewals.php");
+            header("Location: $renewals_page");
             exit();
         }
 
@@ -1726,13 +1727,18 @@ if (isset($_POST['module']) && $_POST['module'] === 'renewals') {
             ");
             $stmt->execute([$decision, $admin_notes, $renewal_id]);
 
-            // ✨ Starting a new term reverts scholars to 'Pending', so restore them once renewed
+            // ✨ Renewed: the scholar stays Approved (older semesters set them to Pending), and gets this semester's benefit
+            $benefit_added = null;
             if ($decision === 'Renewed') {
                 $pdo->prepare("
                     UPDATE application SET Status = 'Approved'
                     WHERE ApplicationID = (SELECT ApplicationID FROM scholar_renewals WHERE RenewalID = ?)
                 ")->execute([$renewal_id]);
+                require_once '../includes/semester.php';
+                $benefit_added = addSemesterBenefit($pdo, (int) $renewal_id, (int) $_SESSION['user_id']);
             }
+            logAudit($pdo, $_SESSION['user_id'], 'Renewal Decided', "Renewal #$renewal_id: " . str_replace('_', ' ', $decision));
+            $emailed = null;
 
             // 2. Kunin ang detalye ng estudyante para sa Email
             $user_stmt = $pdo->prepare("
@@ -1749,8 +1755,9 @@ if (isset($_POST['module']) && $_POST['module'] === 'renewals') {
             // 3. I-setup at I-send ang Email kung may nakuhang data
             if ($student && !empty($student['Email'])) {
                 $to = $student['Email'];
-                $scholarship_name = $student['ScholarshipName'];
-                $first_name = $student['FirstName'];
+                $scholarship_name = htmlspecialchars($student['ScholarshipName'], ENT_QUOTES, 'UTF-8');
+                $first_name = htmlspecialchars($student['FirstName'], ENT_QUOTES, 'UTF-8');
+                $admin_notes = nl2br(htmlspecialchars((string) $admin_notes, ENT_QUOTES, 'UTF-8'));
                 
                 // Dynamic content base sa admin decision
                 if ($decision === 'Renewed') {
@@ -1779,17 +1786,20 @@ if (isset($_POST['module']) && $_POST['module'] === 'renewals') {
                 </html>
                 ";
 
-                // Standard PHP Mail Headers
-                $headers = "MIME-Version: 1.0" . "\r\n";
-                $headers .= "Content-type:text/html;charset=UTF-8" . "\r\n";
-                $headers .= "From: ScholarLink OSSD <noreply@scholarlink-tau.edu.ph>" . "\r\n";
-
-                // I-send ang email (ginamitan ng @ para hindi mag-throw ng error kung walang SMTP ang localhost mo)
-                @mail($to, $subject, $html_message, $headers);
+                // Sent with ScholarLink's email settings (.env); a failure is reported, never claimed as sent
+                require_once '../includes/email_config.php';
+                $emailed = sendRenewalDecisionEmail($to, $first_name, $subject, $html_message);
             }
+            $notice = $pdo->prepare("INSERT INTO notifications (UserID, Title, Message, Type) SELECT UserID, ?, ?, ? FROM scholar_renewals WHERE RenewalID = ?");
+            $notice->execute(['Renewal: ' . str_replace('_', ' ', $decision),
+                $decision === 'Renewed' ? 'Your scholarship was renewed for this semester.' . ($benefit_added ? ' PHP ' . number_format($benefit_added, 2) . ' was added to your benefits.' : '')
+                    : ($decision === 'Appeal_Requested' ? 'The OSSD asks for a letter of appeal. Open Renewal to send it.' : 'Your scholarship was not renewed this semester. See Renewal for the reason.'),
+                $decision === 'Renewed' ? 'success' : 'warning', $renewal_id]);
 
-            $_SESSION['success'] = "Decision saved and email notification sent to {$student['FirstName']}!";
-            header("Location: ../internal_admin/manage_renewals.php");
+            $_SESSION['success'] = 'Decision saved.' . ($benefit_added ? ' ₱' . number_format($benefit_added, 2) . " for this semester was added to the scholar's benefits." : '')
+                . ($emailed === true ? " {$student['FirstName']} was emailed and notified in the portal."
+                    : ($emailed === false ? " {$student['FirstName']} was notified in the portal, but the email could not be sent (check the email settings)." : ' The scholar was notified in the portal.'));
+            header("Location: $renewals_page");
             exit();
 
         } catch (PDOException $e) {

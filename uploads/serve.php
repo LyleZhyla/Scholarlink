@@ -36,6 +36,8 @@ $lookups = [
     "SELECT ap.ApplicantID, a.ScholarshipID FROM appeal_documents d JOIN application_appeals ap ON ap.AppealID = d.AppealID JOIN application a ON a.ApplicationID = ap.ApplicationID WHERE d.FilePath IN (?, ?)",
     "SELECT a.UserID, a.ScholarshipID FROM benefit_releases r JOIN application a ON a.ApplicationID = r.ApplicationID WHERE r.AcknowledgementReceipt IN (?, ?)",
     "SELECT r.UserID, a.ScholarshipID FROM scholar_renewals r LEFT JOIN application a ON a.ApplicationID = r.ApplicationID WHERE ? IN (r.ROG_FilePath, r.COR_FilePath, r.Appeal_FilePath) OR ? IN (r.ROG_FilePath, r.COR_FilePath, r.Appeal_FilePath)",
+    "SELECT r.UserID, a.ScholarshipID FROM renewal_submissions x JOIN scholar_renewals r ON r.RenewalID = x.RenewalID JOIN application a ON a.ApplicationID = r.ApplicationID WHERE x.FilePath IN (?, ?)",
+    "SELECT UserID, NULL FROM student_term_cor WHERE FilePath IN (?, ?)",
     "SELECT UserID, NULL FROM user_vault WHERE FilePath IN (?, ?)",
     "SELECT UserID, NULL FROM users WHERE ProfilePicture IN (?, ?)",
 ];
@@ -70,6 +72,8 @@ if ($role === 'Super_Admin') {
     // Profile photos are not application/vault documents and remain available to staff directories.
     $allowed = true;
 }
+// Every student's COR for a semester is checked by the OSSD (whichever scholarship the student holds)
+if (!$allowed && $role === 'Internal_Admin' && str_starts_with($rel, 'semester_cor/')) $allowed = true;
 if (!$allowed) deny(403, 'You do not have access to this file.');
 
 // Serve it. Only documents and images display in the browser; anything else downloads as a file.

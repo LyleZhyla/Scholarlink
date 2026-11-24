@@ -190,6 +190,29 @@ function enforceSessionTimeout(PDO $pdo): void {
     if (($_SESSION['role'] ?? '') === 'Student' && $account && $account['GPA'] === null) {
         requireGradesFirst($script);
     }
+    // A new semester: every student uploads their COR for it before using ScholarLink (includes/semester.php)
+    if (($_SESSION['role'] ?? '') === 'Student' && $account) {
+        require_once __DIR__ . '/semester.php';
+        if (studentNeedsCor($pdo, (int) $_SESSION['user_id'])) requireSemesterCorFirst($script);
+    }
+}
+
+// Pages and actions a student can't use until student/semester_cor.php has their COR for the new semester
+const COR_WALL_OPEN = ['semester_cor', 'complete_grades'];
+const COR_WALL_ACTIONS = ['process_application', 'process_crud', 'upload_requirement', 'process_upload', 'process_renewal', 'process_program_shift', 'process_appeal', 'process_vault_link', 'process_profile', 'process_profile_request', 'process_chat'];
+
+function requireSemesterCorFirst(string $script): void {
+    $folder = basename(dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+    $walled = ($folder === 'student' && !in_array($script, COR_WALL_OPEN, true)) || ($folder === 'actions' && in_array($script, COR_WALL_ACTIONS, true));
+    if (!$walled) return;
+    $wants_json = stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false || ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest';
+    if ($wants_json || headers_sent()) {
+        if (!headers_sent()) { http_response_code(403); header('Content-Type: application/json'); }
+        echo json_encode(['success' => false, 'error' => 'Upload your Certificate of Registration for the new semester first.', 'redirect' => appBaseUrl() . '/student/semester_cor.php']);
+        exit();
+    }
+    header('Location: ' . appBaseUrl() . '/student/semester_cor.php');
+    exit();
 }
 
 // Pages and actions a student without a GWA can't use until student/complete_grades.php has read their ROG

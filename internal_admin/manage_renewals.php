@@ -6,14 +6,16 @@ header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Cache-Control: post-check=0, pre-check=0", false);
 header("Pragma: no-cache");
 
-if (!isset($_SESSION['logged_in']) || $_SESSION['role'] !== 'Internal_Admin') { 
+// The OSSD reviews renewals; the Super Admin can too (super_admin/manage_renewals.php opens this page)
+if (!isset($_SESSION['logged_in']) || !in_array($_SESSION['role'], ['Internal_Admin', 'Super_Admin'], true)) { 
     header("Location: ../admin_login.php"); 
     exit(); 
 }
 
 include '../includes/db_connect.php'; 
+require_once '../includes/semester.php';
 include '../includes/header.php'; 
-include '../includes/internal_sidebar.php'; 
+include $_SESSION['role'] === 'Super_Admin' ? '../includes/super_sidebar.php' : '../includes/internal_sidebar.php'; 
 
 // 1. KUNIN ANG MGA ACADEMIC TERMS AT SCHOLARSHIPS PARA SA FILTERS
 $terms = $pdo->query("SELECT * FROM academic_terms ORDER BY TermID DESC")->fetchAll(PDO::FETCH_ASSOC);
@@ -44,6 +46,22 @@ $history_query = "
     ORDER BY sr.AdminDecisionDate DESC, sr.DateSubmitted DESC
 ";
 $history_renewals = $pdo->query($history_query)->fetchAll(PDO::FETCH_ASSOC);
+
+// Each renewal's other requirements (the semester's and the scholarship's) and what the AI said of the COR
+$attach = function (array &$list) use ($pdo) {
+    if (!$list) return;
+    $ids = implode(',', array_map('intval', array_column($list, 'RenewalID')));
+    $files = [];
+    foreach ($pdo->query("SELECT x.RenewalID, x.FilePath, q.Name FROM renewal_submissions x JOIN renewal_requirements q ON q.RequirementID = x.RequirementID WHERE x.RenewalID IN ($ids) ORDER BY q.TermID IS NULL, q.RequirementID") as $f) $files[(int) $f['RenewalID']][] = ['Name' => $f['Name'], 'FilePath' => $f['FilePath']];
+    $cor = $pdo->prepare('SELECT AIStatus, AIRemarks FROM student_term_cor WHERE UserID = ? AND TermID = ?');
+    foreach ($list as &$r) {
+        $r['Extras'] = $files[(int) $r['RenewalID']] ?? [];
+        $cor->execute([$r['UserID'], $r['TermID']]);
+        $r['CorCheck'] = $cor->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+};
+$attach($active_renewals);
+$attach($history_renewals);
 ?>
 
 <style>
@@ -375,6 +393,10 @@ $history_renewals = $pdo->query($history_query)->fetchAll(PDO::FETCH_ASSOC);
         }
     }
 
+    // Text from the database put into the page's HTML is escaped (a name or a file path can hold anything)
+    const escHtml = v => String(v ?? '').replace(/[&<>"'`]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' })[c]);
+    const escJs = v => escHtml(JSON.stringify(String(v ?? '')));   // a value inside onclick="f(...)"
+
     // MODAL LOGIC (Supports both Action Mode and View-Only Mode)
     function openDecisionModal(data, isActionable) {
         document.getElementById('modRenewalId').value = data.RenewalID;
@@ -397,42 +419,61 @@ $history_renewals = $pdo->query($history_query)->fetchAll(PDO::FETCH_ASSOC);
         if (data.ROG_FilePath) {
             docsHTML += `
                 <div class="flex items-center gap-2 w-full p-2 bg-white border border-slate-200 rounded-xl hover:border-blue-400 transition-all group">
-                    <button type="button" onclick="openViewerModal('${data.ROG_FilePath}', 'Report of Grades')" class="flex items-center gap-3 flex-1 text-left px-2 py-2">
+                    <button type="button" onclick="openViewerModal(${escJs(data.ROG_FilePath)}, 'Report of Grades')" class="flex items-center gap-3 flex-1 text-left px-2 py-2">
                         <div class="w-10 h-10 bg-red-50 text-red-500 rounded-lg flex items-center justify-center text-lg shrink-0"><i class="fas fa-file-pdf"></i></div>
                         <div>
                             <p class="text-sm font-black text-slate-900 group-hover:text-blue-600">Report of Grades</p>
                             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Click to view file</p>
                         </div>
                     </button>
-                    <a href="${data.ROG_FilePath}" download="ROG_${data.LastName}.pdf" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 rounded-full hover:bg-slate-200 shrink-0 mr-2"><i class="fas fa-download"></i></a>
+                    <a href="${escHtml(data.ROG_FilePath)}" download="ROG_${escHtml(data.LastName)}.pdf" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 rounded-full hover:bg-slate-200 shrink-0 mr-2"><i class="fas fa-download"></i></a>
                 </div>`;
         }
         if (data.COR_FilePath) {
             docsHTML += `
                 <div class="flex items-center gap-2 w-full p-2 bg-white border border-slate-200 rounded-xl hover:border-blue-400 transition-all group">
-                    <button type="button" onclick="openViewerModal('${data.COR_FilePath}', 'Certificate of Registration')" class="flex items-center gap-3 flex-1 text-left px-2 py-2">
+                    <button type="button" onclick="openViewerModal(${escJs(data.COR_FilePath)}, 'Certificate of Registration')" class="flex items-center gap-3 flex-1 text-left px-2 py-2">
                         <div class="w-10 h-10 bg-purple-50 text-purple-500 rounded-lg flex items-center justify-center text-lg shrink-0"><i class="fas fa-image"></i></div>
                         <div>
                             <p class="text-sm font-black text-slate-900 group-hover:text-blue-600">Certificate of Registration</p>
                             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Click to view file</p>
                         </div>
                     </button>
-                    <a href="${data.COR_FilePath}" download="COR_${data.LastName}.pdf" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 rounded-full hover:bg-slate-200 shrink-0 mr-2"><i class="fas fa-download"></i></a>
+                    <a href="${escHtml(data.COR_FilePath)}" download="COR_${escHtml(data.LastName)}.pdf" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 rounded-full hover:bg-slate-200 shrink-0 mr-2"><i class="fas fa-download"></i></a>
                 </div>`;
         }
         if (data.Appeal_FilePath) {
             docsHTML += `
                 <div class="flex items-center gap-2 w-full p-2 bg-amber-50 border border-amber-200 rounded-xl hover:border-amber-400 transition-all group">
-                    <button type="button" onclick="openViewerModal('${data.Appeal_FilePath}', 'Letter of Appeal')" class="flex items-center gap-3 flex-1 text-left px-2 py-2">
+                    <button type="button" onclick="openViewerModal(${escJs(data.Appeal_FilePath)}, 'Letter of Appeal')" class="flex items-center gap-3 flex-1 text-left px-2 py-2">
                         <div class="w-10 h-10 bg-amber-100 text-amber-600 rounded-lg flex items-center justify-center text-lg shrink-0">⚠️</div>
                         <div>
                             <p class="text-sm font-black text-amber-900 group-hover:text-amber-700">Letter of Appeal</p>
                             <p class="text-[10px] font-bold text-amber-700 uppercase tracking-widest mt-0.5">Student's Explanation</p>
                         </div>
                     </button>
-                    <a href="${data.Appeal_FilePath}" download="Appeal_${data.LastName}.pdf" class="w-10 h-10 flex items-center justify-center bg-amber-200 text-amber-800 rounded-full hover:bg-amber-300 shrink-0 mr-2"><i class="fas fa-download text-sm"></i></a>
+                    <a href="${escHtml(data.Appeal_FilePath)}" download="Appeal_${escHtml(data.LastName)}.pdf" class="w-10 h-10 flex items-center justify-center bg-amber-200 text-amber-800 rounded-full hover:bg-amber-300 shrink-0 mr-2"><i class="fas fa-download text-sm"></i></a>
                 </div>`;
         }
+        // what the AI said of the COR (uploaded at the new-semester wall)
+        if (data.CorCheck) {
+            const ok = data.CorCheck.AIStatus === 'Verified';
+            docsHTML += `<p class="text-[11px] font-bold px-2 ${ok ? 'text-green-700' : 'text-amber-700'}">COR check: ${escHtml(data.CorCheck.AIStatus)}${data.CorCheck.AIRemarks ? ' · ' + escHtml(data.CorCheck.AIRemarks) : ''}</p>`;
+        }
+        // the semester's and the scholarship's other requirements
+        (data.Extras || []).forEach(x => {
+            docsHTML += `
+                <div class="flex items-center gap-2 w-full p-2 bg-white border border-slate-200 rounded-xl hover:border-blue-400 transition-all group">
+                    <button type="button" onclick="openViewerModal(${escJs(x.FilePath)}, ${escJs(x.Name)})" class="flex items-center gap-3 flex-1 text-left px-2 py-2">
+                        <div class="w-10 h-10 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center text-lg shrink-0"><i class="fas fa-file-lines"></i></div>
+                        <div>
+                            <p class="text-sm font-black text-slate-900 group-hover:text-blue-600">${escHtml(x.Name)}</p>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Renewal requirement · click to view</p>
+                        </div>
+                    </button>
+                    <a href="${escHtml(x.FilePath)}" download class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 rounded-full hover:bg-slate-200 shrink-0 mr-2"><i class="fas fa-download"></i></a>
+                </div>`;
+        });
         document.getElementById('modDocs').innerHTML = docsHTML;
 
         // Toggle Form vs History Info

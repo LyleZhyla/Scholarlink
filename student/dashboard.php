@@ -35,135 +35,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_mark_read'])) {
 $user_id = $_SESSION['user_id'];
 
 // =========================================================================================
-// ✨ STEP 1: RENEWAL WALL CHECKER
+// ✨ STEP 1: THIS SEMESTER'S RENEWAL (a reminder; nothing is blocked here)
 // =========================================================================================
-$show_renewal_wall = false;
-$renewal_status = '';
-$renewal_data = [];
+// ✨ SEMESTER RENEWAL: scholars see what is left to do this semester (student/renewal.php). The COR for a new semester
+// is asked of every student before this page opens (includes/security_settings.php → student/semester_cor.php).
+require_once '../includes/semester.php';
+$renewal_todo = [];
 $active_term_name = '';
-
 try {
-    $term_stmt = $pdo->query("SELECT * FROM academic_terms WHERE Status = 'Active' LIMIT 1");
-    $active_term = $term_stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($active_term) {
-        $active_term_name = $active_term['TermName'];
-        
-        $renewal_stmt = $pdo->prepare("SELECT * FROM scholar_renewals WHERE UserID = ? AND TermID = ?");
-        $renewal_stmt->execute([$user_id, $active_term['TermID']]);
-        $renewal_data = $renewal_stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($renewal_data) {
-            if ($renewal_data['Status'] !== 'Renewed') {
-                $show_renewal_wall = true;
-                $renewal_status = $renewal_data['Status'];
-            }
-        }
+    if ($active_term = activeTerm($pdo)) {
+        $active_term_name = termDisplayName($active_term);
+        $todo = $pdo->prepare("SELECT r.Status, s.Name FROM scholar_renewals r JOIN application a ON a.ApplicationID = r.ApplicationID JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID
+            WHERE r.UserID = ? AND r.TermID = ? AND r.Status IN ('Pending_Submission', 'Appeal_Requested')");
+        $todo->execute([$user_id, $active_term['TermID']]);
+        $renewal_todo = $todo->fetchAll(PDO::FETCH_ASSOC);
     }
 } catch (PDOException $e) {
     // Ignore error
 }
 
-include '../includes/header.php'; 
+include '../includes/header.php';
 
-// =========================================================================================
-// ✨ STEP 2: DISPLAY THE RE-CENTERED RESPONSIVE WALL
-// =========================================================================================
-if ($show_renewal_wall): 
-?>
-    <main class="min-h-screen w-full bg-slate-50 flex items-center justify-center fixed inset-0 z-[999999] p-4 sm:p-8">
-        
-        <div class="bg-white w-full max-w-xl md:max-w-2xl lg:max-w-3xl rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden p-6 sm:p-10 lg:p-12 text-center border border-slate-200">
-            
-            <?php if ($renewal_status === 'Pending_Submission'): ?>
-                <div class="w-16 h-16 sm:w-20 sm:h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-3xl sm:text-4xl mx-auto mb-4 sm:mb-6">📄</div>
-                <h2 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-2">Semester Renewal Required</h2>
-                <p class="text-sm sm:text-base text-slate-500 font-bold mb-6 sm:mb-8 px-2 sm:px-6">Welcome to <strong><?= htmlspecialchars($active_term_name) ?></strong>! To retain your scholarship, please upload your latest Report of Grades (ROG) and Certificate of Registration (COR).</p>
-                
-                <form action="../actions/process_renewal.php" method="POST" enctype="multipart/form-data" class="space-y-4 sm:space-y-6 text-left bg-slate-50 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-slate-100 relative">
-                    <input type="hidden" name="renewal_id" value="<?= $renewal_data['RenewalID'] ?>">
-                    
-                    <div>
-                        <label class="block text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Report of Grades (ROG) <span class="text-red-500">*</span></label>
-                        <input type="file" name="rog_file" accept=".pdf,.jpg,.jpeg,.png" required class="w-full bg-white border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm text-slate-700 outline-none file:mr-3 sm:file:mr-4 file:py-1.5 sm:file:py-2 file:px-3 sm:file:px-4 file:rounded-md sm:file:rounded-lg file:border-0 file:text-[10px] sm:file:text-xs file:font-black file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer">
-                        <p class="text-[9px] sm:text-[10px] text-slate-400 mt-1 font-bold">This will be automatically scanned by our AI to verify your GWA.</p>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Certificate of Registration (COR) <span class="text-red-500">*</span></label>
-                        <input type="file" name="cor_file" accept=".pdf,.jpg,.jpeg,.png" required class="w-full bg-white border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm text-slate-700 outline-none file:mr-3 sm:file:mr-4 file:py-1.5 sm:file:py-2 file:px-3 sm:file:px-4 file:rounded-md sm:file:rounded-lg file:border-0 file:text-[10px] sm:file:text-xs file:font-black file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all cursor-pointer">
-                    </div>
-
-                    <div class="pt-2 flex flex-col gap-3">
-                        <button type="submit" class="w-full bg-blue-600 text-white px-4 sm:px-6 py-3.5 sm:py-4 rounded-lg sm:rounded-xl font-black text-[11px] sm:text-[13px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg active:scale-95">
-                            Submit Requirements & Run AI Scan 🪄
-                        </button>
-                        <!-- ✨ EXIT BUTTON (RED & MOVED DOWN) -->
-                        <a href="../actions/process_logout.php" class="text-center text-[10px] sm:text-[11px] font-bold text-red-500 hover:text-red-700 uppercase tracking-widest transition-colors mt-4 block">
-                            Log out and return later
-                        </a>
-                    </div>
-                </form>
-
-            <?php elseif ($renewal_status === 'Under_Review'): ?>
-                <div class="w-16 h-16 sm:w-20 sm:h-20 bg-orange-50 text-orange-600 rounded-full flex items-center justify-center text-3xl sm:text-4xl mx-auto mb-4 sm:mb-6"><i class="fas fa-spinner fa-spin"></i></div>
-                <h2 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-2">Under Verification</h2>
-                <p class="text-sm sm:text-base text-slate-500 font-bold px-4 sm:px-10">Your documents are currently being scanned by our AI and evaluated by the OSSD. Please check back later.</p>
-                <a href="../actions/process_logout.php" class="mt-6 sm:mt-8 inline-block px-6 sm:px-8 py-2.5 sm:py-3 bg-slate-200 text-slate-700 rounded-lg sm:rounded-xl font-black uppercase tracking-widest text-[10px] sm:text-xs hover:bg-slate-300 transition-colors">Log Out</a>
-
-            <?php elseif ($renewal_status === 'Appeal_Requested'): ?>
-                <div class="w-16 h-16 sm:w-20 sm:h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center text-3xl sm:text-4xl mx-auto mb-4 sm:mb-6">⚠️</div>
-                <h2 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-2">Action Required: Letter of Appeal</h2>
-                <p class="text-xs sm:text-sm text-slate-600 font-bold mb-4 sm:mb-6 px-2 sm:px-8">Your extracted GWA did not meet the required threshold. The OSSD has requested a Letter of Appeal regarding your academic performance.</p>
-                
-                <?php if(!empty($renewal_data['AdminNotes'])): ?>
-                    <div class="p-3 sm:p-4 bg-red-50 border border-red-100 rounded-lg sm:rounded-xl text-left mb-4 sm:mb-6 shadow-inner">
-                        <span class="text-[9px] sm:text-[10px] font-black text-red-400 uppercase tracking-widest">Admin Note:</span>
-                        <p class="text-xs sm:text-sm font-bold text-red-900 mt-1 sm:mt-1.5">"<?= htmlspecialchars($renewal_data['AdminNotes']) ?>"</p>
-                    </div>
-                <?php endif; ?>
-
-                <form action="../actions/process_renewal.php" method="POST" enctype="multipart/form-data" class="space-y-4 sm:space-y-6 text-left bg-slate-50 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-slate-100">
-                    <input type="hidden" name="renewal_id" value="<?= $renewal_data['RenewalID'] ?>">
-                    <input type="hidden" name="is_appeal" value="1">
-                    
-                    <div>
-                        <label class="block text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1.5 sm:mb-2">Upload Letter of Appeal <span class="text-red-500">*</span></label>
-                        <input type="file" name="appeal_file" accept=".pdf,.jpg,.png" required class="w-full bg-white border border-slate-200 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm text-slate-700 outline-none file:mr-3 sm:file:mr-4 file:py-1.5 sm:file:py-2 file:px-3 sm:file:px-4 file:rounded-md sm:file:rounded-lg file:border-0 file:text-[10px] sm:file:text-xs file:font-black file:bg-red-50 file:text-red-700 hover:file:bg-red-100 transition-all cursor-pointer">
-                    </div>
-
-                    <div class="pt-2 flex flex-col gap-3">
-                        <button type="submit" class="w-full bg-slate-900 text-white px-4 sm:px-6 py-3.5 sm:py-4 rounded-lg sm:rounded-xl font-black text-[11px] sm:text-[13px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95 mt-2">
-                            Submit Appeal
-                        </button>
-                        <!-- ✨ EXIT BUTTON (RED & MOVED DOWN) -->
-                        <a href="../actions/process_logout.php" class="text-center text-[10px] sm:text-[11px] font-bold text-red-500 hover:text-red-700 uppercase tracking-widest transition-colors mt-4 block">
-                            Log out and return later
-                        </a>
-                    </div>
-                </form>
-
-            <?php elseif ($renewal_status === 'Dropped'): ?>
-                <div class="w-16 h-16 sm:w-20 sm:h-20 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center text-3xl sm:text-4xl mx-auto mb-4 sm:mb-6">❌</div>
-                <h2 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-2">Scholarship Dropped</h2>
-                <p class="text-sm sm:text-base text-slate-500 font-bold mb-4 px-4 sm:px-10">We regret to inform you that your scholarship has been dropped for this academic term.</p>
-                <?php if(!empty($renewal_data['AdminNotes'])): ?>
-                    <div class="p-3 sm:p-4 bg-slate-100 border border-slate-200 rounded-lg sm:rounded-xl mb-4 sm:mb-6 shadow-inner mx-4 sm:mx-10">
-                        <p class="text-xs sm:text-sm font-bold text-slate-700">"<?= htmlspecialchars($renewal_data['AdminNotes']) ?>"</p>
-                    </div>
-                <?php endif; ?>
-                <a href="../actions/process_logout.php" class="inline-block px-6 sm:px-8 py-2.5 sm:py-3 bg-slate-900 text-white rounded-lg sm:rounded-xl font-black uppercase tracking-widest text-[10px] sm:text-xs shadow-md hover:bg-slate-800 transition-colors">Log Out</a>
-            
-            <?php endif; ?>
-        </div>
-    </main>
-<?php 
-    exit(); 
-endif; 
-
-// =========================================================================================
-// NORMAL DASHBOARD CONTINUES HERE KUNG WALA SILANG RENEWAL NA NAKABINBIN
-// =========================================================================================
 include '../includes/student_sidebar.php'; 
 
 try {
@@ -272,6 +164,16 @@ function time_elapsed_string($datetime, $full = false) {
         </button>
         </div>
     </header>
+    <?php if ($renewal_todo): ?>
+    <a href="renewal.php" class="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 rounded-[1.5rem] border-2 border-amber-300 bg-amber-50 hover:bg-amber-100 transition-colors">
+        <span>
+            <span class="block text-xs font-black text-amber-700 uppercase tracking-widest"><?= htmlspecialchars($active_term_name) ?> · Renewal</span>
+            <span class="block text-lg font-black text-slate-900 mt-1"><?= count(array_filter($renewal_todo, fn($t) => $t['Status'] === 'Appeal_Requested')) ? 'The OSSD asked for a letter of appeal' : 'Submit your renewal requirements to keep your scholarship' ?></span>
+            <span class="block text-sm font-semibold text-slate-600"><?= htmlspecialchars(implode(', ', array_column($renewal_todo, 'Name'))) ?><?= !empty($active_term['RenewalDeadline']) ? ' · due ' . htmlspecialchars(date('F j, Y', strtotime($active_term['RenewalDeadline']))) : '' ?></span>
+        </span>
+        <span class="shrink-0 bg-slate-900 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest">Open renewal →</span>
+    </a>
+    <?php endif; ?>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-8 mb-8 lg:mb-12">
         <div class="bg-white p-6 lg:p-8 rounded-[2rem] border border-slate-200 shadow-sm hover:border-blue-400 transition-all group">

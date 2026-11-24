@@ -23,6 +23,8 @@
                 ['manage_applications.php', '📋', 'Masterlist'],
                 ['appeals.php',             '⚖️', 'Appeals'],
                 ['benefits.php',            '💳', 'Benefits'],
+                ['semester.php',            '📅', 'Semester'],
+                ['manage_renewals.php',     '🔄', 'Renewals'],
             ],
             'Communication' => [
                 ['messages.php',            '💬', 'Messages'],
