@@ -63,7 +63,10 @@ include '../includes/student_sidebar.php';
                         <p class="text-sm font-bold text-red-600 mt-1">Due <?= $e(date('F j, Y', strtotime($term['RenewalDeadline']))) ?></p>
                     <?php endif; ?>
                 </div>
-                <span class="self-start px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest <?= $cls ?>"><?= $e($label) ?></span>
+                <span class="self-start flex flex-col items-end gap-2">
+                    <span class="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest <?= $cls ?>"><?= $e($label) ?></span>
+                    <a target="_blank" href="../actions/renewal_notice_pdf.php?renewal_id=<?= (int) $r['RenewalID'] ?>" class="text-xs font-black text-blue-600 hover:underline"><i class="fas fa-file-pdf"></i> Renewal Notice</a>
+                </span>
             </div>
 
             <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 mb-5 flex flex-wrap items-center justify-between gap-3 text-sm">

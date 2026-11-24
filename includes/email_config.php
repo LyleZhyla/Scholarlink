@@ -344,27 +344,38 @@ function sendDeadlineReminderEmail($to_email, $first_name, $scholarship_name, $d
     }
 }
 
-// ✨ New semester: a scholar's renewal requirements (includes/semester.php sends these a few at a time)
-function sendSemesterRequirementsEmail($to_email, $first_name, $term_name, $scholarship_name, array $requirements, $deadline, $link) {
+// ✨ New semester: a scholar's renewal requirements, laid out like the Approval Notice email, with the Renewal Notice
+// PDF attached (includes/semester.php sends these a few at a time)
+// The renewal email's HTML (also used to preview it without sending)
+function semesterRenewalEmailHtml($first_name, $term_name, $scholarship_name, array $requirements, $deadline, $link) {
+        $e = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $items = '';
+        foreach ($requirements as $r) $items .= "<li style='margin: 6px 0;'>" . $e($r['Name']) . (!empty($r['Description']) ? "<br><span style='color: #64748b; font-size: 13px;'>" . $e($r['Description']) . '</span>' : '') . '</li>';
+        $due = $deadline ? "<p style='color: #475569; margin-bottom: 0;'>Last day of submission: <b>" . $e(date('l, F j, Y', strtotime($deadline))) . '</b></p>' : '';
+    return "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 24px; padding: 40px; text-align: center;'>
+                <h2 style='color: #16a34a; font-weight: 900;'>Time to renew, " . $e($first_name) . "! 📚</h2>
+                <p style='color: #475569; line-height: 1.6;'><b>" . $e($term_name) . "</b> has started. To keep your <b>" . $e($scholarship_name) . "</b> this semester, submit your renewal requirements. Your Renewal Notice is attached to this email.</p>
+                <div style='text-align: left; background: #f8fafc; border-radius: 16px; padding: 20px 24px; margin: 24px 0;'>
+                    <p style='font-weight: bold; color: #0f172a; margin-top: 0;'>Submit the following in ScholarLink:</p>
+                    <ol style='color: #334155; padding-left: 20px;'>$items</ol>
+                    $due
+                </div>
+                <p style='margin: 28px 0;'><a href='" . $e($link) . "' style='background: #16a34a; color: #ffffff; padding: 14px 28px; border-radius: 12px; text-decoration: none; font-weight: bold;'>Open my renewal</a></p>
+                <p style='color: #475569; line-height: 1.6;'>Your benefits for this semester are released once your renewal is approved.</p>
+                <p style='color: #94a3b8; font-size: 12px;'>You can also download your Renewal Notice anytime from Renewal in ScholarLink.</p>
+            </div>";
+}
+
+function sendSemesterRequirementsEmail($to_email, $first_name, $term_name, $scholarship_name, array $requirements, $deadline, $link, $pdf_bytes = null, $pdf_name = 'Renewal_Notice.pdf') {
     $mail = new PHPMailer(true);
     try {
-        configureMailer($mail, 'TAU ScholarLink');
+        configureMailer($mail, 'ScholarLink Admin');
         $mail->addAddress($to_email, $first_name);
+        if ($pdf_bytes) $mail->addStringAttachment($pdf_bytes, $pdf_name, PHPMailer::ENCODING_BASE64, 'application/pdf');
         $mail->isHTML(true);
-        $mail->Subject = "Action needed: renew your $scholarship_name for $term_name";
-        $e = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-        $items = implode('', array_map(fn($r) => "<li style='margin: 6px 0;'><b>{$e($r['Name'])}</b>" . (!empty($r['Description']) ? "<br><span style='color:#64748b;'>{$e($r['Description'])}</span>" : '') . '</li>', $requirements));
-        $due = $deadline ? "<p style='color:#b91c1c; font-weight:bold;'>Deadline: " . $e(date('F j, Y', strtotime($deadline))) . '</p>' : '';
-        $mail->Body = "
-            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 24px; padding: 40px;'>
-                <h2 style='color: #15803d; font-weight: 900;'>Hello, {$e($first_name)}!</h2>
-                <p style='color: #475569; line-height: 1.6;'><b>{$e($term_name)}</b> has started. To keep your <b>{$e($scholarship_name)}</b> this semester, first upload your Certificate of Registration (COR) when you sign in, then submit these renewal requirements:</p>
-                <ul style='color: #0f172a; line-height: 1.5; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 16px 16px 34px;'>$items</ul>
-                $due
-                <p style='text-align:center; margin: 28px 0;'><a href='{$e($link)}' style='background:#15803d; color:#fff; padding:14px 28px; border-radius:12px; text-decoration:none; font-weight:bold;'>Open my renewal</a></p>
-                <p style='color: #475569; line-height: 1.6;'>Your benefits for this semester are released once your renewal is approved.</p>
-                <p style='color: #475569; line-height: 1.6;'>Best regards,<br><b>Office of Student Services and Development</b></p>
-            </div>";
+        $mail->Subject = "Renew your $scholarship_name for $term_name – Your Renewal Notice";
+        $mail->Body = semesterRenewalEmailHtml($first_name, $term_name, $scholarship_name, $requirements, $deadline, $link);
         $mail->send();
         return true;
     } catch (Exception $e) {

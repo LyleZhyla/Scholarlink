@@ -102,6 +102,7 @@ const AUDIT_ACTIVITIES = [
     'get_application_docs' => 'Application Documents Viewed',
     'get_user_vault' => 'Student Vault Viewed',
     'award_notice_pdf' => 'Approval Notice Opened',
+    'renewal_notice_pdf' => 'Renewal Notice Opened',
     'ai_system_report' => 'AI System Report Generated',
 ];
 
@@ -182,7 +183,7 @@ function auditTrackRequest(PDO $pdo): void {
     // Every submission is an activity; a plain GET only when it is a download, export, login or logout
     if ($method !== 'POST' && $activity === null) return;
     if ($method !== 'POST' && !in_array($script, ['process_logout', 'google_callback', 'process_admin_action', 'audit_unlock'], true)
-        && !preg_match('/^(export|generate|get_|live_edit|ai_system|award_notice_pdf)/', $script)) return;
+        && !preg_match('/^(export|generate|get_|live_edit|ai_system|award_notice_pdf|renewal_notice_pdf)/', $script)) return;
     if ($script === 'audit_unlock' && $method !== 'POST' && !isset($_GET['lock'])) return;
     $started = true;
 

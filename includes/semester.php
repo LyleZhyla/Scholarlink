@@ -106,7 +106,7 @@ function sendSemesterEmails(PDO $pdo, int $term_id, int $limit = 8): array {
     $term = $term->fetch(PDO::FETCH_ASSOC);
     $sent = $failed = 0;
     if ($term) {
-        $next = $pdo->prepare("SELECT e.EmailID, r.RenewalID, u.Email, u.FirstName, a.ScholarshipID, s.Name AS ScholarshipName FROM semester_emails e
+        $next = $pdo->prepare("SELECT e.EmailID, r.RenewalID, u.Email, u.FirstName, u.LastName, a.ScholarshipID, s.Name AS ScholarshipName FROM semester_emails e
             JOIN scholar_renewals r ON r.RenewalID = e.RenewalID JOIN users u ON u.UserID = r.UserID
             JOIN application a ON a.ApplicationID = r.ApplicationID JOIN scholarship s ON s.ScholarshipID = a.ScholarshipID
             WHERE e.TermID = ? AND e.Status = 'Queued' ORDER BY e.EmailID LIMIT " . max(1, min(25, $limit)));
@@ -115,8 +115,10 @@ function sendSemesterEmails(PDO $pdo, int $term_id, int $limit = 8): array {
         $link = appPublicUrl() . '/student/renewal.php';
         foreach ($next->fetchAll(PDO::FETCH_ASSOC) as $row) {
             if (empty($row['Email'])) { $mark->execute(['No Email', $row['EmailID']]); continue; }
+            // the student's own Renewal Notice goes with it (the email is still sent if the PDF cannot be made)
+            try { $pdf = renewalNoticePdf($pdo, $term, $row); } catch (Throwable $err) { $pdf = null; error_log('Renewal notice PDF: ' . $err->getMessage()); }
             $ok = sendSemesterRequirementsEmail($row['Email'], $row['FirstName'], termDisplayName($term), $row['ScholarshipName'],
-                renewalRequirementsFor($pdo, $term_id, (int) $row['ScholarshipID']), $term['RenewalDeadline'], $link);
+                renewalNoticeItems($pdo, $term, $row), $term['RenewalDeadline'], $link, $pdf, renewalNoticeFileName($term, $row));
             $mark->execute([$ok ? 'Sent' : 'Failed', $row['EmailID']]);
             $ok ? $sent++ : $failed++;
         }
@@ -142,4 +144,60 @@ function addSemesterBenefit(PDO $pdo, int $renewal_id, int $admin_id): ?float {
         ->execute([$r['AwardAmount'], $r['ApplicationID']]);
     logAudit($pdo, $admin_id, 'Semester Benefit Added', 'Added ' . number_format((float) $r['AwardAmount'], 2) . " for {$r['TermName']} to application #{$r['ApplicationID']} (renewal approved).");
     return (float) $r['AwardAmount'];
+}
+
+// ✨ RENEWAL NOTICE: a scholar's semester renewal as a letter on the TAU letterhead (like the Approval Notice):
+// what to submit for this semester and by when. Attached to the new-semester email; downloadable from Renewal.
+// $r: a scholar_renewals row joined with the scholarship (ScholarshipID, ScholarshipName) and the student (FirstName, LastName)
+function renewalNoticeItems(PDO $pdo, array $term, array $r): array {
+    $items = [['Name' => 'Certificate of Registration (COR) for ' . termDisplayName($term), 'Description' => 'Uploaded when you sign in to ScholarLink; it is checked automatically.']];
+    foreach (renewalRequirementsFor($pdo, (int) $term['TermID'], (int) $r['ScholarshipID']) as $q) $items[] = $q;
+    return $items;
+}
+
+function renewalNoticePdf(PDO $pdo, array $term, array $r): string {
+    require_once __DIR__ . '/award_notice.php';   // the letterhead's PDF maker (dompdf)
+    $e = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+    $logo_path = __DIR__ . '/../assets/img/tau_logo.png';
+    $logo = is_file($logo_path) ? 'data:image/png;base64,' . base64_encode(file_get_contents($logo_path)) : '';
+    $term_html = preg_replace('/\b(\d+)(st|nd|rd|th)\b/i', '$1<sup>$2</sup>', $e(mb_strtoupper(termDisplayName($term))));
+    $deadline = !empty($term['RenewalDeadline']) ? date('l, F j, Y', strtotime($term['RenewalDeadline'])) : '';
+    $items = '';
+    foreach (renewalNoticeItems($pdo, $term, $r) as $q) $items .= '<li>' . $e($q['Name']) . (!empty($q['Description']) ? '<div class="note">' . $e($q['Description']) . '</div>' : '') . '</li>';
+    $name = trim(($r['FirstName'] ?? '') . ' ' . ($r['LastName'] ?? ''));
+    $html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+        @page { margin: 28px 40px 40px; }
+        body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #111; }
+        .band { background: #138a1f; border-bottom: 4px solid #d8d8d8; color: #fff; padding: 8px 14px; margin: 0 -40px 14px; }
+        .band table { width: 100%; border-collapse: collapse; } .band td { border: 0; padding: 0; vertical-align: middle; } .band img { height: 74px; }
+        .rp { font-size: 11pt; font-weight: bold; } .uni { font-size: 21pt; font-weight: bold; letter-spacing: .5px; } .loc { font-size: 10pt; }
+        .office { text-align: center; color: #12a83c; font-size: 15pt; font-weight: bold; margin-top: 6px; }
+        .unit { text-align: center; color: #12a83c; font-size: 11pt; margin-bottom: 16px; }
+        .title { text-align: center; font-weight: bold; font-size: 12pt; } .term { text-align: center; font-weight: bold; font-size: 11pt; }
+        .date { text-align: right; margin-top: 12px; } p { margin: 10px 0; line-height: 1.45; }
+        ol { margin: 6px 0 0 18px; padding-left: 22px; } ol li { margin: 6px 0; } .note { font-size: 9.5pt; color: #555; }
+        .box { border: 1px solid #a9d08e; background: #f3f8ef; padding: 10px 14px; margin-top: 14px; }
+        .foot { margin-top: 24px; font-size: 8pt; color: #666; font-family: Helvetica, Arial, sans-serif; }
+    </style></head><body>
+        <div class="band"><table><tr>' . ($logo ? '<td style="width: 84px;"><img src="' . $logo . '"></td>' : '') . '
+            <td><div class="rp">Republic of the Philippines</div><div class="uni">TARLAC AGRICULTURAL UNIVERSITY</div><div class="loc">Camiling, Tarlac</div></td></tr></table></div>
+        <div class="office">OFFICE OF STUDENT SERVICES AND DEVELOPMENT</div>
+        <div class="unit">FINANCIAL AND EDUCATIONAL ASSISTANCE SERVICES</div>
+        <div class="title">SEMESTER RENEWAL NOTICE</div>
+        <div class="term">' . $term_html . '</div>
+        <div class="date">' . $e(date('F j, Y')) . '</div>
+        <p>Dear <b>' . $e($name ?: 'Scholar') . '</b>,</p>
+        <p><b>' . $e(termDisplayName($term)) . '</b> has started. To keep your <b>' . $e($r['ScholarshipName'] ?? '') . '</b> this semester, submit the following in ScholarLink (open <b>Renewal</b> after you sign in):</p>
+        <ol>' . $items . '</ol>
+        ' . ($deadline ? '<p>Last day of submission of the requirements is <b>' . $e($deadline) . '</b>.</p>' : '') . '
+        <div class="box">Your benefits for this semester are released once your renewal is approved by the OSSD.</div>
+        <p style="margin-top: 22px;">Thank you, and keep up the good work.</p>
+        <p><b>Office of Student Services and Development</b><br>Tarlac Agricultural University</p>
+        <div class="foot">Generated by ScholarLink on ' . date('F j, Y g:i A') . ' · Personal copy for ' . $e($name) . '</div>
+    </body></html>';
+    return awardNoticeRenderPdf($html);
+}
+
+function renewalNoticeFileName(array $term, array $r): string {
+    return 'Renewal_Notice_' . trim(preg_replace('/[^A-Za-z0-9]+/', '_', termDisplayName($term)), '_') . '_' . trim(preg_replace('/[^A-Za-z0-9]+/', '_', $r['ScholarshipName'] ?? ''), '_') . '.pdf';
 }
